@@ -6,12 +6,13 @@
 #include <cstdio>
 #include <cassert>
 
-#include "alwaysAssert.hpp"
 #include "types.hpp"
+#include "error_utils.hpp"
 #include "vk_procs.hpp"
 #include "defer.hpp"
 #include "alloc_util.hpp"
 #include "log_stub.hpp"
+#include "error_utils.hpp"
 
 //
 // Global constants ==========================================================================================
@@ -73,7 +74,7 @@ void _assertGlfw(bool condition, const char* file, int line) {
     int err_code = glfwGetError(&err_description);
     if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
 
-    log::error(
+    logging::error(
         "Aborting due to GLFW error code %i, file `%s`, line %u, description `%s`",
         err_code, file, line, err_description
     );
@@ -89,7 +90,7 @@ void _abortIfGlfwError(const char* file, int line) {
     if (err_id == GLFW_NO_ERROR) return;
 
     if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
-    log::error(
+    logging::error(
         "Aborting due to GLFW error code %i, file `%s`, line %u, description `%s`",
         err_id, err_description, file, line
     );
@@ -102,18 +103,13 @@ void _assertVk(VkResult result, const char* file, int line) {
 
     if (result == VK_SUCCESS) return;
 
-    log::error(
+    logging::error(
         "VkResult is %i, file `%s`, line %u",
         result, file, line
     );
-}
-#define assertVk(result) _assertVk(result, __FILE__, __LINE__)
-
-
-void abortWithMessage(const char* msg) {
-    fputs(msg, stderr);
     abort();
 }
+#define assertVk(result) _assertVk(result, __FILE__, __LINE__)
 
 
 bool flagsSubset(VkQueueFlags subset, VkQueueFlags superset) {
@@ -162,7 +158,7 @@ void selectPhysicalDeviceAndQueueFamily(
 ) {
     VkPhysicalDevice current_best_device = VK_NULL_HANDLE;
     u8 current_best_device_priority = 0;
-    u32 current_best_device_queue_family;
+    u32 current_best_device_queue_family = INVALID_QUEUE_FAMILY_IDX;
 
     for (u32fast dev_idx = 0; dev_idx < device_count; dev_idx++) {
 
@@ -199,17 +195,19 @@ void selectPhysicalDeviceAndQueueFamily(
 
 
 void initGraphics(void) {
-    if (!glfwVulkanSupported()) abortWithMessage("Failed to find Vulkan; do you need to install drivers?");
+    if (!glfwVulkanSupported()) logging::error("Failed to find Vulkan; do you need to install drivers?");
     auto vkCreateInstance = (PFN_vkCreateInstance)glfwGetInstanceProcAddress(NULL, "vkCreateInstance");
+    alwaysAssert(vkCreateInstance != NULL);
 
     // Create instance ---------------------------------------------------------------------------------------
     {
         u32 extensions_required_by_glfw_count = 0;
         const char** extensions_required_by_glfw = glfwGetRequiredInstanceExtensions(&extensions_required_by_glfw_count);
+        assertGlfw(extensions_required_by_glfw != NULL);
 
         #ifndef NDEBUG
             const u32 instance_layer_count = 1;
-            const char* instance_layers[instance_layer_count] = {"VK_LAYER_KHRONOS_VALIDATION"};
+            const char* instance_layers[instance_layer_count] = {"VK_LAYER_KHRONOS_validation"};
         #else
             const u32 instance_layer_count = 0;
             const char* instance_layers[instance_layer_count] = {};
@@ -233,7 +231,7 @@ void initGraphics(void) {
         VkResult result = vkCreateInstance(&instance_info, NULL, &instance_);
         assertVk(result);
 
-        vk_inst_procs.init(instance_, vkGetInstanceProcAddr);
+        vk_inst_procs.init(instance_, (PFN_vkGetInstanceProcAddr)glfwGetInstanceProcAddress);
     }
 
     // Select physical device and queue families -------------------------------------------------------------
@@ -248,6 +246,12 @@ void initGraphics(void) {
 
         result = vk_inst_procs.enumeratePhysicalDevices(instance_, &physical_device_count, physical_devices);
         assertVk(result);
+
+        for (u32 i = 0; i < physical_device_count; i++) {
+            VkPhysicalDeviceProperties props;
+            vk_inst_procs.getPhysicalDeviceProperties(physical_devices[i], &props);
+            logging::info("Found physical device %u: `%s`", i, props.deviceName);
+        }
 
 
         // NOTE: The Vulkan spec doesn't guarantee that there is a single queue family that supports both
@@ -275,7 +279,7 @@ void initGraphics(void) {
         alwaysAssert(physical_device_ != VK_NULL_HANDLE);
 
         vk_inst_procs.getPhysicalDeviceProperties(physical_device_, &physical_device_properties_);
-        log::info("Selected physical device `%s`.", physical_device_properties_.deviceName);
+        logging::info("Selected physical device `%s`.", physical_device_properties_.deviceName);
     }
 
     // Create logical device and queues ----------------------------------------------------------------------
@@ -313,9 +317,15 @@ void initGraphics(void) {
 int main(void) {
 
     int success = glfwInit();
-    alwaysAssert(success);
+    assertGlfw(success);
 
-    glfwInitHint(GLFW_RESIZABLE, GLFW_FALSE); // TODO: enable once swapchain resizing is implemented
+    // TODO rename `initGraphics` to something like `initVulkanUptoQueueCreation` or something. Reason: we
+    // may may want to have window and swapchain creation in a separate procedure, in case we want to
+    // dynamically create multiple windows. Maybe pipeline creation should be separate too.
+    initGraphics();
+
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // TODO: enable once swapchain resizing is implemented
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // don't initialize OpenGL, because we're using Vulkan
     GLFWwindow* window = glfwCreateWindow(800, 600, "an game", NULL, NULL);
     assertGlfw(window != NULL);
 

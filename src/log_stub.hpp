@@ -3,7 +3,7 @@
 #ifndef _LOG_STUB_HPP
 #define _LOG_STUB_HPP
 
-namespace log {
+namespace logging {
     void info(const char* fmt, ...);
     void error(const char* fmt, ...);
 };

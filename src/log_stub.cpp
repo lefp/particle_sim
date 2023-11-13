@@ -3,7 +3,7 @@
 
 #include "log_stub.hpp"
 
-namespace log {
+namespace logging {
     void info(const char* fmt, ...) {
         va_list fmt_args;
         va_start(fmt_args, fmt);

@@ -1,7 +1,8 @@
 #!/bin/sh
 
-gcc \
+g++ \
   $(pkg-config --cflags glfw3) \
   $(pkg-config --static --libs glfw3) \
+  -g3 \
   -o test \
-  *.cpp
+  src/*.cpp
