@@ -18,7 +18,7 @@
 // Global constants ==========================================================================================
 //
 
-#define VULKAN_API_VERSION VK_VERSION_1_3
+#define VULKAN_API_VERSION VK_API_VERSION_1_3
 
 const char* APP_NAME = "an game";
 
