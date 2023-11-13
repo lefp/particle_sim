@@ -75,7 +75,7 @@ void _assertGlfw(bool condition, const char* file, int line) {
     if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
 
     logging::error(
-        "Aborting due to GLFW error code %i, file `%s`, line %u, description `%s`",
+        "Assertion failed! GLFW error code %i, file `%s`, line %u, description `%s`",
         err_code, file, line, err_description
     );
     abort();
@@ -197,7 +197,7 @@ void selectPhysicalDeviceAndQueueFamily(
 void initGraphics(void) {
     if (!glfwVulkanSupported()) logging::error("Failed to find Vulkan; do you need to install drivers?");
     auto vkCreateInstance = (PFN_vkCreateInstance)glfwGetInstanceProcAddress(NULL, "vkCreateInstance");
-    alwaysAssert(vkCreateInstance != NULL);
+    assertGlfw(vkCreateInstance != NULL);
 
     // Create instance ---------------------------------------------------------------------------------------
     {
