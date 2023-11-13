@@ -130,13 +130,15 @@ u32 firstSatisfactoryQueueFamily(
         VkQueueFamilyProperties fam_props = family_properties_list[fam_idx];
         if (!flagsSubset(requirements->required_queue_flags, fam_props.queueFlags)) continue;
 
-        if (!requirements->require_presentation_support) return fam_idx;
+        if (requirements->require_presentation_support) {
+            bool supports_present = glfwGetPhysicalDevicePresentationSupport(instance, device, fam_idx);
+            if (!supports_present) {
+                abortIfGlfwError(); // check if present support returned false due to an error
+                continue;
+            }
+        };
 
-        bool supports_present = glfwGetPhysicalDevicePresentationSupport(instance, device, fam_idx);
-        if (!supports_present) {
-            abortIfGlfwError(); // check if something went wrong
-            continue;
-        }
+        return fam_idx;
     }
 
     return INVALID_QUEUE_FAMILY_IDX;
@@ -181,7 +183,11 @@ void selectPhysicalDeviceAndQueueFamily(
         const u32 fam = firstSatisfactoryQueueFamily(
             instance, device, family_count, family_props_list, queue_family_requirements
         );
-        if (fam == INVALID_QUEUE_FAMILY_IDX) continue;
+        if (fam == INVALID_QUEUE_FAMILY_IDX) {
+            // TODO you shouldn't use %lu here because you don't know how large dev_idx is
+            logging::info("Physical device `%lu` has no satisfactory queue family.", dev_idx);
+            continue;
+        }
 
 
         current_best_device = device;
