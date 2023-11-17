@@ -15,6 +15,8 @@ struct VulkanInstanceProcs {
 };
 
 struct VulkanDeviceProcs {
+    PFN_vkGetDeviceQueue getDeviceQueue;
+
     void init(VkDevice, PFN_vkGetDeviceProcAddr);
 };
 

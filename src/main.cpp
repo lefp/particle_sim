@@ -1,17 +1,17 @@
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
 #include <cassert>
+
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+#include <loguru.hpp>
 
 #include "types.hpp"
 #include "error_utils.hpp"
 #include "vk_procs.hpp"
 #include "defer.hpp"
 #include "alloc_util.hpp"
-#include "log_stub.hpp"
 #include "error_utils.hpp"
 
 //
@@ -34,6 +34,7 @@ VkPhysicalDevice physical_device_;
 VkPhysicalDeviceProperties physical_device_properties_;
 u32 queue_family_;
 VkDevice device_;
+VkQueue queue_;
 
 //
 // ===========================================================================================================
@@ -74,11 +75,10 @@ void _assertGlfw(bool condition, const char* file, int line) {
     int err_code = glfwGetError(&err_description);
     if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
 
-    logging::error(
-        "Assertion failed! GLFW error code %i, file `%s`, line %u, description `%s`",
+    ABORT_F(
+        "Assertion failed! GLFW error code %i, file `%s`, line %i, description `%s`",
         err_code, file, line, err_description
     );
-    abort();
 };
 #define assertGlfw(condition) _assertGlfw(condition, __FILE__, __LINE__)
 
@@ -90,11 +90,10 @@ void _abortIfGlfwError(const char* file, int line) {
     if (err_id == GLFW_NO_ERROR) return;
 
     if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
-    logging::error(
-        "Aborting due to GLFW error code %i, file `%s`, line %u, description `%s`",
-        err_id, err_description, file, line
+    ABORT_F(
+        "Aborting due to GLFW error code %i, file `%s`, line %i, description `%s`",
+        err_id, file, line, err_description
     );
-    abort();
 };
 #define abortIfGlfwError() _abortIfGlfwError(__FILE__, __LINE__)
 
@@ -103,8 +102,8 @@ void _assertVk(VkResult result, const char* file, int line) {
 
     if (result == VK_SUCCESS) return;
 
-    logging::error(
-        "VkResult is %i, file `%s`, line %u",
+    LOG_F(
+        FATAL, "VkResult is %i, file `%s`, line %i",
         result, file, line
     );
     abort();
@@ -184,8 +183,7 @@ void selectPhysicalDeviceAndQueueFamily(
             instance, device, family_count, family_props_list, queue_family_requirements
         );
         if (fam == INVALID_QUEUE_FAMILY_IDX) {
-            // TODO you shouldn't use %lu here because you don't know how large dev_idx is
-            logging::info("Physical device `%lu` has no satisfactory queue family.", dev_idx);
+            LOG_F(INFO, "Physical device %lu has no satisfactory queue family.", dev_idx);
             continue;
         }
 
@@ -200,8 +198,8 @@ void selectPhysicalDeviceAndQueueFamily(
 }
 
 
-void initGraphics(void) {
-    if (!glfwVulkanSupported()) logging::error("Failed to find Vulkan; do you need to install drivers?");
+void initGraphicsUptoQueueCreation(void) {
+    if (!glfwVulkanSupported()) ABORT_F("Failed to find Vulkan; do you need to install drivers?");
     auto vkCreateInstance = (PFN_vkCreateInstance)glfwGetInstanceProcAddress(NULL, "vkCreateInstance");
     assertGlfw(vkCreateInstance != NULL);
 
@@ -246,7 +244,7 @@ void initGraphics(void) {
         VkResult result = vk_inst_procs.enumeratePhysicalDevices(instance_, &physical_device_count, NULL);
         assertVk(result);
 
-        if (physical_device_count == 0) abortWithMessage("Found no Vulkan devices.");
+        if (physical_device_count == 0) ABORT_F("Found no Vulkan devices.");
         VkPhysicalDevice* physical_devices = mallocArray<VkPhysicalDevice>(physical_device_count);
         defer(free(physical_devices));
 
@@ -256,7 +254,7 @@ void initGraphics(void) {
         for (u32 i = 0; i < physical_device_count; i++) {
             VkPhysicalDeviceProperties props;
             vk_inst_procs.getPhysicalDeviceProperties(physical_devices[i], &props);
-            logging::info("Found physical device %u: `%s`", i, props.deviceName);
+            LOG_F(INFO, "Found physical device %u: `%s`", i, props.deviceName);
         }
 
 
@@ -285,7 +283,7 @@ void initGraphics(void) {
         alwaysAssert(physical_device_ != VK_NULL_HANDLE);
 
         vk_inst_procs.getPhysicalDeviceProperties(physical_device_, &physical_device_properties_);
-        logging::info("Selected physical device `%s`.", physical_device_properties_.deviceName);
+        LOG_F(INFO, "Selected physical device `%s`.", physical_device_properties_.deviceName);
     }
 
     // Create logical device and queues ----------------------------------------------------------------------
@@ -316,11 +314,18 @@ void initGraphics(void) {
         assertVk(result);
 
         vk_dev_procs.init(device_, vk_inst_procs.getDeviceProcAddr);
+
+        // NOTE: Vk Spec 1.3.259:
+        //     vkGetDeviceQueue must only be used to get queues that were created with the `flags` parameter
+        //     of VkDeviceQueueCreateInfo set to zero.
+        vk_dev_procs.getDeviceQueue(device_, queue_family_, 0, &queue_);
     }
 }
 
 
-int main(void) {
+int main(int argc, char** argv) {
+
+    loguru::init(argc, argv);
 
     int success = glfwInit();
     assertGlfw(success);
@@ -328,7 +333,7 @@ int main(void) {
     // TODO rename `initGraphics` to something like `initVulkanUptoQueueCreation` or something. Reason: we
     // may may want to have window and swapchain creation in a separate procedure, in case we want to
     // dynamically create multiple windows. Maybe pipeline creation should be separate too.
-    initGraphics();
+    initGraphicsUptoQueueCreation();
 
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // TODO: enable once swapchain resizing is implemented
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // don't initialize OpenGL, because we're using Vulkan

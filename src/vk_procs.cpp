@@ -1,8 +1,8 @@
 #include <vulkan/vulkan.h>
+#include <loguru.hpp>
 
 #include "types.hpp"
 #include "vk_procs.hpp"
-#include "log_stub.hpp"
 #include "error_utils.hpp"
 
 //
@@ -16,6 +16,16 @@ VulkanDeviceProcs vk_dev_procs {};
 // ===========================================================================================================
 //
 
+template <typename StructOfPointers>
+static bool allPointersNonNull(const StructOfPointers* s) {
+
+    constexpr u32fast ptr_count = sizeof(StructOfPointers) / sizeof(void*);
+    const void** ptrs = (const void**)s;
+
+    for (u32fast i = 0; i < ptr_count; i++) if (ptrs[i] == NULL) return false;
+    return true;
+}
+
 void VulkanInstanceProcs::init(
     VkInstance instance,
     PFN_vkGetInstanceProcAddr getInstanceProcAddr
@@ -26,23 +36,14 @@ void VulkanInstanceProcs::init(
     this->getPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties");
     this->getPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)getInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
 
-    // verify that we've initialized all procedure pointers
-    constexpr u32fast proc_pointer_count = sizeof(VulkanInstanceProcs) / sizeof(void*);
-    const void** proc_pointers = (const void**)this;
-    bool all_ptrs_initialized = true;
-    for (u32fast i = 0; i < proc_pointer_count; i++) {
-        if (proc_pointers[i] == NULL) {
-            // TODO you're using %lu, but you don't know the sizeof u32fast. This is a bug.
-            logging::error("Procedure pointer at index %lu was not initialized.", i);
-            all_ptrs_initialized = false;
-        }
-    }
-    if (!all_ptrs_initialized) abortWithMessage("Some procedure pointers were not initialized.");
+    if (!allPointersNonNull(this)) ABORT_F("Some procedure pointers were not initialized.");
 }
 
 void VulkanDeviceProcs::init(
     VkDevice device,
     PFN_vkGetDeviceProcAddr getDeviceProcAddr
 ) {
-    // TODO
+    this->getDeviceQueue = (PFN_vkGetDeviceQueue)getDeviceProcAddr(device, "vkGetDeviceQueue");
+
+    if (!allPointersNonNull(this)) ABORT_F("Some procedure pointers were not initialized.");
 }
