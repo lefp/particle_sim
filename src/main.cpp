@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cassert>
+#include <cstring>
 
 #include <sys/stat.h>
 
@@ -22,6 +23,7 @@
 //
 
 #define VULKAN_API_VERSION VK_API_VERSION_1_3
+#define SWAPCHAIN_FORMAT VK_FORMAT_R8G8B8A8_SRGB
 
 const char* APP_NAME = "an game";
 
@@ -38,6 +40,10 @@ VkPhysicalDeviceProperties physical_device_properties_;
 u32 queue_family_;
 VkDevice device_;
 VkQueue queue_;
+
+struct {
+    VkPipeline temp_triangle_pipeline = VK_NULL_HANDLE;
+} pipelines_;
 
 //
 // ===========================================================================================================
@@ -334,19 +340,18 @@ void* readEntireFile(const char* fname, size_t* size_out) {
 
     FILE* file = fopen(fname, "r");
     if (file == NULL) {
-        LOG_F(ERROR, "Failed to open file `%s`; errno: `%i`", fname, errno);
+        LOG_F(ERROR, "Failed to open file `%s`; errno: `%i`, description: `%s`.", fname, errno, strerror(errno));
         return NULL;
     }
 
     int result = fseek(file, 0, SEEK_END);
     assertErrno(result == 0);
 
-    long pos = ftell(file);
-    assertErrno(pos >= 0);
-    long file_size = pos + 1;
+    long file_size = ftell(file);
+    assertErrno(file_size >= 0);
 
     result = fseek(file, 0, SEEK_SET);
-    assertErrno(result);
+    assertErrno(result == 0);
 
 
     void* buffer = malloc(file_size);
@@ -362,15 +367,6 @@ void* readEntireFile(const char* fname, size_t* size_out) {
     *size_out = file_size;
     return buffer;
 }
-
-
-// /// You own the returned buffer. You may free it using `free()`.
-// u32* readSpirvFile(const char* fname, size_t* byte_count_out) {
-
-//     void* bytes = readEntireFile(fname, byte_count_out);
-//     alwaysAssert(*byte_count_out % 4 == 0); // spirv is a stream of `u32`s.
-//     return (u32*)bytes;
-// }
 
 
 VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, VkDevice device) {
@@ -398,15 +394,15 @@ VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, VkDevice
 };
 
 
-VkPipeline createGraphicsPipeline(VkDevice device, VkRenderPass render_pass, u32 subpass) {
+VkPipeline createTrianglePipeline(VkDevice device, VkRenderPass render_pass, u32 subpass) {
 
-    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/temp_vertex_shader.spv", device);
+    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/temp.vert.spv", device);
     alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
-    defer(free(vertex_shader_module));
+    defer(vk_dev_procs.destroyShaderModule(device, vertex_shader_module, NULL));
 
-    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/temp_fragment_shader.spv", device);
+    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/temp.frag.spv", device);
     alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
-    defer(free(fragment_shader_module));
+    defer(vk_dev_procs.destroyShaderModule(device, fragment_shader_module, NULL));
 
     constexpr u32 shader_stage_info_count = 2;
     const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
@@ -584,9 +580,69 @@ int main(int argc, char** argv) {
     // may may want to have window and swapchain creation in a separate procedure, in case we want to
     // dynamically create multiple windows. Maybe pipeline creation should be separate too.
     initGraphicsUptoQueueCreation();
-    const VkRenderPass render_pass = ; // TODO
-    const u32 subpass = ; // TODO
-    createGraphicsPipeline(device_, render_pass, subpass);
+
+    {
+        constexpr u32 attachment_count = 1;
+        const VkAttachmentDescription attachment_descriptions[attachment_count] {
+            {
+                .format = SWAPCHAIN_FORMAT,
+                .samples = VK_SAMPLE_COUNT_1_BIT,
+                .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            }
+        };
+
+        constexpr u32 color_attachment_count = 1;
+        const VkAttachmentReference color_attachments[color_attachment_count] {
+            {
+                .attachment = 0,
+                .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            }
+        };
+
+        constexpr u32 subpass_count = 1;
+        const VkSubpassDescription subpass_descriptions[subpass_count] {
+            {
+                .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+                .inputAttachmentCount = 0,
+                .pInputAttachments = NULL,
+                .colorAttachmentCount = color_attachment_count,
+                .pColorAttachments = color_attachments,
+                .pResolveAttachments = NULL,
+                .pDepthStencilAttachment = NULL,
+                .preserveAttachmentCount = 0,
+                .pPreserveAttachments = NULL,
+            }
+        };
+
+        const VkRenderPassCreateInfo render_pass_info {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+            .attachmentCount = attachment_count,
+            .pAttachments = attachment_descriptions,
+            .subpassCount = subpass_count,
+            .pSubpasses = subpass_descriptions,
+            .dependencyCount = 0,
+            .pDependencies = NULL,
+        };
+
+        VkRenderPass render_pass = VK_NULL_HANDLE;
+        VkResult result = vk_dev_procs.createRenderPass(device_, &render_pass_info, NULL, &render_pass);
+        assertVk(result);
+
+        const u32 subpass = 0;
+        VkPipeline pipeline = createTrianglePipeline(device_, render_pass, subpass);
+        alwaysAssert(pipeline != VK_NULL_HANDLE);
+        pipelines_.temp_triangle_pipeline = pipeline;
+    }
+
+    // TODO remaining work:
+    // set up command buffers
+    // set up swapchain(s)
+    // vkCmdSetViewport, vkCmdSetScissor
 
 
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // TODO: enable once swapchain resizing is implemented

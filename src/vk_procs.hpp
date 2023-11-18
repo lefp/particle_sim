@@ -15,11 +15,12 @@ struct VulkanInstanceProcs {
 };
 
 struct VulkanDeviceProcs {
-    PFN_vkGetDeviceQueue getDeviceQueue;
+    PFN_vkCreateGraphicsPipelines createGraphicsPipelines;
+    PFN_vkCreatePipelineLayout createPipelineLayout;
+    PFN_vkCreateRenderPass createRenderPass;
     PFN_vkCreateShaderModule createShaderModule;
     PFN_vkDestroyShaderModule destroyShaderModule;
-    PFN_vkCreatePipelineLayout createPipelineLayout;
-    PFN_vkCreateGraphicsPipelines createGraphicsPipelines;
+    PFN_vkGetDeviceQueue getDeviceQueue;
 
     void init(VkDevice, PFN_vkGetDeviceProcAddr);
 };
