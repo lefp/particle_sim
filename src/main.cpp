@@ -1,7 +1,10 @@
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
 #include <cassert>
+
+#include <sys/stat.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -323,6 +326,252 @@ void initGraphicsUptoQueueCreation(void) {
 }
 
 
+/// You own the returned buffer. You may free it using `free()`.
+/// On error, either aborts or returns `NULL`.
+void* readEntireFile(const char* fname, size_t* size_out) {
+    // TODO: Maybe using `open()`, `fstat()`, and `read()` would be faster; because we don't need buffered
+    // input, and maybe using `fseek()` to get the file size is unnecessarily slow.
+
+    FILE* file = fopen(fname, "r");
+    if (file == NULL) {
+        LOG_F(ERROR, "Failed to open file `%s`; errno: `%i`", fname, errno);
+        return NULL;
+    }
+
+    int result = fseek(file, 0, SEEK_END);
+    assertErrno(result == 0);
+
+    long pos = ftell(file);
+    assertErrno(pos >= 0);
+    long file_size = pos + 1;
+
+    result = fseek(file, 0, SEEK_SET);
+    assertErrno(result);
+
+
+    void* buffer = malloc(file_size);
+    assertErrno(buffer != NULL);
+
+    size_t n_items_read = fread(buffer, file_size, 1, file);
+    alwaysAssert(n_items_read == 1);
+
+    result = fclose(file);
+    assertErrno(result == 0);
+
+
+    *size_out = file_size;
+    return buffer;
+}
+
+
+// /// You own the returned buffer. You may free it using `free()`.
+// u32* readSpirvFile(const char* fname, size_t* byte_count_out) {
+
+//     void* bytes = readEntireFile(fname, byte_count_out);
+//     alwaysAssert(*byte_count_out % 4 == 0); // spirv is a stream of `u32`s.
+//     return (u32*)bytes;
+// }
+
+
+VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, VkDevice device) {
+
+    size_t spirv_size_bytes = 0;
+    void* spirv_buffer = readEntireFile(spirv_fname, &spirv_size_bytes);
+
+    if (spirv_buffer == NULL) return VK_NULL_HANDLE;
+    defer(free(spirv_buffer));
+
+    alwaysAssert(spirv_size_bytes % 4 == 0); // spirv is a stream of `u32`s.
+
+
+    VkShaderModuleCreateInfo cinfo {
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = spirv_size_bytes,
+        .pCode = (u32*)spirv_buffer,
+    };
+
+    VkShaderModule shader_module = VK_NULL_HANDLE;
+    VkResult result = vk_dev_procs.createShaderModule(device, &cinfo, NULL, &shader_module);
+    assertVk(result);
+
+    return shader_module;
+};
+
+
+VkPipeline createGraphicsPipeline(VkDevice device, VkRenderPass render_pass, u32 subpass) {
+
+    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/temp_vertex_shader.spv", device);
+    alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
+    defer(free(vertex_shader_module));
+
+    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/temp_fragment_shader.spv", device);
+    alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
+    defer(free(fragment_shader_module));
+
+    constexpr u32 shader_stage_info_count = 2;
+    const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_VERTEX_BIT,
+            .module = vertex_shader_module,
+            .pName = "main",
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .module = fragment_shader_module,
+            .pName = "main",
+        },
+    };
+
+
+    const VkPipelineVertexInputStateCreateInfo vertex_input_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 0,
+        .pVertexBindingDescriptions = NULL,
+        .vertexAttributeDescriptionCount = 0,
+        .pVertexAttributeDescriptions = NULL,
+    };
+
+
+    const VkPipelineInputAssemblyStateCreateInfo input_assembly_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = VK_FALSE,
+    };
+
+
+    const VkPipelineViewportStateCreateInfo viewport_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .pViewports = NULL, // using dynamic viewport
+        .scissorCount = 1,
+        .pScissors = NULL, // using dynamic scissor
+    };
+
+
+    const VkPipelineRasterizationStateCreateInfo rasterization_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = VK_FALSE,
+        .rasterizerDiscardEnable = VK_FALSE,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = VK_CULL_MODE_NONE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .depthBiasEnable = VK_FALSE,
+        .depthBiasConstantFactor = 0.0,
+        .depthBiasClamp = 0.0,
+        .depthBiasSlopeFactor = 0.0,
+        .lineWidth = 1.0,
+    };
+
+
+    const VkPipelineMultisampleStateCreateInfo multisample_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable = VK_FALSE,
+        .minSampleShading = 0.0,
+        .pSampleMask = NULL,
+        .alphaToCoverageEnable = VK_FALSE,
+        .alphaToOneEnable = VK_FALSE,
+    };
+
+
+    const VkPipelineDepthStencilStateCreateInfo depth_stencil_state_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_FALSE,
+        .depthWriteEnable = VK_FALSE,
+        .depthCompareOp = VK_COMPARE_OP_NEVER,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable = VK_FALSE,
+        .front = {},
+        .back = {},
+        .minDepthBounds = 0.0,
+        .maxDepthBounds = 1.0,
+    };
+
+
+    const VkPipelineColorBlendAttachmentState color_blend_attachment_info {
+        .blendEnable = VK_FALSE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .colorBlendOp = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp = VK_BLEND_OP_ADD,
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+
+    const VkPipelineColorBlendStateCreateInfo color_blend_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .logicOp = VK_LOGIC_OP_CLEAR,
+        .attachmentCount = 1,
+        .pAttachments = &color_blend_attachment_info,
+        .blendConstants = {0.0, 0.0, 0.0, 0.0},
+    };
+
+
+    constexpr u32 dynamic_state_count = 2;
+    const VkDynamicState dynamic_states[dynamic_state_count] {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
+
+    const VkPipelineDynamicStateCreateInfo dynamic_state_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = dynamic_state_count,
+        .pDynamicStates = dynamic_states,
+    };
+
+
+    const VkPipelineLayoutCreateInfo pipeline_layout_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0,
+        .pSetLayouts = NULL,
+        .pushConstantRangeCount = 0,
+        .pPushConstantRanges = NULL,
+    };
+
+    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+    VkResult result = vk_dev_procs.createPipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
+    assertVk(result);
+
+
+    const VkGraphicsPipelineCreateInfo pipeline_info {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = shader_stage_info_count,
+        .pStages = shader_stage_infos,
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly_info,
+        .pTessellationState = NULL,
+        .pViewportState = &viewport_info,
+        .pRasterizationState = &rasterization_info,
+        .pMultisampleState = &multisample_info,
+        .pDepthStencilState = &depth_stencil_state_info,
+        .pColorBlendState = &color_blend_info,
+        .pDynamicState = &dynamic_state_info,
+        .layout = pipeline_layout,
+        .renderPass = render_pass,
+        .subpass = subpass,
+        .basePipelineHandle = VK_NULL_HANDLE,
+        .basePipelineIndex = -1,
+    };
+
+    VkPipeline graphics_pipeline = VK_NULL_HANDLE;
+    result = vk_dev_procs.createGraphicsPipelines(
+        device,
+        VK_NULL_HANDLE, // pipelineCache
+        1, // createInfoCount
+        &pipeline_info,
+        NULL, // allocationCallbacks
+        &graphics_pipeline
+    );
+    assertVk(result);
+
+    return graphics_pipeline;
+}
+
+
 int main(int argc, char** argv) {
 
     loguru::init(argc, argv);
@@ -330,10 +579,15 @@ int main(int argc, char** argv) {
     int success = glfwInit();
     assertGlfw(success);
 
+
     // TODO rename `initGraphics` to something like `initVulkanUptoQueueCreation` or something. Reason: we
     // may may want to have window and swapchain creation in a separate procedure, in case we want to
     // dynamically create multiple windows. Maybe pipeline creation should be separate too.
     initGraphicsUptoQueueCreation();
+    const VkRenderPass render_pass = ; // TODO
+    const u32 subpass = ; // TODO
+    createGraphicsPipeline(device_, render_pass, subpass);
+
 
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // TODO: enable once swapchain resizing is implemented
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // don't initialize OpenGL, because we're using Vulkan
