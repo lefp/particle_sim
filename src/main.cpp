@@ -648,6 +648,7 @@ int main(int argc, char** argv) {
     // TODO remaining work:
     // set up command buffers
     // set up swapchain(s)
+    // set up image views and framebuffers
     // vkCmdSetViewport, vkCmdSetScissor
 
 
