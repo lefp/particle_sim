@@ -394,6 +394,62 @@ VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, VkDevice
 };
 
 
+VkRenderPass createSimpleRenderPass(VkDevice device) {
+    constexpr u32 attachment_count = 1;
+    const VkAttachmentDescription attachment_descriptions[attachment_count] {
+        {
+            .format = SWAPCHAIN_FORMAT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        }
+    };
+
+    constexpr u32 color_attachment_count = 1;
+    const VkAttachmentReference color_attachments[color_attachment_count] {
+        {
+            .attachment = 0,
+            .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        }
+    };
+
+    constexpr u32 subpass_count = 1;
+    const VkSubpassDescription subpass_descriptions[subpass_count] {
+        {
+            .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+            .inputAttachmentCount = 0,
+            .pInputAttachments = NULL,
+            .colorAttachmentCount = color_attachment_count,
+            .pColorAttachments = color_attachments,
+            .pResolveAttachments = NULL,
+            .pDepthStencilAttachment = NULL,
+            .preserveAttachmentCount = 0,
+            .pPreserveAttachments = NULL,
+        }
+    };
+
+    const VkRenderPassCreateInfo render_pass_info {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = attachment_count,
+        .pAttachments = attachment_descriptions,
+        .subpassCount = subpass_count,
+        .pSubpasses = subpass_descriptions,
+        .dependencyCount = 0,
+        .pDependencies = NULL,
+    };
+
+    VkRenderPass render_pass = VK_NULL_HANDLE;
+    VkResult result = vk_dev_procs.createRenderPass(device, &render_pass_info, NULL, &render_pass);
+    assertVk(result);
+
+    return render_pass;
+}
+
+
 VkPipeline createTrianglePipeline(VkDevice device, VkRenderPass render_pass, u32 subpass) {
 
     VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/temp.vert.spv", device);
@@ -581,63 +637,13 @@ int main(int argc, char** argv) {
     // dynamically create multiple windows. Maybe pipeline creation should be separate too.
     initGraphicsUptoQueueCreation();
 
-    {
-        constexpr u32 attachment_count = 1;
-        const VkAttachmentDescription attachment_descriptions[attachment_count] {
-            {
-                .format = SWAPCHAIN_FORMAT,
-                .samples = VK_SAMPLE_COUNT_1_BIT,
-                .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-                .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-                .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            }
-        };
+    VkRenderPass render_pass = createSimpleRenderPass(device_);
+    alwaysAssert(render_pass != VK_NULL_HANDLE);
 
-        constexpr u32 color_attachment_count = 1;
-        const VkAttachmentReference color_attachments[color_attachment_count] {
-            {
-                .attachment = 0,
-                .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            }
-        };
-
-        constexpr u32 subpass_count = 1;
-        const VkSubpassDescription subpass_descriptions[subpass_count] {
-            {
-                .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-                .inputAttachmentCount = 0,
-                .pInputAttachments = NULL,
-                .colorAttachmentCount = color_attachment_count,
-                .pColorAttachments = color_attachments,
-                .pResolveAttachments = NULL,
-                .pDepthStencilAttachment = NULL,
-                .preserveAttachmentCount = 0,
-                .pPreserveAttachments = NULL,
-            }
-        };
-
-        const VkRenderPassCreateInfo render_pass_info {
-            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-            .attachmentCount = attachment_count,
-            .pAttachments = attachment_descriptions,
-            .subpassCount = subpass_count,
-            .pSubpasses = subpass_descriptions,
-            .dependencyCount = 0,
-            .pDependencies = NULL,
-        };
-
-        VkRenderPass render_pass = VK_NULL_HANDLE;
-        VkResult result = vk_dev_procs.createRenderPass(device_, &render_pass_info, NULL, &render_pass);
-        assertVk(result);
-
-        const u32 subpass = 0;
-        VkPipeline pipeline = createTrianglePipeline(device_, render_pass, subpass);
-        alwaysAssert(pipeline != VK_NULL_HANDLE);
-        pipelines_.temp_triangle_pipeline = pipeline;
-    }
+    const u32 subpass = 0;
+    VkPipeline pipeline = createTrianglePipeline(device_, render_pass, subpass);
+    alwaysAssert(pipeline != VK_NULL_HANDLE);
+    pipelines_.temp_triangle_pipeline = pipeline;
 
     // TODO remaining work:
     // set up command buffers
