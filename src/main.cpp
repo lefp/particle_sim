@@ -23,7 +23,7 @@
 //
 
 #define VULKAN_API_VERSION VK_API_VERSION_1_3
-#define SWAPCHAIN_FORMAT VK_FORMAT_R8G8B8A8_SRGB
+#define SWAPCHAIN_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define SWAPCHAIN_COLOR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
 
 const char* APP_NAME = "an game";
@@ -833,6 +833,33 @@ bool createFramebuffersForSwapchain(
 }
 
 
+/// Returns a 16:9 subregion centered in an image, which maximizes the subregion's area.
+VkRect2D centeredSubregion_16x9(VkExtent2D image_extent) {
+
+    const bool limiting_dim_is_x = image_extent.width * 9 <= image_extent.height * 16;
+
+    VkOffset2D offset {};
+    VkExtent2D extent {};
+    if (limiting_dim_is_x) {
+        extent.width = image_extent.width;
+        extent.height = image_extent.width * 9 / 16;
+        offset.x = 0;
+        offset.y = (image_extent.height - extent.height) / 2;
+    }
+    else {
+        extent.height = image_extent.height;
+        extent.width = image_extent.height * 16 / 9;
+        offset.y = 0;
+        offset.x = (image_extent.width - extent.width) / 2;
+    }
+
+    return VkRect2D {
+        .offset = offset,
+        .extent = extent,
+    };
+}
+
+
 int main(int argc, char** argv) {
 
     loguru::init(argc, argv);
@@ -857,8 +884,7 @@ int main(int argc, char** argv) {
     pipelines_.temp_triangle_pipeline = pipeline;
 
     // TODO remaining work:
-    // set up command buffers
-    // vkCmdSetViewport, vkCmdSetScissor
+    // pre-record the command buffer; re-record it when swapchain resizes
 
 
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // TODO: enable once swapchain resizing is implemented
@@ -882,6 +908,8 @@ int main(int argc, char** argv) {
         &swapchain_extent
     );
     alwaysAssert(swapchain != VK_NULL_HANDLE);
+
+    VkRect2D swapchain_roi = centeredSubregion_16x9(swapchain_extent);
 
 
     VkImage swapchain_images[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
@@ -908,8 +936,139 @@ int main(int argc, char** argv) {
     alwaysAssert(success);
 
 
+    const VkCommandPoolCreateInfo command_pool_info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, // TODO reconsider whether you need this
+        .queueFamilyIndex = queue_family_,
+    };
+
+    VkCommandPool command_pool = VK_NULL_HANDLE;
+    result = vk_dev_procs.createCommandPool(device_, &command_pool_info, NULL, &command_pool);
+    assertVk(result);
+
+    VkCommandBufferAllocateInfo command_buffer_alloc_info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+
+    VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+    result = vk_dev_procs.allocateCommandBuffers(device_, &command_buffer_alloc_info, &command_buffer);
+    assertVk(result);
+
+
+    VkSemaphoreCreateInfo semaphore_info {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    };
+
+    VkSemaphore swapchain_image_acquired_semaphore = VK_NULL_HANDLE;
+    result = vk_dev_procs.createSemaphore(device_, &semaphore_info, NULL, &swapchain_image_acquired_semaphore);
+    assertVk(result);
+
+    VkSemaphore render_finished_semaphore = VK_NULL_HANDLE;
+    result = vk_dev_procs.createSemaphore(device_, &semaphore_info, NULL, &render_finished_semaphore);
+    assertVk(result);
+
+    VkFenceCreateInfo fence_info {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+    };
+
+    VkFence command_buffer_pending_fence = VK_NULL_HANDLE;
+    result = vk_dev_procs.createFence(device_, &fence_info, NULL, &command_buffer_pending_fence);
+    assertVk(result);
+
+
     glfwPollEvents();
     while (!glfwWindowShouldClose(window)) {
+
+        u32 acquired_swapchain_image_index = UINT32_MAX;
+        result = vk_dev_procs.acquireNextImageKHR(
+            device_, swapchain, UINT64_MAX, swapchain_image_acquired_semaphore, VK_NULL_HANDLE,
+            &acquired_swapchain_image_index
+        );
+        // TODO check for Suboptimal and OutOfDate and rebuild swapchain if needed.
+        // Make sure to update the extent too.
+        assertVk(result);
+
+
+        result = vk_dev_procs.waitForFences(device_, 1, &command_buffer_pending_fence, VK_TRUE, UINT64_MAX);
+        assertVk(result);
+        result = vk_dev_procs.resetFences(device_, 1, &command_buffer_pending_fence);
+        assertVk(result);
+
+
+        result = vk_dev_procs.resetCommandBuffer(command_buffer, 0);
+        assertVk(result);
+
+        VkCommandBufferBeginInfo begin_info {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        };
+        result = vk_dev_procs.beginCommandBuffer(command_buffer, &begin_info);
+        assertVk(result);
+        {
+            VkClearValue clear_value { .color = VkClearColorValue { .float32 = {1, 0, 0, 1} } };
+            VkRenderPassBeginInfo render_pass_begin_info {
+                .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                .renderPass = render_pass,
+                .framebuffer = simple_render_pass_swapchain_framebuffers[acquired_swapchain_image_index],
+                .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
+                .clearValueCount = 1,
+                .pClearValues = &clear_value,
+            };
+            vk_dev_procs.cmdBeginRenderPass(
+                command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE
+            );
+
+            vk_dev_procs.cmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+            const VkViewport viewport {
+                .x = (f32)swapchain_roi.offset.x,
+                .y = (f32)swapchain_roi.offset.y,
+                .width = (f32)swapchain_roi.extent.width,
+                .height = (f32)swapchain_roi.extent.height,
+                .minDepth = 0,
+                .maxDepth = 1,
+            };
+            vk_dev_procs.cmdSetViewport(command_buffer, 0, 1, &viewport);
+            vk_dev_procs.cmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
+
+            vk_dev_procs.cmdDraw(command_buffer, 3, 1, 0, 0);
+
+            vk_dev_procs.cmdEndRenderPass(command_buffer);
+        }
+        result = vk_dev_procs.endCommandBuffer(command_buffer);
+        assertVk(result);
+
+        const VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        const VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &swapchain_image_acquired_semaphore,
+            .pWaitDstStageMask = &wait_dst_stage_mask,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &command_buffer,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &render_finished_semaphore,
+        };
+        result = vk_dev_procs.queueSubmit(queue_, 1, &submit_info, command_buffer_pending_fence);
+        assertVk(result);
+
+
+        VkPresentInfoKHR present_info {
+            .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &render_finished_semaphore,
+            .swapchainCount = 1,
+            .pSwapchains = &swapchain,
+            .pImageIndices = &acquired_swapchain_image_index,
+        };
+        result = vk_dev_procs.queuePresentKHR(queue_, &present_info);
+        assertVk(result);
+        // TODO check for Suboptimal and OutOfDate and rebuild swapchain if needed.
+        // Make sure to update the extent too.
 
         glfwPollEvents();
     };
