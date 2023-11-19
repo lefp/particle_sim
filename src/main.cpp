@@ -31,6 +31,9 @@ const char* APP_NAME = "an game";
 // Use to represent an invalid queue family; can't use -1 (because unsigned) or 0 (because it's valid).
 const u32 INVALID_QUEUE_FAMILY_IDX = UINT32_MAX;
 
+// Use to statically allocate arrays for swapchain images, image views, and framebuffers.
+const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
+
 //
 // Global variables ==========================================================================================
 //
@@ -629,6 +632,7 @@ VkPipeline createTrianglePipeline(VkDevice device, VkRenderPass render_pass, u32
 /// `fallback_extent` is used if the surface doesn't already have a set extent.
 /// Doesn't destroy `old_swapchain`; simply retires it. You are responsible for destroying it.
 /// `old_swapchain` may be `VK_NULL_HANDLE`.
+/// `extent_out` must not be NULL.
 VkSwapchainKHR createSwapchain(
      VkPhysicalDevice physical_device,
      VkDevice device,
@@ -636,7 +640,8 @@ VkSwapchainKHR createSwapchain(
      VkExtent2D fallback_extent,
      u32 queue_family_index,
      VkPresentModeKHR present_mode,
-     VkSwapchainKHR old_swapchain
+     VkSwapchainKHR old_swapchain,
+     VkExtent2D* extent_out
 ) {
 
     VkSurfaceCapabilitiesKHR surface_capabilities {};
@@ -721,13 +726,121 @@ VkSwapchainKHR createSwapchain(
     assertVk(result);
 
     LOG_F(INFO, "Built swapchain.");
+    *extent_out = extent;
     return swapchain;
+}
+
+
+/// Writes at most `max_image_count` to `images_out`.
+/// Returns the actual number of images in the swapchain.
+u32 getSwapchainImages(
+    VkDevice device,
+    VkSwapchainKHR swapchain,
+    u32 max_image_count,
+    VkImage* images_out
+) {
+
+    u32 swapchain_image_count = 0;
+    VkResult result = vk_dev_procs.getSwapchainImagesKHR(device, swapchain, &swapchain_image_count, NULL);
+    assertVk(result);
+
+    bool max_too_small = max_image_count < swapchain_image_count;
+
+    result = vk_dev_procs.getSwapchainImagesKHR(device, swapchain, &max_image_count, images_out);
+    if (max_too_small and result != VK_INCOMPLETE)
+        ABORT_F("Expected VkResult VK_INCOMPLETE (%i), got %i.", VK_INCOMPLETE, result);
+    else assertVk(result);
+
+    return swapchain_image_count;
+}
+
+
+/// Returns whether it succeeded.
+bool createImageViewsForSwapchain(
+    VkDevice device,
+    u32fast image_count,
+    const VkImage* swapchain_images,
+    VkImageView* image_views_out
+) {
+
+    for (u32fast im_idx = 0; im_idx < image_count; im_idx++) {
+
+        const VkImage image = swapchain_images[im_idx];
+        VkImageView* p_image_view = &image_views_out[im_idx];
+
+        const VkComponentMapping component_mapping {
+            .r = VK_COMPONENT_SWIZZLE_R,
+            .g = VK_COMPONENT_SWIZZLE_G,
+            .b = VK_COMPONENT_SWIZZLE_B,
+            .a = VK_COMPONENT_SWIZZLE_A
+        };
+
+        const VkImageSubresourceRange subresource_range = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        };
+
+        const VkImageViewCreateInfo image_view_info {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = image,
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = SWAPCHAIN_FORMAT,
+            .components = component_mapping,
+            .subresourceRange = subresource_range,
+        };
+
+        VkResult result = vk_dev_procs.createImageView(device, &image_view_info, NULL, p_image_view);
+        assertVk(result);
+    }
+
+    return true;
+}
+
+
+/// Returns whether it succeeded.
+bool createFramebuffersForSwapchain(
+    VkDevice device,
+    VkRenderPass render_pass,
+    VkExtent2D swapchain_extent,
+    u32fast image_view_count,
+    const VkImageView* image_views,
+    VkFramebuffer* framebuffers_out
+) {
+
+    for (u32fast fb_idx = 0; fb_idx < image_view_count; fb_idx++) {
+
+        const VkImageView* p_image_view = &image_views[fb_idx];
+        VkFramebuffer* p_framebuffer = &framebuffers_out[fb_idx];
+
+        const VkFramebufferCreateInfo framebuffer_info {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = render_pass,
+            .attachmentCount = 1,
+            .pAttachments = p_image_view,
+            .width = swapchain_extent.width,
+            .height = swapchain_extent.height,
+            .layers = 1,
+        };
+
+        VkResult result = vk_dev_procs.createFramebuffer(device, &framebuffer_info, NULL, p_framebuffer);
+        assertVk(result);
+    }
+
+    return true;
 }
 
 
 int main(int argc, char** argv) {
 
     loguru::init(argc, argv);
+    #ifndef NDEBUG
+        LOG_F(INFO, "Debug build.");
+    #else
+        LOG_F(INFO), "Release build.");
+    #endif
 
     int success = glfwInit();
     assertGlfw(success);
@@ -744,8 +857,6 @@ int main(int argc, char** argv) {
     pipelines_.temp_triangle_pipeline = pipeline;
 
     // TODO remaining work:
-    //
-    // set up image views and framebuffers
     // set up command buffers
     // vkCmdSetViewport, vkCmdSetScissor
 
@@ -759,6 +870,7 @@ int main(int argc, char** argv) {
     VkResult result = glfwCreateWindowSurface(instance_, window, NULL, &surface);
     assertVk(result);
 
+    VkExtent2D swapchain_extent {};
     VkSwapchainKHR swapchain = createSwapchain(
         physical_device_,
         device_,
@@ -766,9 +878,34 @@ int main(int argc, char** argv) {
         VkExtent2D { 800, 600 },
         queue_family_,
         VK_PRESENT_MODE_FIFO_KHR,
-        VK_NULL_HANDLE // old_swapchain
+        VK_NULL_HANDLE, // old_swapchain
+        &swapchain_extent
     );
     alwaysAssert(swapchain != VK_NULL_HANDLE);
+
+
+    VkImage swapchain_images[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
+    VkImageView swapchain_image_views[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
+    VkFramebuffer simple_render_pass_swapchain_framebuffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
+
+    u32 swapchain_image_count = getSwapchainImages(
+        device_, swapchain, MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT, swapchain_images
+    );
+    if (swapchain_image_count > MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT) ABORT_F(
+        "Unexpectedly large swapchain image count; assumed at most %u, actually %u.",
+        MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT, swapchain_image_count
+    );
+
+    success = createImageViewsForSwapchain(
+        device_, swapchain_image_count, swapchain_images, swapchain_image_views
+    );
+    alwaysAssert(success);
+
+    success = createFramebuffersForSwapchain(
+        device_, render_pass, swapchain_extent, swapchain_image_count, swapchain_image_views,
+        simple_render_pass_swapchain_framebuffers
+    );
+    alwaysAssert(success);
 
 
     glfwPollEvents();
