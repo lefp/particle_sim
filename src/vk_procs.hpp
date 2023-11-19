@@ -10,6 +10,7 @@ struct VulkanInstanceProcs {
     PFN_vkGetDeviceProcAddr getDeviceProcAddr;
     PFN_vkGetPhysicalDeviceProperties getPhysicalDeviceProperties;
     PFN_vkGetPhysicalDeviceQueueFamilyProperties getPhysicalDeviceQueueFamilyProperties;
+    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR getPhysicalDeviceSurfaceCapabilitiesKHR;
 
     void init(VkInstance, PFN_vkGetInstanceProcAddr);
 };
@@ -19,6 +20,7 @@ struct VulkanDeviceProcs {
     PFN_vkCreatePipelineLayout createPipelineLayout;
     PFN_vkCreateRenderPass createRenderPass;
     PFN_vkCreateShaderModule createShaderModule;
+    PFN_vkCreateSwapchainKHR createSwapchainKHR;
     PFN_vkDestroyShaderModule destroyShaderModule;
     PFN_vkGetDeviceQueue getDeviceQueue;
 

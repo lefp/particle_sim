@@ -12,11 +12,11 @@
 #include <loguru.hpp>
 
 #include "types.hpp"
-#include "error_utils.hpp"
+#include "error_utils.hpp" // TODO rename this to "error_util" to be consistent with "alloc_util" and "math_util"
 #include "vk_procs.hpp"
 #include "defer.hpp"
 #include "alloc_util.hpp"
-#include "error_utils.hpp"
+#include "math_util.hpp"
 
 //
 // Global constants ==========================================================================================
@@ -24,6 +24,7 @@
 
 #define VULKAN_API_VERSION VK_API_VERSION_1_3
 #define SWAPCHAIN_FORMAT VK_FORMAT_R8G8B8A8_SRGB
+#define SWAPCHAIN_COLOR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
 
 const char* APP_NAME = "an game";
 
@@ -34,12 +35,12 @@ const u32 INVALID_QUEUE_FAMILY_IDX = UINT32_MAX;
 // Global variables ==========================================================================================
 //
 
-VkInstance instance_;
-VkPhysicalDevice physical_device_;
+VkInstance instance_ = VK_NULL_HANDLE;
+VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
 VkPhysicalDeviceProperties physical_device_properties_;
-u32 queue_family_;
-VkDevice device_;
-VkQueue queue_;
+u32 queue_family_ = INVALID_QUEUE_FAMILY_IDX;
+VkDevice device_ = VK_NULL_HANDLE;
+VkQueue queue_ = VK_NULL_HANDLE;
 
 struct {
     VkPipeline temp_triangle_pipeline = VK_NULL_HANDLE;
@@ -624,6 +625,106 @@ VkPipeline createTrianglePipeline(VkDevice device, VkRenderPass render_pass, u32
 }
 
 
+/// Doesn't verify surface support. You must do so before calling this.
+/// `fallback_extent` is used if the surface doesn't already have a set extent.
+/// Doesn't destroy `old_swapchain`; simply retires it. You are responsible for destroying it.
+/// `old_swapchain` may be `VK_NULL_HANDLE`.
+VkSwapchainKHR createSwapchain(
+     VkPhysicalDevice physical_device,
+     VkDevice device,
+     VkSurfaceKHR surface,
+     VkExtent2D fallback_extent,
+     u32 queue_family_index,
+     VkPresentModeKHR present_mode,
+     VkSwapchainKHR old_swapchain
+) {
+
+    VkSurfaceCapabilitiesKHR surface_capabilities {};
+    VkResult result =
+        vk_inst_procs.getPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_capabilities);
+    assertVk(result);
+
+
+    // Vk spec 1.3.259, appendix VK_KHR_swapchain, issue 12: suggests using capabilities.minImageCount + 1
+    // to guarantee that vkAcquireNextImageKHR is non-blocking when using Mailbox present mode.
+    // Idk what effect this has on FIFO present mode, but I'm assuming it doesn't hurt.
+    u32 min_image_count = surface_capabilities.minImageCount + 1;
+    {
+        u32 count_preclamp = min_image_count;
+        min_image_count = math::clamp(
+            min_image_count,
+            surface_capabilities.minImageCount,
+            surface_capabilities.maxImageCount
+        );
+        if (min_image_count != count_preclamp) LOG_F(
+            WARNING, "Min swapchain image count clamped from %u to %u, to fit surface limits.",
+            count_preclamp, min_image_count
+        );
+    }
+
+
+    // Vk spec 1.3.234:
+    //     On some platforms, it is normal that maxImageExtent may become (0, 0), for example when the window
+    //     is minimized. In such a case, it is not possible to create a swapchain due to the Valid Usage
+    //     requirements.
+    const VkExtent2D max_extent = surface_capabilities.maxImageExtent;
+    if (max_extent.height == 0 and max_extent.width == 0) {
+        ABORT_F("Surface maxImageExtent reported as (0, 0)."); // TODO handle this properly instead of aborting
+    }
+
+    VkExtent2D extent = surface_capabilities.currentExtent;
+    // Vk spec 1.3.234:
+    //     currentExtent is the current width and height of the surface, or the special value (0xFFFFFFFF,
+    //     0xFFFFFFFF) indicating that the surface size will be determined by the extent of a swapchain
+    //     targeting the surface.
+    if (extent.width == 0xFF'FF'FF'FF and extent.height == 0xFF'FF'FF'FF) {
+
+        LOG_F(INFO, "Surface currentExtent is (0xFFFFFFFF, 0xFFFFFFFF); using fallback extent.");
+
+        const VkExtent2D min_extent = surface_capabilities.minImageExtent;
+        const VkExtent2D max_extent = surface_capabilities.maxImageExtent;
+
+        extent.width = math::clamp(fallback_extent.width, min_extent.width, max_extent.width);
+        extent.height = math::clamp(fallback_extent.height, min_extent.height, max_extent.height);
+        if (extent.width != fallback_extent.width or extent.height != fallback_extent.height) LOG_F(
+            WARNING, "Adjusted fallback swapchain extent (%u, %u) to (%u, %u), to fit surface limits.",
+            fallback_extent.width, fallback_extent.height, extent.width, extent.height
+        );
+    }
+
+
+    // Vk spec 1.3.259 guarantees that this is true, but just in case.
+    alwaysAssert(surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+
+
+    VkSwapchainCreateInfoKHR swapchain_info {
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = surface,
+        .minImageCount = min_image_count,
+        .imageFormat = SWAPCHAIN_FORMAT,
+        .imageColorSpace = SWAPCHAIN_COLOR_SPACE,
+        .imageExtent = extent,
+        .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 1,
+        .pQueueFamilyIndices = &queue_family_index,
+        .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = present_mode,
+        .clipped = VK_FALSE,
+        .oldSwapchain = old_swapchain,
+    };
+
+    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    result = vk_dev_procs.createSwapchainKHR(device, &swapchain_info, NULL, &swapchain);
+    assertVk(result);
+
+    LOG_F(INFO, "Built swapchain.");
+    return swapchain;
+}
+
+
 int main(int argc, char** argv) {
 
     loguru::init(argc, argv);
@@ -632,9 +733,6 @@ int main(int argc, char** argv) {
     assertGlfw(success);
 
 
-    // TODO rename `initGraphics` to something like `initVulkanUptoQueueCreation` or something. Reason: we
-    // may may want to have window and swapchain creation in a separate procedure, in case we want to
-    // dynamically create multiple windows. Maybe pipeline creation should be separate too.
     initGraphicsUptoQueueCreation();
 
     VkRenderPass render_pass = createSimpleRenderPass(device_);
@@ -646,9 +744,9 @@ int main(int argc, char** argv) {
     pipelines_.temp_triangle_pipeline = pipeline;
 
     // TODO remaining work:
-    // set up command buffers
-    // set up swapchain(s)
+    //
     // set up image views and framebuffers
+    // set up command buffers
     // vkCmdSetViewport, vkCmdSetScissor
 
 
@@ -656,6 +754,21 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // don't initialize OpenGL, because we're using Vulkan
     GLFWwindow* window = glfwCreateWindow(800, 600, "an game", NULL, NULL);
     assertGlfw(window != NULL);
+
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    VkResult result = glfwCreateWindowSurface(instance_, window, NULL, &surface);
+    assertVk(result);
+
+    VkSwapchainKHR swapchain = createSwapchain(
+        physical_device_,
+        device_,
+        surface,
+        VkExtent2D { 800, 600 },
+        queue_family_,
+        VK_PRESENT_MODE_FIFO_KHR,
+        VK_NULL_HANDLE // old_swapchain
+    );
+    alwaysAssert(swapchain != VK_NULL_HANDLE);
 
 
     glfwPollEvents();
