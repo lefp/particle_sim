@@ -1084,10 +1084,7 @@ int main(int argc, char** argv) {
                 swapchain_rebuild_count++;
 
                 // Before destroying the old swapchain, make sure it's not in use.
-                // TODO would probably be easier and more robust to just `vkQueueWaitIdle`
-                result = vk_dev_procs.waitForFences(
-                    device_, swapchain_image_count, p_command_buffer_pending_fences, VK_TRUE, UINT64_MAX
-                );
+                result = vk_dev_procs.queueWaitIdle(queue_);
                 assertVk(result);
                 vk_dev_procs.destroySwapchainKHR(device_, old_swapchain, NULL);
             }
@@ -1125,10 +1122,7 @@ int main(int argc, char** argv) {
             LOG_F(INFO, "Swapchain rebuilt (%u times).", swapchain_rebuild_count);
 
             // Before destroying resources, make sure they're not in use.
-            // TODO would probably be easier and more robust to just `vkQueueWaitIdle`
-            result = vk_dev_procs.waitForFences(
-                device_, swapchain_image_count, p_command_buffer_pending_fences, VK_TRUE, UINT64_MAX
-            );
+            result = vk_dev_procs.queueWaitIdle(queue_);
             assertVk(result);
 
 
