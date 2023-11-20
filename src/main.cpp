@@ -1093,6 +1093,14 @@ int main(int argc, char** argv) {
                 vk_dev_procs.destroySwapchainKHR(device_, old_swapchain, NULL);
             }
 
+            // TODO: (2023-11-20) The only purpose of this block is to work around this validation layer bug:
+            // https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/6068
+            // Remove this after that bug is fixed.
+            {
+                u32 im_count = MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT;
+                result = vk_dev_procs.getSwapchainImagesKHR(device_, swapchain, &im_count, p_swapchain_images);
+            }
+
             result = vk_dev_procs.acquireNextImageKHR(
                 device_, swapchain, UINT64_MAX, swapchain_image_acquired_semaphore, VK_NULL_HANDLE,
                 &acquired_swapchain_image_idx
