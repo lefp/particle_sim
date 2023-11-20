@@ -650,8 +650,9 @@ VkSwapchainKHR createSwapchain(
 ) {
 
     VkSurfaceCapabilitiesKHR surface_capabilities {};
-    VkResult result =
-        vk_inst_procs.getPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_capabilities);
+    VkResult result = vk_inst_procs.getPhysicalDeviceSurfaceCapabilitiesKHR(
+        physical_device, surface, &surface_capabilities
+    );
     assertVk(result);
 
 
