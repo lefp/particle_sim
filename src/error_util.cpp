@@ -4,7 +4,7 @@
 #include <loguru.hpp>
 
 #include "types.hpp"
-#include "error_utils.hpp"
+#include "error_util.hpp"
 
 void _alwaysAssert(bool condition, const char* file, int line) {
 

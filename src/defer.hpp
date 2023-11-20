@@ -1,3 +1,10 @@
+#ifndef _DEFER_HPP
+#define _DEFER_HPP
+
+//
+// ===========================================================================================================
+//
+
 // source: https://www.gingerbill.org/article/2015/08/19/defer-in-cpp
 
 template <typename F>
@@ -9,7 +16,7 @@ struct _DeferStruct {
 };
 
 template <typename F>
-_DeferStruct<F> _defer_func(F f) {
+static _DeferStruct<F> _defer_func(F f) {
     return _DeferStruct<F>(f);
 }
 
@@ -20,3 +27,9 @@ _DeferStruct<F> _defer_func(F f) {
 
 
 // TODO: are destructors guaranteed to be called in reverse order of object declaration?
+
+//
+// ===========================================================================================================
+//
+
+#endif // include guard

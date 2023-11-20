@@ -1,3 +1,6 @@
+#ifndef _VK_PROCS_HPP
+#define _VK_PROCS_HPP
+
 // #include <vulkan/vulkan.h>
 
 //
@@ -59,3 +62,9 @@ struct VulkanDeviceProcs {
 
 extern VulkanInstanceProcs vk_inst_procs;
 extern VulkanDeviceProcs vk_dev_procs;
+
+//
+// ===========================================================================================================
+//
+
+#endif // include guard

@@ -3,7 +3,7 @@
 
 #include "types.hpp"
 #include "vk_procs.hpp"
-#include "error_utils.hpp"
+#include "error_util.hpp"
 
 //
 // ===========================================================================================================

@@ -1,5 +1,4 @@
 #include <cerrno>
-#include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
@@ -13,7 +12,7 @@
 #include <loguru.hpp>
 
 #include "types.hpp"
-#include "error_utils.hpp" // TODO rename this to "error_util" to be consistent with "alloc_util" and "math_util"
+#include "error_util.hpp"
 #include "vk_procs.hpp"
 #include "defer.hpp"
 #include "alloc_util.hpp"
@@ -962,7 +961,7 @@ int main(int argc, char** argv) {
         physical_device_,
         device_,
         surface,
-        VkExtent2D { 800, 600 },
+        DEFAULT_WINDOW_EXTENT,
         queue_family_,
         present_mode_,
         VK_NULL_HANDLE, // old_swapchain
@@ -1122,7 +1121,6 @@ int main(int argc, char** argv) {
         };
 
         if (swapchain_rebuild_count > 0) {
-            // raise(SIGTRAP); // TODO debug only, delete
 
             LOG_F(INFO, "Swapchain rebuilt (%u times).", swapchain_rebuild_count);
 
