@@ -1,4 +1,5 @@
 #include <cerrno>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
@@ -34,6 +35,8 @@ const u32 INVALID_QUEUE_FAMILY_IDX = UINT32_MAX;
 // Use to statically allocate arrays for swapchain images, image views, and framebuffers.
 const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
 
+const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 };
+
 //
 // Global variables ==========================================================================================
 //
@@ -48,6 +51,8 @@ VkQueue queue_ = VK_NULL_HANDLE;
 struct {
     VkPipeline temp_triangle_pipeline = VK_NULL_HANDLE;
 } pipelines_;
+
+VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
 
 //
 // ===========================================================================================================
@@ -282,8 +287,8 @@ void initGraphicsUptoQueueCreation(void) {
 
         PhysicalDeviceTypePriorities device_type_priorities {
             .other = 0,
-            .integrated_gpu = 1,
-            .discrete_gpu = 2,
+            .integrated_gpu = 2,
+            .discrete_gpu = 1,
             .virtual_gpu = 0,
             .cpu = 0,
         };
@@ -657,11 +662,11 @@ VkSwapchainKHR createSwapchain(
     u32 min_image_count = surface_capabilities.minImageCount + 1;
     {
         u32 count_preclamp = min_image_count;
-        min_image_count = math::clamp(
-            min_image_count,
-            surface_capabilities.minImageCount,
-            surface_capabilities.maxImageCount
-        );
+        min_image_count = math::max(min_image_count, surface_capabilities.minImageCount);
+        if (surface_capabilities.maxImageCount != 0) {
+            min_image_count = math::min(min_image_count, surface_capabilities.maxImageCount);
+        }
+
         if (min_image_count != count_preclamp) LOG_F(
             WARNING, "Min swapchain image count clamped from %u to %u, to fit surface limits.",
             count_preclamp, min_image_count
@@ -938,14 +943,14 @@ int main(int argc, char** argv) {
     pipelines_.temp_triangle_pipeline = pipeline;
 
     // TODO remaining work:
-    // Re-record command buffers when swapchain resizes. Consider what to do if the number of swapchain images
-    // changes
-    // set up validation layer debug logging thing, to log their messages as loguru messages
+    // Set up validation layer debug logging thing, to log their messages as loguru messages. This way they
+    // will be logged if we're logging to a file.
 
 
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // TODO: enable once swapchain resizing is implemented
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // don't initialize OpenGL, because we're using Vulkan
-    GLFWwindow* window = glfwCreateWindow(800, 600, "an game", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(
+        DEFAULT_WINDOW_EXTENT.width, DEFAULT_WINDOW_EXTENT.height, "an game", NULL, NULL
+    );
     assertGlfw(window != NULL);
 
     VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -959,7 +964,7 @@ int main(int argc, char** argv) {
         surface,
         VkExtent2D { 800, 600 },
         queue_family_,
-        VK_PRESENT_MODE_FIFO_KHR,
+        present_mode_,
         VK_NULL_HANDLE, // old_swapchain
         &swapchain_extent
     );
@@ -971,6 +976,7 @@ int main(int argc, char** argv) {
     VkImage p_swapchain_images[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
     VkImageView p_swapchain_image_views[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
     VkFramebuffer p_simple_render_pass_swapchain_framebuffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
+    VkCommandPool command_pool = VK_NULL_HANDLE;
     VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
     VkFence p_command_buffer_pending_fences[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
     VkSemaphore p_render_finished_semaphores[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
@@ -1002,7 +1008,6 @@ int main(int argc, char** argv) {
             .queueFamilyIndex = queue_family_,
         };
 
-        VkCommandPool command_pool = VK_NULL_HANDLE;
         result = vk_dev_procs.createCommandPool(device_, &command_pool_info, NULL, &command_pool);
         assertVk(result);
 
@@ -1052,6 +1057,7 @@ int main(int argc, char** argv) {
     }
 
 
+    bool swapchain_needs_rebuild = false;
     u32fast frame_counter = 0;
 
     glfwPollEvents();
@@ -1061,14 +1067,108 @@ int main(int argc, char** argv) {
         VkSemaphore swapchain_image_acquired_semaphore =
             p_swapchain_image_acquired_semaphores[frame_counter % swapchain_image_count];
 
+        // Acquire swapchain image; if out of date, rebuild swapchain until it works. ------------------------
+
+        u32 swapchain_rebuild_count = 0;
         u32 acquired_swapchain_image_idx = UINT32_MAX;
-        result = vk_dev_procs.acquireNextImageKHR(
-            device_, swapchain, UINT64_MAX, swapchain_image_acquired_semaphore, VK_NULL_HANDLE,
-            &acquired_swapchain_image_idx
-        );
-        // TODO check for Suboptimal and OutOfDate and rebuild swapchain if needed.
-        // Make sure to update the extent too.
-        assertVk(result);
+        while (true) {
+
+            if (swapchain_needs_rebuild) {
+
+                VkSwapchainKHR old_swapchain = swapchain;
+                swapchain = createSwapchain(
+                    physical_device_, device_, surface, DEFAULT_WINDOW_EXTENT, queue_family_, present_mode_,
+                    swapchain, &swapchain_extent
+                );
+                alwaysAssert(swapchain != VK_NULL_HANDLE);
+
+                swapchain_rebuild_count++;
+
+                // Before destroying the old swapchain, make sure it's not in use.
+                // TODO would probably be easier and more robust to just `vkQueueWaitIdle`
+                result = vk_dev_procs.waitForFences(
+                    device_, swapchain_image_count, p_command_buffer_pending_fences, VK_TRUE, UINT64_MAX
+                );
+                assertVk(result);
+                vk_dev_procs.destroySwapchainKHR(device_, old_swapchain, NULL);
+            }
+
+            result = vk_dev_procs.acquireNextImageKHR(
+                device_, swapchain, UINT64_MAX, swapchain_image_acquired_semaphore, VK_NULL_HANDLE,
+                &acquired_swapchain_image_idx
+            );
+            if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+                swapchain_needs_rebuild = true;
+                continue;
+            }
+
+            // If the swapchain is Suboptimal, we will rebuild it _after_ this frame. This is because
+            // acquireNextImageKHR succeeded, so it may have signaled `swapchain_image_acquired_semaphore`;
+            // we must not call it again with the same semaphore until the semaphore is unsignaled.
+            if (result == VK_SUBOPTIMAL_KHR) swapchain_needs_rebuild = true;
+            else {
+                assertVk(result);
+                swapchain_needs_rebuild = false;
+            }
+            break;
+        };
+
+        if (swapchain_rebuild_count > 0) {
+            // raise(SIGTRAP); // TODO debug only, delete
+
+            LOG_F(INFO, "Swapchain rebuilt (%u times).", swapchain_rebuild_count);
+
+            // Before destroying resources, make sure they're not in use.
+            // TODO would probably be easier and more robust to just `vkQueueWaitIdle`
+            result = vk_dev_procs.waitForFences(
+                device_, swapchain_image_count, p_command_buffer_pending_fences, VK_TRUE, UINT64_MAX
+            );
+            assertVk(result);
+
+
+            result = vk_dev_procs.resetCommandPool(device_, command_pool, 0);
+            assertVk(result);
+
+            for (u32 i = 0; i < swapchain_image_count; i++) vk_dev_procs.destroyFramebuffer(
+                device_, p_simple_render_pass_swapchain_framebuffers[i], NULL
+            );
+
+            for (u32 i = 0; i < swapchain_image_count; i++) vk_dev_procs.destroyImageView(
+                device_, p_swapchain_image_views[i], NULL
+            );
+
+
+            swapchain_roi = centeredSubregion_16x9(swapchain_extent);
+
+            u32 old_image_count = swapchain_image_count;
+            swapchain_image_count = getSwapchainImages(
+                device_, swapchain, MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT, p_swapchain_images
+            );
+            // I don't feel like handling a changing number of swapchain images.
+            // We'd have to change the number of command buffers, fences, semaphores.
+            alwaysAssert(swapchain_image_count == old_image_count);
+
+            success = createImageViewsForSwapchain(
+                device_, swapchain_image_count, p_swapchain_images, p_swapchain_image_views
+            );
+            alwaysAssert(success);
+
+            success = createFramebuffersForSwapchain(
+                device_, render_pass, swapchain_extent, swapchain_image_count, p_swapchain_image_views,
+                p_simple_render_pass_swapchain_framebuffers
+            );
+            alwaysAssert(success);
+
+            for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
+                success = recordTriangleCommandBuffer(
+                    p_command_buffers[im_idx], render_pass, pipeline, swapchain_extent, swapchain_roi,
+                    p_simple_render_pass_swapchain_framebuffers[im_idx]
+                );
+                alwaysAssert(success);
+            }
+        }
+
+        // ---------------------------------------------------------------------------------------------------
 
         VkCommandBuffer command_buffer = p_command_buffers[acquired_swapchain_image_idx];
         VkFence command_buffer_pending_fence = p_command_buffer_pending_fences[acquired_swapchain_image_idx];
@@ -1105,9 +1205,8 @@ int main(int argc, char** argv) {
             .pImageIndices = &acquired_swapchain_image_idx,
         };
         result = vk_dev_procs.queuePresentKHR(queue_, &present_info);
-        assertVk(result);
-        // TODO check for Suboptimal and OutOfDate and rebuild swapchain if needed.
-        // Make sure to update the extent too.
+        if (result == VK_ERROR_OUT_OF_DATE_KHR or result == VK_SUBOPTIMAL_KHR) swapchain_needs_rebuild = true;
+        else assertVk(result);
 
         frame_counter++;
         glfwPollEvents();
