@@ -286,7 +286,7 @@ void initGraphicsUptoQueueCreation(void) {
 
         PhysicalDeviceTypePriorities device_type_priorities {
             .other = 0,
-            .integrated_gpu = 2,
+            .integrated_gpu = 2, // TODO temporarily sticking with integrated GPU because it's easier to debug
             .discrete_gpu = 1,
             .virtual_gpu = 0,
             .cpu = 0,
