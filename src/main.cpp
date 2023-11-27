@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cassert>
 #include <cstring>
+#include <cinttypes>
 
 #include <sys/stat.h>
 
@@ -30,6 +31,7 @@ const char* APP_NAME = "an game";
 
 // Use to represent an invalid queue family; can't use -1 (because unsigned) or 0 (because it's valid).
 const u32 INVALID_QUEUE_FAMILY_IDX = UINT32_MAX;
+const u32 INVALID_PHYSICAL_DEVICE_IDX = UINT32_MAX;
 
 // Use to statically allocate arrays for swapchain images, image views, and framebuffers.
 const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
@@ -40,18 +42,18 @@ const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 };
 // Global variables ==========================================================================================
 //
 
-VkInstance instance_ = VK_NULL_HANDLE;
-VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
-VkPhysicalDeviceProperties physical_device_properties_;
-u32 queue_family_ = INVALID_QUEUE_FAMILY_IDX;
-VkDevice device_ = VK_NULL_HANDLE;
-VkQueue queue_ = VK_NULL_HANDLE;
+static VkInstance instance_ = VK_NULL_HANDLE;
+static VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
+static VkPhysicalDeviceProperties physical_device_properties_;
+static u32 queue_family_ = INVALID_QUEUE_FAMILY_IDX;
+static VkDevice device_ = VK_NULL_HANDLE;
+static VkQueue queue_ = VK_NULL_HANDLE;
 
-struct {
+static struct {
     VkPipeline temp_triangle_pipeline = VK_NULL_HANDLE;
 } pipelines_;
 
-VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
+static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
 
 //
 // ===========================================================================================================
@@ -162,31 +164,37 @@ u32 firstSatisfactoryQueueFamily(
 
 
 /// If no satisfactory device is found, `device_out` is set to `VK_NULL_HANDLE`.
+/// You may request a specific physical device using `specific_physical_device_request`.
+///     That device is selected iff it exists and satisfies requirements (ignoring `device_type_priorities`).
+///     To avoid requesting a specific device, pass `INVALID_PHYSICAL_DEVICE_IDX`.
 /// `device_type_priorities` are interpreted as follows:
 ///     0 means "do not use".
 ///     A higher number indicates greater priority.
+/// Returns the index of the selected device.
 void selectPhysicalDeviceAndQueueFamily(
     VkInstance instance,
-    VkPhysicalDevice* device_out,
+    u32* device_idx_out,
     u32* queue_family_out,
-    u32fast device_count,
+    u32 device_count,
     const VkPhysicalDevice* devices,
+    const VkPhysicalDeviceProperties* device_properties_list,
     const QueueFamilyRequirements* queue_family_requirements,
-    PhysicalDeviceTypePriorities device_type_priorities
+    PhysicalDeviceTypePriorities device_type_priorities,
+    u32 specific_device_request
 ) {
-    VkPhysicalDevice current_best_device = VK_NULL_HANDLE;
+    u32 current_best_device_idx = INVALID_PHYSICAL_DEVICE_IDX;
     u8 current_best_device_priority = 0;
     u32 current_best_device_queue_family = INVALID_QUEUE_FAMILY_IDX;
 
-    for (u32fast dev_idx = 0; dev_idx < device_count; dev_idx++) {
+    for (u32 dev_idx = 0; dev_idx < device_count; dev_idx++) {
 
         const VkPhysicalDevice device = devices[dev_idx];
 
 
-        VkPhysicalDeviceProperties device_props {};
-        vk_inst_procs.getPhysicalDeviceProperties(device, &device_props);
+        const VkPhysicalDeviceProperties device_props = device_properties_list[dev_idx];
+
         const u8 device_priority = device_type_priorities.getPriority(device_props.deviceType);
-        if (device_priority <= current_best_device_priority) continue;
+        if (device_priority <= current_best_device_priority and dev_idx != specific_device_request) continue;
 
 
         u32 family_count = 0;
@@ -194,28 +202,33 @@ void selectPhysicalDeviceAndQueueFamily(
         alwaysAssert(family_count > 0);
 
         VkQueueFamilyProperties* family_props_list = mallocArray<VkQueueFamilyProperties>(family_count);
+        defer(free(family_props_list));
         vk_inst_procs.getPhysicalDeviceQueueFamilyProperties(device, &family_count, family_props_list);
 
         const u32 fam = firstSatisfactoryQueueFamily(
             instance, device, family_count, family_props_list, queue_family_requirements
         );
         if (fam == INVALID_QUEUE_FAMILY_IDX) {
-            LOG_F(INFO, "Physical device %lu has no satisfactory queue family.", dev_idx);
+            LOG_F(INFO, "Physical device %" PRIu32 "has no satisfactory queue family.", dev_idx);
             continue;
         }
 
 
-        current_best_device = device;
+        current_best_device_idx = dev_idx;
         current_best_device_priority = device_priority;
         current_best_device_queue_family = fam;
+
+        if (dev_idx == specific_device_request) break;
     }
 
-    *device_out = current_best_device;
+    *device_idx_out = current_best_device_idx;
     *queue_family_out = current_best_device_queue_family;
 }
 
 
-void initGraphicsUptoQueueCreation(void) {
+/// If `specific_device_request` isn't NULL, attempts to select a device with that name.
+/// If no such device exists or doesn't satisfactory requirements, silently selects a different device.
+void initGraphicsUptoQueueCreation(const char* specific_named_device_request) {
 
     if (!glfwVulkanSupported()) ABORT_F("Failed to find Vulkan; do you need to install drivers?");
     auto vkCreateInstance = (PFN_vkCreateInstance)glfwGetInstanceProcAddress(NULL, "vkCreateInstance");
@@ -263,17 +276,40 @@ void initGraphicsUptoQueueCreation(void) {
         assertVk(result);
 
         if (physical_device_count == 0) ABORT_F("Found no Vulkan devices.");
+
+
         VkPhysicalDevice* physical_devices = mallocArray<VkPhysicalDevice>(physical_device_count);
         defer(free(physical_devices));
 
         result = vk_inst_procs.enumeratePhysicalDevices(instance_, &physical_device_count, physical_devices);
         assertVk(result);
 
-        for (u32 i = 0; i < physical_device_count; i++) {
-            VkPhysicalDeviceProperties props;
-            vk_inst_procs.getPhysicalDeviceProperties(physical_devices[i], &props);
-            LOG_F(INFO, "Found physical device %u: `%s`", i, props.deviceName);
+
+        VkPhysicalDeviceProperties* physical_device_properties_list =
+            mallocArray<VkPhysicalDeviceProperties>(physical_device_count);
+        defer(free(physical_device_properties_list));
+
+        u32 requested_device_idx = INVALID_PHYSICAL_DEVICE_IDX;
+        for (u32 dev_idx = 0; dev_idx < physical_device_count; dev_idx++) {
+
+            VkPhysicalDeviceProperties* p_dev_props = &physical_device_properties_list[dev_idx];
+            vk_inst_procs.getPhysicalDeviceProperties(physical_devices[dev_idx], p_dev_props);
+
+            const char* device_name = p_dev_props->deviceName;
+            LOG_F(INFO, "Found physical device %u: `%s`.", dev_idx, device_name);
+            if (
+                specific_named_device_request != NULL and
+                strcmp(specific_named_device_request, device_name) == 0
+            ) {
+                LOG_F(INFO, "Physical device %u: name matches requested device.", dev_idx);
+                requested_device_idx = dev_idx;
+            }
         }
+        LOG_IF_F(
+            WARNING,
+            specific_named_device_request != NULL and requested_device_idx == INVALID_PHYSICAL_DEVICE_IDX,
+            "Requested device named `%s` not found.", specific_named_device_request
+        );
 
 
         // NOTE: The Vulkan spec doesn't guarantee that there is a single queue family that supports both
@@ -286,22 +322,30 @@ void initGraphicsUptoQueueCreation(void) {
 
         PhysicalDeviceTypePriorities device_type_priorities {
             .other = 0,
-            .integrated_gpu = 2, // TODO temporarily sticking with integrated GPU because it's easier to debug
-            .discrete_gpu = 1,
+            .integrated_gpu = 1,
+            .discrete_gpu = 2,
             .virtual_gpu = 0,
             .cpu = 0,
         };
 
+        u32 physical_device_idx = INVALID_PHYSICAL_DEVICE_IDX;
         selectPhysicalDeviceAndQueueFamily(
             instance_,
-            &physical_device_, &queue_family_,
-            physical_device_count, physical_devices,
-            &queue_family_requirements, device_type_priorities
+            &physical_device_idx, &queue_family_,
+            physical_device_count, physical_devices, physical_device_properties_list,
+            &queue_family_requirements, device_type_priorities,
+            requested_device_idx
         );
-        alwaysAssert(physical_device_ != VK_NULL_HANDLE);
+        alwaysAssert(physical_device_idx != INVALID_PHYSICAL_DEVICE_IDX);
+        physical_device_ = physical_devices[physical_device_idx];
 
         vk_inst_procs.getPhysicalDeviceProperties(physical_device_, &physical_device_properties_);
         LOG_F(INFO, "Selected physical device `%s`.", physical_device_properties_.deviceName);
+        LOG_IF_F(
+            WARNING,
+            specific_named_device_request != NULL and physical_device_idx != requested_device_idx,
+            "Didn't select requested device named `%s`.", specific_named_device_request
+        );
     }
 
     // Create logical device and queues ----------------------------------------------------------------------
@@ -932,7 +976,8 @@ int main(int argc, char** argv) {
     assertGlfw(success);
 
 
-    initGraphicsUptoQueueCreation();
+    const char* specific_device_request = getenv("PHYSICAL_DEVICE_NAME");
+    initGraphicsUptoQueueCreation(specific_device_request);
 
     VkRenderPass render_pass = createSimpleRenderPass(device_);
     alwaysAssert(render_pass != VK_NULL_HANDLE);
