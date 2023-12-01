@@ -678,7 +678,11 @@ VkPipeline createTrianglePipeline(VkDevice device, VkRenderPass render_pass, u32
 
 
 /// Doesn't verify surface support. You must do so before calling this.
-/// `fallback_extent` is used if the surface doesn't already have a set extent.
+/// `fallback_extent` is used if the surface doesn't report a specific extent via Vulkan surface properties.
+///     If you want resizing to work on all platforms, you should probably get the window's current dimensions
+///     from your window provider. Some providers supposedly don't report their current dimensions via Vulkan,
+///     according to
+///     https://gist.github.com/nanokatze/bb03a486571e13a7b6a8709368bd87cf#file-handling-window-resize-md
 /// Doesn't destroy `old_swapchain`; simply retires it. You are responsible for destroying it.
 /// `old_swapchain` may be `VK_NULL_HANDLE`.
 /// `extent_out` must not be NULL.
@@ -1002,12 +1006,19 @@ int main(int argc, char** argv) {
     VkResult result = glfwCreateWindowSurface(instance_, window, NULL, &surface);
     assertVk(result);
 
+    int current_window_width = 0;
+    int current_window_height = 0;
+    glfwGetWindowSize(window, &current_window_width, &current_window_height);
+    abortIfGlfwError();
+    // TODO if current_width == current_height == 0, check if window is minimized or something; if it is, do
+    // something that doesn't waste resources
+
     VkExtent2D swapchain_extent {};
     VkSwapchainKHR swapchain = createSwapchain(
         physical_device_,
         device_,
         surface,
-        DEFAULT_WINDOW_EXTENT,
+        VkExtent2D { .width = (u32)current_window_width, .height = (u32)current_window_height },
         queue_family_,
         present_mode_,
         VK_NULL_HANDLE, // old_swapchain
@@ -1120,10 +1131,18 @@ int main(int argc, char** argv) {
 
             if (swapchain_needs_rebuild) {
 
+                int window_width = 0;
+                int window_height = 0;
+                glfwGetWindowSize(window, &window_width, &window_height);
+                abortIfGlfwError();
+                // TODO if current_width == current_height == 0, check if window is minimized or something;
+                // if it is, do something that doesn't waste resources
+
                 VkSwapchainKHR old_swapchain = swapchain;
                 swapchain = createSwapchain(
-                    physical_device_, device_, surface, DEFAULT_WINDOW_EXTENT, queue_family_, present_mode_,
-                    swapchain, &swapchain_extent
+                    physical_device_, device_, surface,
+                    VkExtent2D { .width = (u32)window_width, .height = (u32)window_height },
+                    queue_family_, present_mode_, swapchain, &swapchain_extent
                 );
                 alwaysAssert(swapchain != VK_NULL_HANDLE);
 
