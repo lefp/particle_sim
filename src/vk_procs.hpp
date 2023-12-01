@@ -26,6 +26,7 @@ struct VulkanDeviceProcs {
     PFN_vkCmdBindPipeline cmdBindPipeline;
     PFN_vkCmdDraw cmdDraw;
     PFN_vkCmdEndRenderPass cmdEndRenderPass;
+    PFN_vkCmdPushConstants cmdPushConstants;
     PFN_vkCmdSetScissor cmdSetScissor;
     PFN_vkCmdSetViewport cmdSetViewport;
     PFN_vkCreateCommandPool createCommandPool;

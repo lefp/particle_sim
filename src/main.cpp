@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstring>
 #include <cinttypes>
+#include <cmath>
 
 #include <sys/stat.h>
 
@@ -50,8 +51,12 @@ static VkDevice device_ = VK_NULL_HANDLE;
 static VkQueue queue_ = VK_NULL_HANDLE;
 
 static struct {
-    VkPipeline temp_triangle_pipeline = VK_NULL_HANDLE;
+    VkPipeline voxel_pipeline = VK_NULL_HANDLE;
 } pipelines_;
+
+static struct {
+    VkPipelineLayout voxel_pipeline_layout = VK_NULL_HANDLE;
+} pipeline_layouts_;
 
 static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
 
@@ -79,6 +84,10 @@ struct PhysicalDeviceTypePriorities {
         const u8* priorities = (u8*)this;
         return priorities[type];
     }
+};
+
+struct VoxelPipelineVertexShaderPushConstants {
+    f32 angle_radians;
 };
 
 //
@@ -503,13 +512,18 @@ VkRenderPass createSimpleRenderPass(VkDevice device) {
 }
 
 
-VkPipeline createTrianglePipeline(VkDevice device, VkRenderPass render_pass, u32 subpass) {
+VkPipeline createVoxelPipeline(
+    VkDevice device,
+    VkRenderPass render_pass,
+    u32 subpass,
+    VkPipelineLayout* pipeline_layout_out
+) {
 
-    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/temp.vert.spv", device);
+    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/voxel.vert.spv", device);
     alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
     defer(vk_dev_procs.destroyShaderModule(device, vertex_shader_module, NULL));
 
-    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/temp.frag.spv", device);
+    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/voxel.frag.spv", device);
     alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
     defer(vk_dev_procs.destroyShaderModule(device, fragment_shader_module, NULL));
 
@@ -560,7 +574,7 @@ VkPipeline createTrianglePipeline(VkDevice device, VkRenderPass render_pass, u32
         .depthClampEnable = VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
-        .cullMode = VK_CULL_MODE_NONE,
+        .cullMode = VK_CULL_MODE_BACK_BIT,
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .depthBiasConstantFactor = 0.0,
@@ -629,17 +643,27 @@ VkPipeline createTrianglePipeline(VkDevice device, VkRenderPass render_pass, u32
     };
 
 
+    constexpr u32 push_constant_range_count = 1;
+    VkPushConstantRange push_constant_ranges[push_constant_range_count] {
+        VkPushConstantRange {
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = sizeof(VoxelPipelineVertexShaderPushConstants),
+        },
+    };
+
     const VkPipelineLayoutCreateInfo pipeline_layout_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 0,
         .pSetLayouts = NULL,
-        .pushConstantRangeCount = 0,
-        .pPushConstantRanges = NULL,
+        .pushConstantRangeCount = push_constant_range_count,
+        .pPushConstantRanges = push_constant_ranges,
     };
 
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
     VkResult result = vk_dev_procs.createPipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
     assertVk(result);
+    *pipeline_layout_out = pipeline_layout;
 
 
     const VkGraphicsPipelineCreateInfo pipeline_info {
@@ -915,21 +939,26 @@ VkRect2D centeredSubregion_16x9(VkExtent2D image_extent) {
 
 
 /// Returns `true` if successful.
-bool recordTriangleCommandBuffer(
+bool recordVoxelCommandBuffer(
     VkCommandBuffer command_buffer,
     VkRenderPass render_pass,
     VkPipeline pipeline,
+    VkPipelineLayout pipeline_layout,
     VkExtent2D swapchain_extent,
     VkRect2D swapchain_roi,
-    VkFramebuffer framebuffer
+    VkFramebuffer framebuffer,
+    const VoxelPipelineVertexShaderPushConstants* push_constants
 ) {
 
-    VkCommandBufferBeginInfo begin_info { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    VkCommandBufferBeginInfo begin_info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
     VkResult result = vk_dev_procs.beginCommandBuffer(command_buffer, &begin_info);
     assertVk(result);
 
     {
-        VkClearValue clear_value { .color = VkClearColorValue { .float32 = {1, 0, 0, 1} } };
+        VkClearValue clear_value { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } };
         VkRenderPassBeginInfo render_pass_begin_info {
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             .renderPass = render_pass,
@@ -955,7 +984,19 @@ bool recordTriangleCommandBuffer(
         vk_dev_procs.cmdSetViewport(command_buffer, 0, 1, &viewport);
         vk_dev_procs.cmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
 
-        vk_dev_procs.cmdDraw(command_buffer, 3, 1, 0, 0);
+        // TODO This needs to happen every frame, so pre-recording the command buffer won't work here.
+        // We must either re-record the whole command buffer every frame, or use a secondary command buffer
+        // for the push constants.
+        // Experts online seem to say that re-recording a command buffer every frame isn't necessarily as
+        // expensive as beginners think:
+        // https://github.com/Overv/VulkanTutorial/issues/202
+        // https://docs.vulkan.org/guide/latest/common_pitfalls.html
+        vk_dev_procs.cmdPushConstants(
+            command_buffer, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+            sizeof(*push_constants), push_constants
+        );
+
+        vk_dev_procs.cmdDraw(command_buffer, 36, 1, 0, 0);
 
         vk_dev_procs.cmdEndRenderPass(command_buffer);
     }
@@ -987,9 +1028,11 @@ int main(int argc, char** argv) {
     alwaysAssert(render_pass != VK_NULL_HANDLE);
 
     const u32 subpass = 0;
-    VkPipeline pipeline = createTrianglePipeline(device_, render_pass, subpass);
+    VkPipeline pipeline = createVoxelPipeline(
+        device_, render_pass, subpass, &pipeline_layouts_.voxel_pipeline_layout
+    );
     alwaysAssert(pipeline != VK_NULL_HANDLE);
-    pipelines_.temp_triangle_pipeline = pipeline;
+    pipelines_.voxel_pipeline = pipeline;
 
     // TODO remaining work:
     // Set up validation layer debug logging thing, to log their messages as loguru messages. This way they
@@ -1061,6 +1104,7 @@ int main(int argc, char** argv) {
 
         const VkCommandPoolCreateInfo command_pool_info {
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
             .queueFamilyIndex = queue_family_,
         };
 
@@ -1077,14 +1121,6 @@ int main(int argc, char** argv) {
         result = vk_dev_procs.allocateCommandBuffers(device_, &command_buffer_alloc_info, p_command_buffers);
         assertVk(result);
 
-
-        for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
-            success = recordTriangleCommandBuffer(
-                p_command_buffers[im_idx], render_pass, pipeline, swapchain_extent, swapchain_roi,
-                p_simple_render_pass_swapchain_framebuffers[im_idx]
-            );
-            alwaysAssert(success);
-        }
 
         VkFenceCreateInfo fence_info {
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -1223,14 +1259,6 @@ int main(int argc, char** argv) {
                 p_simple_render_pass_swapchain_framebuffers
             );
             alwaysAssert(success);
-
-            for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
-                success = recordTriangleCommandBuffer(
-                    p_command_buffers[im_idx], render_pass, pipeline, swapchain_extent, swapchain_roi,
-                    p_simple_render_pass_swapchain_framebuffers[im_idx]
-                );
-                alwaysAssert(success);
-            }
         }
 
         // ---------------------------------------------------------------------------------------------------
@@ -1244,6 +1272,25 @@ int main(int argc, char** argv) {
         assertVk(result);
         result = vk_dev_procs.resetFences(device_, 1, &command_buffer_pending_fence);
         assertVk(result);
+
+
+        vk_dev_procs.resetCommandBuffer(command_buffer, 0);
+
+        VoxelPipelineVertexShaderPushConstants voxel_pipeline_push_constants {
+            .angle_radians = (f32) ( 2.0*M_PI * (1.0/150.0)*fmod((f64)frame_counter, 150.0) ),
+        };
+
+        success = recordVoxelCommandBuffer(
+            command_buffer,
+            render_pass,
+            pipelines_.voxel_pipeline,
+            pipeline_layouts_.voxel_pipeline_layout,
+            swapchain_extent,
+            swapchain_roi,
+            p_simple_render_pass_swapchain_framebuffers[acquired_swapchain_image_idx],
+            &voxel_pipeline_push_constants
+        );
+        alwaysAssert(success);
 
 
         const VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
