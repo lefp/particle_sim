@@ -984,13 +984,6 @@ bool recordVoxelCommandBuffer(
         vk_dev_procs.cmdSetViewport(command_buffer, 0, 1, &viewport);
         vk_dev_procs.cmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
 
-        // TODO This needs to happen every frame, so pre-recording the command buffer won't work here.
-        // We must either re-record the whole command buffer every frame, or use a secondary command buffer
-        // for the push constants.
-        // Experts online seem to say that re-recording a command buffer every frame isn't necessarily as
-        // expensive as beginners think:
-        // https://github.com/Overv/VulkanTutorial/issues/202
-        // https://docs.vulkan.org/guide/latest/common_pitfalls.html
         vk_dev_procs.cmdPushConstants(
             command_buffer, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
             sizeof(*push_constants), push_constants
