@@ -2,16 +2,14 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
-#include <cassert>
 #include <cstring>
 #include <cinttypes>
-#include <cmath>
-
-#include <sys/stat.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <loguru.hpp>
+#include <loguru/loguru.hpp>
+#include <glm/glm.hpp>
+#include <glm/ext.hpp>
 
 #include "types.hpp"
 #include "error_util.hpp"
@@ -19,6 +17,11 @@
 #include "defer.hpp"
 #include "alloc_util.hpp"
 #include "math_util.hpp"
+
+using glm::mat4;
+using glm::vec2;
+using glm::vec3;
+using glm::vec4;
 
 //
 // Global constants ==========================================================================================
@@ -38,6 +41,7 @@ const u32 INVALID_PHYSICAL_DEVICE_IDX = UINT32_MAX;
 const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
 
 const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 };
+const f32 ASPECT_RATIO = 16.0 / 9.0;
 
 //
 // Global variables ==========================================================================================
@@ -87,7 +91,7 @@ struct PhysicalDeviceTypePriorities {
 };
 
 struct VoxelPipelineVertexShaderPushConstants {
-    f32 angle_radians;
+    mat4 transform;
 };
 
 //
@@ -1001,6 +1005,74 @@ bool recordVoxelCommandBuffer(
 }
 
 
+/// Inputs must be unit vectors.
+f32 angleBetweenUnitVectors(vec3 src_vec, vec3 dst_vec) {
+
+    assert(fabs(glm::length(src_vec) - 1.0f) < 1e-5);
+    assert(fabs(glm::length(dst_vec) - 1.0f) < 1e-5);
+
+
+    f32 dot_prod = glm::dot(src_vec, dst_vec);
+
+    // Those are both unit vectors, so |dot_prod| should be 1.
+    // Make sure it doesn't fall out of acos's domain due to floating point error.
+    dot_prod = glm::clamp(dot_prod, -1.0f, 1.0f);
+
+    f32 angle = acos(dot_prod);
+
+    return angle;
+}
+
+
+// TODO remove
+/*
+/// Direction vectors must be unit vectors.
+mat4 worldCoordsToCameraRelativeCoords(
+    mat4 mat,
+    vec3 eye_pos,
+    vec3 eye_direction,
+    vec3 eye_relative_up_direction
+) {
+    assert(fabs(glm::length(eye_direction) - 1) < 1e-5);
+    assert(fabs(glm::length(eye_relative_up_direction) - 1) < 1e-5);
+    assert(glm::dot(eye_direction, eye_relative_up_direction) < 1e-5);
+
+    mat = glm::translate(mat, eye_pos);
+
+
+    // TODO: we need the matrix that maps:
+    //     - eye_direction onto (0; 0; -1), and
+    //     - eye_relative_up_direction onto (0; 1; 0)
+    //     - maps eye_direction x eye_relative_up_direction onto (0; 0; -1) x (0; 1; 0)
+
+
+    // Rotate the space so that eye_direction goes to (0; 0; -1).
+    f32 angle1 = angleBetweenUnitVectors(eye_direction, vec3(0, 0, -1));
+    mat4 rot_mat = glm::rotate(glm::identity<mat4>(), angle1, eye_relative_up_direction);
+
+    // Further rotate the space so that the new eye_relative_up_direction goes to (0; 1; 0).
+    vec4 new_eye_relative_up_direction = rot_mat * vec4(eye_relative_up_direction, 0.0f);
+    f32 angle2 = angleBetweenUnitVectors(vec3(new_eye_relative_up_direction), vec3(0.0, 1.0, 0.0));
+    glm::lookAt(, , )
+
+
+    return mat;
+}
+*/
+
+// TODO remove
+/*
+mat4 cameraRelativeCoordsToScreenCoords(
+    mat4 mat,
+    vec2 frustum_near_side_size,
+    f32 frustum_near_side_distance_from_eye
+) {
+    assert(frustum_near_side_distance_from_eye != 0.0);
+    ABORT_F("unimplemented"); // TODO implement
+}
+*/
+
+
 int main(int argc, char** argv) {
 
     loguru::init(argc, argv);
@@ -1269,8 +1341,48 @@ int main(int argc, char** argv) {
 
         vk_dev_procs.resetCommandBuffer(command_buffer, 0);
 
+        mat4 world_to_screen_transform = glm::identity<mat4>();
+        {
+            f32 angle_radians = (f32) ( 2.0*M_PI * (1.0/150.0)*fmod((f64)frame_counter, 150.0) );
+            vec3 rotation_axis = glm::normalize(vec3(cos(angle_radians), sin(angle_radians), -cos(angle_radians)));
+
+            f32 camera_distance = 3;
+            vec3 camera_pos = camera_distance * glm::normalize(vec3(1, -1, 1));
+            {
+                mat4 rot_mat = glm::rotate(glm::identity<mat4>(), angle_radians, rotation_axis);
+                vec4 cam_pos = rot_mat * vec4(camera_pos, 1.0);
+                camera_pos = vec3(cam_pos); // drops 4th component
+            }
+
+            mat4 world_to_camera_transform = glm::lookAt(
+                camera_pos, // eye
+                vec3(0, 0, 0), // position you're looking at
+                rotation_axis // "Normalized up vector, how the camera is oriented."
+            );
+            mat4 camera_to_clip_transform = glm::perspective(
+                (f32)(0.25*M_PI) * ASPECT_RATIO, // fovy
+                ASPECT_RATIO, // aspect
+                0.15f, // zNear
+                500.0f // zFar
+            );
+
+            // In GLM normalized device coordinates, by default:
+            //     1. The Y axis points upward.
+            //     2. The Z axis has range [-1, 1] and points out of the screen.
+            // In Vulkan normalized device coordinates, by default:
+            //     1. The Y axis points downward.
+            //     2. The Z axis has range [0, 1] and points into the screen.
+            mat4 glm_to_vulkan = glm::identity<mat4>();
+            glm_to_vulkan[1][1] = -1.0f; // mirror y axis
+            glm_to_vulkan[2][2] = -0.5f; // mirror and halve z axis: [1, -1] -> [-0.5, 0.5]
+            glm_to_vulkan[3][2] = 0.5f; // shift z axis forward: [-0.5, 0.5] -> [0, 1]
+
+            world_to_screen_transform = world_to_camera_transform * world_to_screen_transform;
+            world_to_screen_transform = camera_to_clip_transform * world_to_screen_transform;
+            world_to_screen_transform = glm_to_vulkan * world_to_screen_transform;
+        }
         VoxelPipelineVertexShaderPushConstants voxel_pipeline_push_constants {
-            .angle_radians = (f32) ( 2.0*M_PI * (1.0/150.0)*fmod((f64)frame_counter, 150.0) ),
+            .transform = world_to_screen_transform
         };
 
         success = recordVoxelCommandBuffer(

@@ -7,7 +7,7 @@ done
 g++ \
   $(pkg-config --cflags glfw3) \
   $(pkg-config --static --libs glfw3) \
-  -I libs/loguru \
+  -I libs \
   -g3 \
   -o build/test \
   libs/loguru/loguru.cpp \

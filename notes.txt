@@ -1,0 +1,7 @@
+Coordinate system: right-handed.
+	x points right
+	y points up
+	z points out of screen
+I chose right-handed because:
+    1. It's GLM's default
+    2. Positive angles going clockwise around an axis (when looking in the negative direction) makes sense to me.

@@ -1,7 +1,7 @@
 #include <cerrno>
 #include <cstring>
 
-#include <loguru.hpp>
+#include <loguru/loguru.hpp>
 
 #include "types.hpp"
 #include "error_util.hpp"
