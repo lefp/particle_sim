@@ -309,12 +309,12 @@ void initGraphicsUptoQueueCreation(const char* specific_named_device_request) {
             vk_inst_procs.getPhysicalDeviceProperties(physical_devices[dev_idx], p_dev_props);
 
             const char* device_name = p_dev_props->deviceName;
-            LOG_F(INFO, "Found physical device %u: `%s`.", dev_idx, device_name);
+            LOG_F(INFO, "Found physical device %" PRIu32 ": `%s`.", dev_idx, device_name);
             if (
                 specific_named_device_request != NULL and
                 strcmp(specific_named_device_request, device_name) == 0
             ) {
-                LOG_F(INFO, "Physical device %u: name matches requested device.", dev_idx);
+                LOG_F(INFO, "Physical device %" PRIu32 ": name matches requested device.", dev_idx);
                 requested_device_idx = dev_idx;
             }
         }
@@ -744,7 +744,8 @@ VkSwapchainKHR createSwapchain(
         }
 
         if (min_image_count != count_preclamp) LOG_F(
-            WARNING, "Min swapchain image count clamped from %u to %u, to fit surface limits.",
+            WARNING,
+            "Min swapchain image count clamped from %" PRIu32 " to %" PRIu32 ", to fit surface limits.",
             count_preclamp, min_image_count
         );
     }
@@ -774,7 +775,8 @@ VkSwapchainKHR createSwapchain(
         extent.width = math::clamp(fallback_extent.width, min_extent.width, max_extent.width);
         extent.height = math::clamp(fallback_extent.height, min_extent.height, max_extent.height);
         if (extent.width != fallback_extent.width or extent.height != fallback_extent.height) LOG_F(
-            WARNING, "Adjusted fallback swapchain extent (%u, %u) to (%u, %u), to fit surface limits.",
+            WARNING,
+            "Adjusted fallback swapchain extent (%" PRIu32 ", %" PRIu32 ") to (%" PRIu32 ", %" PRIu32 "), to fit surface limits.",
             fallback_extent.width, fallback_extent.height, extent.width, extent.height
         );
     }
@@ -1151,7 +1153,7 @@ int main(int argc, char** argv) {
             device_, swapchain, MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT, p_swapchain_images
         );
         if (swapchain_image_count > MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT) ABORT_F(
-            "Unexpectedly large swapchain image count; assumed at most %u, actually %u.",
+            "Unexpectedly large swapchain image count; assumed at most %" PRIu32 ", actually %" PRIu32 ".",
             MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT, swapchain_image_count
         );
 
@@ -1226,7 +1228,7 @@ int main(int argc, char** argv) {
 
         // Acquire swapchain image; if out of date, rebuild swapchain until it works. ------------------------
 
-        u32 swapchain_rebuild_count = 0;
+        u32fast swapchain_rebuild_count = 0;
         u32 acquired_swapchain_image_idx = UINT32_MAX;
         while (true) {
 
@@ -1285,7 +1287,7 @@ int main(int argc, char** argv) {
 
         if (swapchain_rebuild_count > 0) {
 
-            LOG_F(INFO, "Swapchain rebuilt (%u times).", swapchain_rebuild_count);
+            LOG_F(INFO, "Swapchain rebuilt (%" PRIuFAST32 " times).", swapchain_rebuild_count);
 
             // Before destroying resources, make sure they're not in use.
             result = vk_dev_procs.queueWaitIdle(queue_);
