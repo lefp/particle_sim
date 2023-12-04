@@ -413,8 +413,12 @@ static void* readEntireFile(const char* fname, size_t* size_out) {
     int result = fseek(file, 0, SEEK_END);
     assertErrno(result == 0);
 
-    long file_size = ftell(file);
-    assertErrno(file_size >= 0);
+    size_t file_size;
+    {
+        long size = ftell(file);
+        assertErrno(size >= 0);
+        file_size = (size_t)size;
+    }
 
     result = fseek(file, 0, SEEK_SET);
     assertErrno(result == 0);
@@ -927,14 +931,17 @@ static VkRect2D centeredSubregion_16x9(VkExtent2D image_extent) {
         extent.width = image_extent.width;
         extent.height = image_extent.width * 9 / 16;
         offset.x = 0;
-        offset.y = (image_extent.height - extent.height) / 2;
+        offset.y = ((i32)image_extent.height - (i32)extent.height) / 2;
     }
     else {
         extent.height = image_extent.height;
         extent.width = image_extent.height * 16 / 9;
         offset.y = 0;
-        offset.x = (image_extent.width - extent.width) / 2;
+        offset.x = ((i32)image_extent.width - (i32)extent.width) / 2;
     }
+
+    assert(offset.x >= 0);
+    assert(offset.y >= 0);
 
     return VkRect2D {
         .offset = offset,
@@ -1039,7 +1046,7 @@ int main(int argc, char** argv) {
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // don't initialize OpenGL, because we're using Vulkan
     GLFWwindow* window = glfwCreateWindow(
-        DEFAULT_WINDOW_EXTENT.width, DEFAULT_WINDOW_EXTENT.height, "an game", NULL, NULL
+        (int)DEFAULT_WINDOW_EXTENT.width, (int)DEFAULT_WINDOW_EXTENT.height, "an game", NULL, NULL
     );
     assertGlfw(window != NULL);
 
