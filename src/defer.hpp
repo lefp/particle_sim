@@ -11,7 +11,7 @@ template <typename F>
 struct _DeferStruct {
     F f;
 
-    _DeferStruct(F f) : f(f) {}
+    _DeferStruct(F ff) : f(ff) {}
     ~_DeferStruct() { f(); }
 };
 

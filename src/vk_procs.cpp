@@ -17,10 +17,12 @@ VulkanDeviceProcs vk_dev_procs {};
 //
 
 template <typename StructOfPointers>
-static bool allPointersNonNull(const StructOfPointers* s) {
+static bool allPointersNonNull(const StructOfPointers* struct_of_pointers) {
 
     constexpr u32fast ptr_count = sizeof(StructOfPointers) / sizeof(void*);
-    const void** ptrs = (const void**)s;
+
+    using ArrayOfPointers =  void const *const *const;
+    ArrayOfPointers ptrs = (ArrayOfPointers)struct_of_pointers;
 
     for (u32fast i = 0; i < ptr_count; i++) if (ptrs[i] == NULL) return false;
     return true;

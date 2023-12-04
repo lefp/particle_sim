@@ -15,6 +15,8 @@
 #pragma GCC diagnostic ignored "-Wunknown-pragmas"
 #pragma GCC diagnostic ignored "-Wunused-macros"
 #pragma GCC diagnostic ignored "-Wzero-as-null-pointer-constant"
+// NOTE(peterlef): I added this line
+#pragma GCC diagnostic ignored "-Wmissing-declarations"
 #elif defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable:4365) // conversion from 'X' to 'Y', signed/unsigned mismatch

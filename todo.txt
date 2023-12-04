@@ -1,3 +1,0 @@
-- [ ] Enable many warnings, including:
-    - [ ] Unused return values
-- [ ] -Werror

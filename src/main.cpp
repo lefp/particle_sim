@@ -41,7 +41,7 @@ const u32 INVALID_PHYSICAL_DEVICE_IDX = UINT32_MAX;
 const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
 
 const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 };
-const f32 ASPECT_RATIO = 16.0 / 9.0;
+const f32 ASPECT_RATIO = (f32) (16.0 / 9.0);
 
 //
 // Global variables ==========================================================================================
@@ -85,7 +85,7 @@ struct PhysicalDeviceTypePriorities {
         // We use the PhysicalDeviceType enum as an index.
 
         alwaysAssert(0 <= type && type <= 4);
-        const u8* priorities = (u8*)this;
+        const u8* priorities = (const u8*)this;
         return priorities[type];
     }
 };
@@ -98,7 +98,7 @@ struct VoxelPipelineVertexShaderPushConstants {
 // ===========================================================================================================
 //
 
-void _assertGlfw(bool condition, const char* file, int line) {
+static void _assertGlfw(bool condition, const char* file, int line) {
 
     if (condition) return;
 
@@ -115,7 +115,7 @@ void _assertGlfw(bool condition, const char* file, int line) {
 #define assertGlfw(condition) _assertGlfw(condition, __FILE__, __LINE__)
 
 
-void _abortIfGlfwError(const char* file, int line) {
+static void _abortIfGlfwError(const char* file, int line) {
 
     const char* err_description = NULL;
     int err_id = glfwGetError(&err_description);
@@ -130,7 +130,7 @@ void _abortIfGlfwError(const char* file, int line) {
 #define abortIfGlfwError() _abortIfGlfwError(__FILE__, __LINE__)
 
 
-void _assertVk(VkResult result, const char* file, int line) {
+static void _assertVk(VkResult result, const char* file, int line) {
 
     if (result == VK_SUCCESS) return;
 
@@ -143,20 +143,20 @@ void _assertVk(VkResult result, const char* file, int line) {
 #define assertVk(result) _assertVk(result, __FILE__, __LINE__)
 
 
-bool flagsSubset(VkQueueFlags subset, VkQueueFlags superset) {
+static bool flagsSubset(VkQueueFlags subset, VkQueueFlags superset) {
     return (subset & superset) == subset;
 }
 
 
 /// If no satisfactory family found, returns `QUEUE_FAMILY_NOT_FOUND`.
-u32 firstSatisfactoryQueueFamily(
+static u32 firstSatisfactoryQueueFamily(
       VkInstance instance,
       VkPhysicalDevice device,
       u32 family_count,
       const VkQueueFamilyProperties* family_properties_list,
       const QueueFamilyRequirements* requirements
 ) {
-    for (u32fast fam_idx = 0; fam_idx < family_count; fam_idx++) {
+    for (u32 fam_idx = 0; fam_idx < family_count; fam_idx++) {
 
         VkQueueFamilyProperties fam_props = family_properties_list[fam_idx];
         if (!flagsSubset(requirements->required_queue_flags, fam_props.queueFlags)) continue;
@@ -184,7 +184,7 @@ u32 firstSatisfactoryQueueFamily(
 ///     0 means "do not use".
 ///     A higher number indicates greater priority.
 /// Returns the index of the selected device.
-void selectPhysicalDeviceAndQueueFamily(
+static void selectPhysicalDeviceAndQueueFamily(
     VkInstance instance,
     u32* device_idx_out,
     u32* queue_family_out,
@@ -241,7 +241,7 @@ void selectPhysicalDeviceAndQueueFamily(
 
 /// If `specific_device_request` isn't NULL, attempts to select a device with that name.
 /// If no such device exists or doesn't satisfactory requirements, silently selects a different device.
-void initGraphicsUptoQueueCreation(const char* specific_named_device_request) {
+static void initGraphicsUptoQueueCreation(const char* specific_named_device_request) {
 
     if (!glfwVulkanSupported()) ABORT_F("Failed to find Vulkan; do you need to install drivers?");
     auto vkCreateInstance = (PFN_vkCreateInstance)glfwGetInstanceProcAddress(NULL, "vkCreateInstance");
@@ -400,7 +400,7 @@ void initGraphicsUptoQueueCreation(const char* specific_named_device_request) {
 
 /// You own the returned buffer. You may free it using `free()`.
 /// On error, either aborts or returns `NULL`.
-void* readEntireFile(const char* fname, size_t* size_out) {
+static void* readEntireFile(const char* fname, size_t* size_out) {
     // TODO: Maybe using `open()`, `fstat()`, and `read()` would be faster; because we don't need buffered
     // input, and maybe using `fseek()` to get the file size is unnecessarily slow.
 
@@ -435,7 +435,7 @@ void* readEntireFile(const char* fname, size_t* size_out) {
 }
 
 
-VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, VkDevice device) {
+static VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, VkDevice device) {
 
     size_t spirv_size_bytes = 0;
     void* spirv_buffer = readEntireFile(spirv_fname, &spirv_size_bytes);
@@ -460,7 +460,7 @@ VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, VkDevice
 };
 
 
-VkRenderPass createSimpleRenderPass(VkDevice device) {
+static VkRenderPass createSimpleRenderPass(VkDevice device) {
     constexpr u32 attachment_count = 1;
     const VkAttachmentDescription attachment_descriptions[attachment_count] {
         {
@@ -516,7 +516,7 @@ VkRenderPass createSimpleRenderPass(VkDevice device) {
 }
 
 
-VkPipeline createVoxelPipeline(
+static VkPipeline createVoxelPipeline(
     VkDevice device,
     VkRenderPass render_pass,
     u32 subpass,
@@ -714,7 +714,7 @@ VkPipeline createVoxelPipeline(
 /// Doesn't destroy `old_swapchain`; simply retires it. You are responsible for destroying it.
 /// `old_swapchain` may be `VK_NULL_HANDLE`.
 /// `extent_out` must not be NULL.
-VkSwapchainKHR createSwapchain(
+static VkSwapchainKHR createSwapchain(
      VkPhysicalDevice physical_device,
      VkDevice device,
      VkSurfaceKHR surface,
@@ -770,7 +770,6 @@ VkSwapchainKHR createSwapchain(
         LOG_F(INFO, "Surface currentExtent is (0xFFFFFFFF, 0xFFFFFFFF); using fallback extent.");
 
         const VkExtent2D min_extent = surface_capabilities.minImageExtent;
-        const VkExtent2D max_extent = surface_capabilities.maxImageExtent;
 
         extent.width = math::clamp(fallback_extent.width, min_extent.width, max_extent.width);
         extent.height = math::clamp(fallback_extent.height, min_extent.height, max_extent.height);
@@ -817,7 +816,7 @@ VkSwapchainKHR createSwapchain(
 
 /// Writes at most `max_image_count` to `images_out`.
 /// Returns the actual number of images in the swapchain.
-u32 getSwapchainImages(
+static u32 getSwapchainImages(
     VkDevice device,
     VkSwapchainKHR swapchain,
     u32 max_image_count,
@@ -840,7 +839,7 @@ u32 getSwapchainImages(
 
 
 /// Returns whether it succeeded.
-bool createImageViewsForSwapchain(
+static bool createImageViewsForSwapchain(
     VkDevice device,
     u32fast image_count,
     const VkImage* swapchain_images,
@@ -885,7 +884,7 @@ bool createImageViewsForSwapchain(
 
 
 /// Returns whether it succeeded.
-bool createFramebuffersForSwapchain(
+static bool createFramebuffersForSwapchain(
     VkDevice device,
     VkRenderPass render_pass,
     VkExtent2D swapchain_extent,
@@ -918,7 +917,7 @@ bool createFramebuffersForSwapchain(
 
 
 /// Returns a 16:9 subregion centered in an image, which maximizes the subregion's area.
-VkRect2D centeredSubregion_16x9(VkExtent2D image_extent) {
+static VkRect2D centeredSubregion_16x9(VkExtent2D image_extent) {
 
     const bool limiting_dim_is_x = image_extent.width * 9 <= image_extent.height * 16;
 
@@ -945,7 +944,7 @@ VkRect2D centeredSubregion_16x9(VkExtent2D image_extent) {
 
 
 /// Returns `true` if successful.
-bool recordVoxelCommandBuffer(
+static bool recordVoxelCommandBuffer(
     VkCommandBuffer command_buffer,
     VkRenderPass render_pass,
     VkPipeline pipeline,
@@ -1007,8 +1006,10 @@ bool recordVoxelCommandBuffer(
 }
 
 
+// TODO remove
+/*
 /// Inputs must be unit vectors.
-f32 angleBetweenUnitVectors(vec3 src_vec, vec3 dst_vec) {
+static f32 angleBetweenUnitVectors(vec3 src_vec, vec3 dst_vec) {
 
     assert(fabs(glm::length(src_vec) - 1.0f) < 1e-5);
     assert(fabs(glm::length(dst_vec) - 1.0f) < 1e-5);
@@ -1020,10 +1021,11 @@ f32 angleBetweenUnitVectors(vec3 src_vec, vec3 dst_vec) {
     // Make sure it doesn't fall out of acos's domain due to floating point error.
     dot_prod = glm::clamp(dot_prod, -1.0f, 1.0f);
 
-    f32 angle = acos(dot_prod);
+    f32 angle = acosf(dot_prod);
 
     return angle;
 }
+*/
 
 
 // TODO remove

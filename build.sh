@@ -5,9 +5,14 @@ ls src | grep -E '\.(vert|frag|comp)$' | while IFS= read -r src_file ; do
 done
 
 g++ \
+  -Werror -Wall -Wextra \
+  -Walloc-zero -Wcast-qual -Wconversion -Wduplicated-branches -Wduplicated-cond -Wfloat-equal -Wformat=2 \
+  -Wformat-signedness -Winit-self -Wlogical-op -Wmissing-declarations -Wshadow -Wswitch-default -Wundef \
+  -Wunused-result -Wwrite-strings \
+  -Wno-missing-field-initializers \
   $(pkg-config --cflags glfw3) \
   $(pkg-config --static --libs glfw3) \
-  -I libs \
+  -isystem libs \
   -g3 \
   -o build/test \
   libs/loguru/loguru.cpp \
