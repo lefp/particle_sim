@@ -1,0 +1,3 @@
+- [ ] Camera controls (WASD, mouse, shift, space, etc)
+- [ ] Draw grid (maybe in XY, XZ, YZ planes; or just XY plane)
+- [ ] Draw outlines on cubes
