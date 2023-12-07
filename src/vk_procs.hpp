@@ -41,6 +41,7 @@ struct VulkanDeviceProcs {
     PFN_vkCreateSwapchainKHR createSwapchainKHR;
     PFN_vkDestroyFramebuffer destroyFramebuffer;
     PFN_vkDestroyImageView destroyImageView;
+    PFN_vkDestroySemaphore destroySemaphore;
     PFN_vkDestroyShaderModule destroyShaderModule;
     PFN_vkDestroySwapchainKHR destroySwapchainKHR;
     PFN_vkEndCommandBuffer endCommandBuffer;
