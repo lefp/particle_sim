@@ -11,7 +11,7 @@ struct SurfaceResources {
     void* impl;
 };
 
-enum class GraphicsResult {
+enum class [[nodiscard]] GraphicsResult {
     success,
     error_window_size_zero,
     error_surface_resources_out_of_date,

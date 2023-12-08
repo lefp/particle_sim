@@ -1072,11 +1072,9 @@ extern void init(const char* app_name, const char* specific_named_device_request
     );
     alwaysAssert(pipeline != VK_NULL_HANDLE);
     pipelines_.voxel_pipeline = pipeline;
-
 }
 
 
-[[nodiscard]]
 extern GraphicsResult createSurfaceResources(
     VkSurfaceKHR surface,
     VkExtent2D fallback_window_size,
