@@ -1209,6 +1209,7 @@ static void configureForRenderPass(SurfaceResourcesImpl* p_surface_resources, Vk
     alwaysAssert(success);
 }
 
+
 extern GraphicsResult updateSurfaceResources(
     SurfaceResources surface_resources,
     VkExtent2D fallback_window_size
@@ -1290,4 +1291,6 @@ extern GraphicsResult updateSurfaceResources(
     }
 
     return GraphicsResult::success;
-};
+}
+
+
