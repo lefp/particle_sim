@@ -1284,7 +1284,9 @@ extern GraphicsResult updateSurfaceResources(
         VkSemaphore* im_acquired_semaphores = p_surface_resources->swapchain_image_acquired_semaphores;
         for (u32fast im_idx = 0; im_idx < new_image_count; im_idx++) {
             VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-            vk_dev_procs.createSemaphore(device_, &semaphore_info, NULL, &im_acquired_semaphores[im_idx]);
+            VkResult result =
+                vk_dev_procs.createSemaphore(device_, &semaphore_info, NULL, &im_acquired_semaphores[im_idx]);
+            assertVk(result);
         }
     }
 
