@@ -7,7 +7,7 @@ done
 g++ \
   -Werror -Wall -Wextra \
   -Walloc-zero -Wcast-qual -Wconversion -Wduplicated-branches -Wduplicated-cond -Wfloat-equal -Wformat=2 \
-  -Wformat-signedness -Winit-self -Wlogical-op -Wmissing-declarations -Wshadow -Wswitch-default -Wundef \
+  -Wformat-signedness -Winit-self -Wlogical-op -Wmissing-declarations -Wshadow -Wswitch -Wundef \
   -Wunused-result -Wwrite-strings -Wsign-conversion \
   -Wno-missing-field-initializers \
   $(pkg-config --cflags glfw3) \

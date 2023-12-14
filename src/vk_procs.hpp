@@ -39,13 +39,16 @@ struct VulkanDeviceProcs {
     PFN_vkCreateSemaphore createSemaphore;
     PFN_vkCreateShaderModule createShaderModule;
     PFN_vkCreateSwapchainKHR createSwapchainKHR;
+    PFN_vkDestroyFence destroyFence;
     PFN_vkDestroyFramebuffer destroyFramebuffer;
     PFN_vkDestroyImageView destroyImageView;
     PFN_vkDestroySemaphore destroySemaphore;
     PFN_vkDestroyShaderModule destroyShaderModule;
     PFN_vkDestroySwapchainKHR destroySwapchainKHR;
     PFN_vkEndCommandBuffer endCommandBuffer;
+    PFN_vkFreeCommandBuffers freeCommandBuffers;
     PFN_vkGetDeviceQueue getDeviceQueue;
+    PFN_vkGetFenceStatus getFenceStatus;
     PFN_vkGetSwapchainImagesKHR getSwapchainImagesKHR;
     PFN_vkQueuePresentKHR queuePresentKHR;
     PFN_vkQueueSubmit queueSubmit;

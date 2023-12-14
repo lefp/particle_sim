@@ -27,6 +27,8 @@
 #include "math_util.hpp"
 #include "graphics.hpp"
 
+namespace graphics {
+
 using glm::mat4;
 using glm::vec2;
 using glm::vec3;
@@ -40,14 +42,13 @@ using glm::vec4;
 #define SWAPCHAIN_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define SWAPCHAIN_COLOR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
 
-// Use to represent an invalid queue family; can't use -1 (because unsigned) or 0 (because it's valid).
+// Invalid values for unsigned types, where you can't use -1 and `0` could be valid.
 const u32 INVALID_QUEUE_FAMILY_IDX = UINT32_MAX;
 const u32 INVALID_PHYSICAL_DEVICE_IDX = UINT32_MAX;
+const u32 INVALID_SWAPCHAIN_IMAGE_IDX = UINT32_MAX;
 
 // Use to statically allocate arrays for swapchain images, image views, and framebuffers.
 const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
-
-const f32 ASPECT_RATIO = (f32) (16.0 / 9.0);
 
 //
 // Global variables ==========================================================================================
@@ -59,6 +60,8 @@ static VkPhysicalDeviceProperties physical_device_properties_;
 static u32 queue_family_ = INVALID_QUEUE_FAMILY_IDX;
 static VkDevice device_ = VK_NULL_HANDLE;
 static VkQueue queue_ = VK_NULL_HANDLE;
+
+static VkRenderPass simple_render_pass_ = VK_NULL_HANDLE;
 
 static struct {
     VkPipeline voxel_pipeline = VK_NULL_HANDLE;
@@ -105,6 +108,22 @@ struct FramebufferSet {
     VkFramebuffer framebuffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
 };
 
+struct RenderResourcesImpl {
+    struct StuffThatIsPerSwapchainImage {
+        VkCommandBuffer command_buffer;
+        VkFramebuffer framebuffer;
+        VkSemaphore render_finished_semaphore;
+        VkFence command_buffer_pending_fence;
+    };
+
+    // This is only initialized when attached to a swapchain; otherwise it is NULL.
+    // It's an array; the `count` parameter should be stored with whatever swapchain we are attached to.
+    StuffThatIsPerSwapchainImage* per_image_stuff_array;
+
+    VkRenderPass render_pass;
+    VkCommandPool command_pool;
+};
+
 struct SurfaceResourcesImpl {
 
     VkSurfaceKHR surface;
@@ -113,10 +132,11 @@ struct SurfaceResourcesImpl {
     VkImageView swapchain_image_views[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
     VkSemaphore swapchain_image_acquired_semaphores[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
 
-    ArrayList<FramebufferSet> associated_framebuffer_sets;
-
-    u32 swapchain_image_count;
     VkExtent2D swapchain_extent;
+    u32 swapchain_image_count;
+    u32 last_used_swapchain_image_acquired_semaphore_idx;
+
+    RenderResourcesImpl* attached_render_resources; // can be NULL if nothing is attached
 };
 
 //
@@ -201,9 +221,9 @@ static void _assertVk(VkResult result, const char* file, int line) {
 #define assertVk(result) _assertVk(result, __FILE__, __LINE__)
 
 
-static void _assertGraphics(GraphicsResult result, const char* file, int line) {
+static void _assertGraphics(Result result, const char* file, int line) {
 
-    if (result == GraphicsResult::success) return;
+    if (result == Result::success) return;
 
     ABORT_F("GraphicsResult is %i, file `%s`, line %i", (int)result, file, line);
 }
@@ -435,7 +455,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
 /// You own the returned buffer. You may free it using `free()`.
 /// On error, either aborts or returns `NULL`.
 static void* readEntireFile(const char* fname, size_t* size_out) {
-    // TODO: Maybe using `open()`, `fstat()`, and `read()` would be faster; because we don't need buffered
+    // OPTIMIZE: Maybe using `open()`, `fstat()`, and `read()` would be faster; because we don't need buffered
     // input, and maybe using `fseek()` to get the file size is unnecessarily slow.
 
     FILE* file = fopen(fname, "r");
@@ -752,7 +772,7 @@ static VkPipeline createVoxelPipeline(
 /// Doesn't destroy `old_swapchain`; simply retires it. You are responsible for destroying it.
 /// `old_swapchain` may be `VK_NULL_HANDLE`.
 /// `swapchain_out` and `extent_out` must not be NULL.
-static GraphicsResult createSwapchain(
+static Result createSwapchain(
      VkPhysicalDevice physical_device,
      VkDevice device,
      VkSurfaceKHR surface,
@@ -797,7 +817,7 @@ static GraphicsResult createSwapchain(
     const VkExtent2D max_extent = surface_capabilities.maxImageExtent;
     if (max_extent.width == 0 or max_extent.height == 0) {
         LOG_F(INFO, "Aborting swapchain build: SurfaceCapabilities::maxImageExtent contains a 0.");
-        return GraphicsResult::error_window_size_zero;
+        return Result::error_window_size_zero;
     }
 
     VkExtent2D extent = surface_capabilities.currentExtent;
@@ -810,7 +830,7 @@ static GraphicsResult createSwapchain(
         LOG_F(INFO, "Surface currentExtent is (0xFFFFFFFF, 0xFFFFFFFF); using fallback extent.");
         if (fallback_extent.width == 0 or fallback_extent.height == 0) {
             LOG_F(INFO, "Aborting swapchain build: `fallback_extent` contains a 0.");
-            return GraphicsResult::error_window_size_zero;
+            return Result::error_window_size_zero;
         }
 
         const VkExtent2D min_extent = surface_capabilities.minImageExtent;
@@ -855,7 +875,7 @@ static GraphicsResult createSwapchain(
     LOG_F(INFO, "Built swapchain.");
     *swapchain_out = swapchain;
     *extent_out = extent;
-    return GraphicsResult::success;
+    return Result::success;
 }
 
 
@@ -928,6 +948,8 @@ static bool createImageViewsForSwapchain(
 }
 
 
+// TODO remove
+/*
 /// Returns whether it succeeded.
 static bool createFramebuffersForSwapchain(
     VkDevice device,
@@ -959,6 +981,7 @@ static bool createFramebuffersForSwapchain(
 
     return true;
 }
+*/
 
 
 /// Returns a 16:9 subregion centered in an image, which maximizes the subregion's area.
@@ -1065,6 +1088,8 @@ extern void init(const char* app_name, const char* specific_named_device_request
 
     VkRenderPass render_pass = createSimpleRenderPass(device_);
     alwaysAssert(render_pass != VK_NULL_HANDLE);
+    simple_render_pass_ = render_pass;
+
 
     const u32 subpass = 0;
     VkPipeline pipeline = createVoxelPipeline(
@@ -1075,45 +1100,38 @@ extern void init(const char* app_name, const char* specific_named_device_request
 }
 
 
-extern GraphicsResult createSurfaceResources(
+extern Result createSurfaceResources(
     VkSurfaceKHR surface,
     VkExtent2D fallback_window_size,
     SurfaceResources* surface_resources_out
 ) {
 
-    SurfaceResourcesImpl* p_resources = (SurfaceResourcesImpl*)malloc(sizeof(SurfaceResourcesImpl));
+    SurfaceResourcesImpl* p_resources = (SurfaceResourcesImpl*)calloc(1, sizeof(SurfaceResourcesImpl));
     assertErrno(p_resources != NULL);
 
 
     p_resources->surface = surface;
+    p_resources->attached_render_resources = NULL;
+    p_resources->last_used_swapchain_image_acquired_semaphore_idx = 0;
 
 
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     VkExtent2D swapchain_extent {};
-    GraphicsResult res = createSwapchain(
+    Result res = createSwapchain(
         physical_device_, device_, surface, fallback_window_size, queue_family_, present_mode_,
         VK_NULL_HANDLE, // old_swapchain
         &swapchain, &swapchain_extent
     );
-    // TODO handle GraphicsResult::error_window_size_zero
+    if (res == Result::error_window_size_zero) {
+        free(p_resources);
+        return res;
+    };
     assertGraphics(res);
 
     p_resources->swapchain = swapchain;
     p_resources->swapchain_extent = swapchain_extent;
 
 
-    // TODO maybe shouldn't hardcode the aspect ratio here
-    VkRect2D swapchain_roi = centeredSubregion_16x9(swapchain_extent);
-
-    // TODO This stuff shouldn't be part of the SurfaceResources; manage them separately, put a reference to
-    // them in the SurfaceResources.
-    VkFramebuffer p_simple_render_pass_swapchain_framebuffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
-    VkCommandPool command_pool = VK_NULL_HANDLE;
-    VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
-    VkFence p_command_buffer_pending_fences[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
-
-    VkSemaphore p_render_finished_semaphores[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
-    VkSemaphore p_swapchain_image_acquired_semaphores[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT] {};
     u32 swapchain_image_count = 0;
     {
         swapchain_image_count = getSwapchainImages(
@@ -1130,54 +1148,11 @@ extern GraphicsResult createSurfaceResources(
         );
         alwaysAssert(success);
 
-        success = createFramebuffersForSwapchain(
-            device_, render_pass, swapchain_extent, swapchain_image_count, p_resources->swapchain_image_views,
-            p_simple_render_pass_swapchain_framebuffers
-        );
-        alwaysAssert(success);
-
-
-        const VkCommandPoolCreateInfo command_pool_info {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-            .queueFamilyIndex = queue_family_,
-        };
-
-        VkResult result = vk_dev_procs.createCommandPool(device_, &command_pool_info, NULL, &command_pool);
-        assertVk(result);
-
-        VkCommandBufferAllocateInfo command_buffer_alloc_info {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = command_pool,
-            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandBufferCount = swapchain_image_count,
-        };
-
-        result = vk_dev_procs.allocateCommandBuffers(device_, &command_buffer_alloc_info, p_command_buffers);
-        assertVk(result);
-
-
-        VkFenceCreateInfo fence_info {
-            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-            .flags = VK_FENCE_CREATE_SIGNALED_BIT,
-        };
-        for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
-            result = vk_dev_procs.createFence(
-                device_, &fence_info, NULL, &p_command_buffer_pending_fences[im_idx]
-            );
-            assertVk(result);
-        }
 
         VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
-            result = vk_dev_procs.createSemaphore(
-                device_, &semaphore_info, NULL, &p_render_finished_semaphores[im_idx]
-            );
-            assertVk(result);
-        }
-        for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
-            result = vk_dev_procs.createSemaphore(
-                device_, &semaphore_info, NULL, &p_swapchain_image_acquired_semaphores[im_idx]
+            VkResult result = vk_dev_procs.createSemaphore(
+                device_, &semaphore_info, NULL, &p_resources->swapchain_image_acquired_semaphores[im_idx]
             );
             assertVk(result);
         }
@@ -1185,30 +1160,152 @@ extern GraphicsResult createSurfaceResources(
 
 
     surface_resources_out->impl = p_resources;
-    return GraphicsResult::success;
+    return Result::success;
 }
 
 
-/// Declare that you will use `render_pass` to render to the surface.
-/// This sets up the necessary framebuffers for the surface and render pass.
-static void configureForRenderPass(SurfaceResourcesImpl* p_surface_resources, VkRenderPass render_pass) {
+/// `renderer` must not currently have any surface attached.
+/// `surface` must not currently have any renderer attached.
+extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources renderer) {
 
-    FramebufferSet* p_framebuffer_set = p_surface_resources->associated_framebuffer_sets.pushUninitialized();
-    p_framebuffer_set->render_pass = render_pass;
+    SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
+    RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)renderer.impl;
 
-    bool success = createFramebuffersForSwapchain(
-        device_,
-        render_pass,
-        p_surface_resources->swapchain_extent,
-        p_surface_resources->swapchain_image_count,
-        p_surface_resources->swapchain_image_views,
-        p_framebuffer_set->framebuffers
+    if (p_surface_resources->attached_render_resources != NULL)
+        ABORT_F("Attempt to attach surface to renderer, but surface is already attached to a renderer.");
+    p_surface_resources->attached_render_resources = p_render_resources;
+
+    u32 swapchain_image_count = p_surface_resources->swapchain_image_count;
+    alwaysAssert(0 < swapchain_image_count);
+    alwaysAssert(swapchain_image_count <= MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT);
+
+    // TODO Delete this. If it's not NULL, we just still have an allocated block. We shouldn't destroy any
+    // resources here because they should already have been destroyed when the user called detach() on the
+    // previous surface; and if they didn't call detach(), that's their mistake.
+    /*
+    if (p_render_resources->per_image_stuff_array != NULL) {
+
+        // Destroy out-of-date resources.
+
+        VkResult result = vk_dev_procs.queueWaitIdle(queue_);
+        assertVk(result);
+
+        RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff_array =
+            p_render_resources->per_image_stuff_array;
+
+        for (u32fast i = 0; i < swapchain_image_count; i++) {
+
+            vk_dev_procs.destroyFramebuffer(device_, per_image_stuff_array[i].framebuffer, NULL);
+
+            // Destroy semaphores because they may be in the signaled state, and we have no other way to
+            // reset them.
+            vk_dev_procs.destroySemaphore(device_, per_image_stuff_array[i].render_finished_semaphore, NULL);
+
+            // No need to destroy command_buffer_pending_fences; we want them to start signaled, and at this
+            // point we expect them to already be signaled; there's no reason to have reset them after they
+            // were last used.
+            // Just to be sure they're actually signalled:
+            assertVk(
+                vk_dev_procs.getFenceStatus(device_, per_image_stuff_array[i].command_buffer_pending_fence)
+            );
+        }
+    }
+    */
+
+    RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff_array = reallocArray(
+        p_render_resources->per_image_stuff_array, swapchain_image_count,
+        RenderResourcesImpl::StuffThatIsPerSwapchainImage
     );
-    alwaysAssert(success);
+    p_render_resources->per_image_stuff_array = per_image_stuff_array;
+
+    VkExtent2D swapchain_extent = p_surface_resources->swapchain_extent;
+
+
+    // We shouldn't actually have to allocate all the command buffers, because we shouldn't have had to free
+    // them when the previous surface was detached. We should only have to allocate new command buffers if
+    // this swapchain has more images than the previous one, or this is the first time we're allocating
+    // command buffers. But to keep things simple and avoid keeping track of those things, I'm sticking to
+    // just freeing and allocating all of them, until I find that it's a performance problem.
+    VkCommandBufferAllocateInfo cmd_buf_alloc_info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = p_render_resources->command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = swapchain_image_count,
+    };
+    VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
+    VkResult result = vk_dev_procs.allocateCommandBuffers(device_, &cmd_buf_alloc_info, p_command_buffers);
+    assertVk(result);
+
+    for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
+
+        per_image_stuff_array[im_idx].command_buffer = p_command_buffers[im_idx];
+
+        const VkFramebufferCreateInfo framebuffer_info {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = p_render_resources->render_pass,
+            .attachmentCount = 1,
+            .pAttachments = &p_surface_resources->swapchain_image_views[im_idx],
+            .width = swapchain_extent.width,
+            .height = swapchain_extent.height,
+            .layers = 1,
+        };
+        VkFramebuffer* p_framebuffer = &per_image_stuff_array[im_idx].framebuffer;
+        result = vk_dev_procs.createFramebuffer(device_, &framebuffer_info, NULL, p_framebuffer);
+        assertVk(result);
+
+        const VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        VkSemaphore* p_semaphore = &per_image_stuff_array[im_idx].render_finished_semaphore;
+        result = vk_dev_procs.createSemaphore(device_, &semaphore_info, NULL, p_semaphore);
+        assertVk(result);
+
+        // In theory, we shouldn't _have_ to create all the fences because we shouldn't have needed to destroy
+        // them when the previous surface was detached; although it's possible this is the first time a
+        // surface is being attached. The number of swapchain images may also have changed. For simplicity,
+        // I'm sticking to just destroying and creating all of them, until I find that it's a performance
+        // problem.
+        const VkFenceCreateInfo fence_info {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+        };
+        VkFence* p_fence = &per_image_stuff_array[im_idx].command_buffer_pending_fence;
+        result = vk_dev_procs.createFence(device_, &fence_info, NULL, p_fence);
+        assertVk(result);
+    }
+}
+
+extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources renderer) {
+
+    SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
+    RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)renderer.impl;
+
+    alwaysAssert(p_surface_resources->attached_render_resources == p_render_resources);
+    p_surface_resources->attached_render_resources = NULL;
+
+
+    u32 swapchain_image_count = p_surface_resources->swapchain_image_count;
+    RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff_array =
+        p_render_resources->per_image_stuff_array;
+
+
+    VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
+
+    for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
+        // We shouldn't actually need to destroy the fences, but doing so anyway for simplicity.
+        vk_dev_procs.destroyFence(device_, per_image_stuff_array[im_idx].command_buffer_pending_fence, NULL);
+        vk_dev_procs.destroySemaphore(device_, per_image_stuff_array[im_idx].render_finished_semaphore, NULL);
+        vk_dev_procs.destroyFramebuffer(device_, per_image_stuff_array[im_idx].framebuffer, NULL);
+        p_command_buffers[im_idx] = per_image_stuff_array[im_idx].command_buffer;
+    }
+
+    // We shouldn't actually need to free the command buffers, but doing so anyway for simplicity.
+    vk_dev_procs.freeCommandBuffers(
+        device_, p_render_resources->command_pool, swapchain_image_count, p_command_buffers
+    );
 }
 
 
-extern GraphicsResult updateSurfaceResources(
+/// Use if a window resize has caused the resources to be out-of-date.
+extern Result updateSurfaceResources(
     SurfaceResources surface_resources,
     VkExtent2D fallback_window_size
 ) {
@@ -1218,11 +1315,11 @@ extern GraphicsResult updateSurfaceResources(
     u32fast old_image_count = p_surface_resources->swapchain_image_count;
     VkSwapchainKHR old_swapchain = p_surface_resources->swapchain;
 
-    GraphicsResult res = createSwapchain(
+    Result res = createSwapchain(
         physical_device_, device_, p_surface_resources->surface, fallback_window_size, queue_family_,
         present_mode_, old_swapchain, &p_surface_resources->swapchain, &p_surface_resources->swapchain_extent
     );
-    if (res == GraphicsResult::error_window_size_zero) return res;
+    if (res == Result::error_window_size_zero) return res;
     else assertGraphics(res);
 
     // Destory out-of-date resources.
@@ -1233,12 +1330,6 @@ extern GraphicsResult updateSurfaceResources(
 
 
         vk_dev_procs.destroySwapchainKHR(device_, old_swapchain, NULL);
-
-        FramebufferSet* framebuffer_sets = p_surface_resources->associated_framebuffer_sets.ptr;
-        u32fast framebuffer_set_count = p_surface_resources->associated_framebuffer_sets.size;
-        for (u32fast set_idx = 0; set_idx < framebuffer_set_count; set_idx++)
-            for (u32fast im_idx = 0; im_idx < old_image_count; im_idx++)
-                vk_dev_procs.destroyFramebuffer(device_, framebuffer_sets[set_idx].framebuffers[im_idx], NULL);
 
         VkImageView* image_views = p_surface_resources->swapchain_image_views;
         for (u32fast im_idx = 0; im_idx < old_image_count; im_idx++)
@@ -1271,16 +1362,6 @@ extern GraphicsResult updateSurfaceResources(
         );
         alwaysAssert(success);
 
-        FramebufferSet* framebuffer_sets = p_surface_resources->associated_framebuffer_sets.ptr;
-        u32fast framebuffer_set_count = p_surface_resources->associated_framebuffer_sets.size;
-        for (u32fast set_idx = 0; set_idx < framebuffer_set_count; set_idx++) {
-            success = createFramebuffersForSwapchain(
-                device_, framebuffer_sets[set_idx].render_pass, p_surface_resources->swapchain_extent,
-                new_image_count, p_swapchain_image_views, framebuffer_sets[set_idx].framebuffers
-            );
-            alwaysAssert(success);
-        }
-
         VkSemaphore* im_acquired_semaphores = p_surface_resources->swapchain_image_acquired_semaphores;
         for (u32fast im_idx = 0; im_idx < new_image_count; im_idx++) {
             VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -1288,9 +1369,166 @@ extern GraphicsResult updateSurfaceResources(
                 vk_dev_procs.createSemaphore(device_, &semaphore_info, NULL, &im_acquired_semaphores[im_idx]);
             assertVk(result);
         }
+        p_surface_resources->last_used_swapchain_image_acquired_semaphore_idx = 0;
     }
 
-    return GraphicsResult::success;
+    RenderResourcesImpl* p_render_resources = p_surface_resources->attached_render_resources;
+    if (p_render_resources != NULL) { // a renderer is attached
+        // OPTIMIZE: defaulted to nuclear option here; consider whether we want to do this more efficiently.
+        detachSurfaceFromRenderer(surface_resources, RenderResources { .impl = p_render_resources });
+        attachSurfaceToRenderer(surface_resources, RenderResources { .impl = p_render_resources });
+    }
+
+    return Result::success;
 }
 
+
+extern Result createVoxelRenderer(RenderResources* render_resources_out) {
+
+    RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)calloc(1, sizeof(RenderResourcesImpl));
+    assertErrno(p_render_resources != NULL);
+
+    p_render_resources->per_image_stuff_array = NULL;
+    p_render_resources->render_pass = simple_render_pass_;
+
+
+    const VkCommandPoolCreateInfo command_pool_info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = queue_family_,
+    };
+
+    VkResult result = vk_dev_procs.createCommandPool(
+        device_, &command_pool_info, NULL, &p_render_resources->command_pool
+    );
+    assertVk(result);
+
+
+    render_resources_out->impl = p_render_resources;
+    return Result::success;
+}
+
+
+RenderResult render(SurfaceResources surface, const mat4* transform) {
+
+    VkResult result;
+
+    SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
+    RenderResourcesImpl* p_render_resources = p_surface_resources->attached_render_resources;
+
+    if (p_render_resources == NULL) ABORT_F("render(): Surface is not attached to a renderer.");
+
+
+    u32 acquired_swapchain_image_idx = INVALID_SWAPCHAIN_IMAGE_IDX;
+    VkSemaphore swapchain_image_acquired_semaphore = VK_NULL_HANDLE;
+    {
+        u32 im_acquired_semaphore_idx =
+            (p_surface_resources->last_used_swapchain_image_acquired_semaphore_idx + 1)
+            % p_surface_resources->swapchain_image_count;
+
+        swapchain_image_acquired_semaphore =
+            p_surface_resources->swapchain_image_acquired_semaphores[im_acquired_semaphore_idx];
+
+        result = vk_dev_procs.acquireNextImageKHR(
+            device_,
+            p_surface_resources->swapchain,
+            UINT64_MAX,
+            swapchain_image_acquired_semaphore,
+            VK_NULL_HANDLE,
+            &acquired_swapchain_image_idx
+        );
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            LOG_F(INFO, "acquireNextImageKHR returned VK_ERROR_OUT_OF_DATE_KHR. `render()` returning early.");
+            return RenderResult::error_surface_resources_out_of_date;
+        }
+        else if (result == VK_SUBOPTIMAL_KHR) {} // do nothing; we'll handle it after vkQueuePresentKHR
+        else assertVk(result);
+
+        p_surface_resources->last_used_swapchain_image_acquired_semaphore_idx = im_acquired_semaphore_idx;
+    }
+
+
+    VkRect2D swapchain_roi = centeredSubregion_16x9(p_surface_resources->swapchain_extent);
+
+
+    RenderResourcesImpl::StuffThatIsPerSwapchainImage this_image_render_resources =
+        p_render_resources->per_image_stuff_array[acquired_swapchain_image_idx];
+
+
+    const VkFence command_buffer_pending_fence = this_image_render_resources.command_buffer_pending_fence;
+
+    result = vk_dev_procs.waitForFences(device_, 1, &command_buffer_pending_fence, VK_TRUE, UINT64_MAX);
+    assertVk(result);
+
+    result = vk_dev_procs.resetFences(device_, 1, &command_buffer_pending_fence);
+    assertVk(result);
+
+
+    VkCommandBuffer command_buffer = this_image_render_resources.command_buffer;
+
+    vk_dev_procs.resetCommandBuffer(command_buffer, 0);
+
+
+    VoxelPipelineVertexShaderPushConstants push_constants {
+        .transform = *transform // OPTIMIZE: you're copying 64 bytes here (mat4)
+    };
+
+    bool success = recordVoxelCommandBuffer(
+        command_buffer,
+        p_render_resources->render_pass,
+        pipelines_.voxel_pipeline, // TODO use p_render_resources ?
+        pipeline_layouts_.voxel_pipeline_layout, // TODO use p_render_resources ?
+        p_surface_resources->swapchain_extent,
+        swapchain_roi,
+        this_image_render_resources.framebuffer,
+        &push_constants
+    );
+    alwaysAssert(success);
+
+
+    const VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkSubmitInfo submit_info {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &swapchain_image_acquired_semaphore,
+        .pWaitDstStageMask = &wait_dst_stage_mask,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &command_buffer,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &this_image_render_resources.render_finished_semaphore,
+    };
+    result = vk_dev_procs.queueSubmit(queue_, 1, &submit_info, command_buffer_pending_fence);
+    assertVk(result);
+
+
+    VkPresentInfoKHR present_info {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &this_image_render_resources.render_finished_semaphore,
+        .swapchainCount = 1,
+        .pSwapchains = &p_surface_resources->swapchain,
+        .pImageIndices = &acquired_swapchain_image_idx,
+    };
+    result = vk_dev_procs.queuePresentKHR(queue_, &present_info);
+
+    switch (result) {
+        case VK_ERROR_OUT_OF_DATE_KHR: return RenderResult::error_surface_resources_out_of_date;
+        case VK_SUBOPTIMAL_KHR: return RenderResult::success_surface_resources_out_of_date;
+        default: assertVk(result);
+    }
+
+    return RenderResult::success;
+}
+
+
+extern VkInstance getVkInstance(void) {
+    return instance_;
+}
+
+//
+// ===========================================================================================================
+//
+
+} // namespace
 

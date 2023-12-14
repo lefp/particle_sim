@@ -65,12 +65,16 @@ void VulkanDeviceProcs::init(
     this->createSemaphore = (PFN_vkCreateSemaphore)getDeviceProcAddr(device, "vkCreateSemaphore");
     this->createShaderModule = (PFN_vkCreateShaderModule)getDeviceProcAddr(device, "vkCreateShaderModule");
     this->createSwapchainKHR = (PFN_vkCreateSwapchainKHR)getDeviceProcAddr(device, "vkCreateSwapchainKHR");
+    this->destroyFence = (PFN_vkDestroyFence)getDeviceProcAddr(device, "vkDestroyFence");
     this->destroyFramebuffer = (PFN_vkDestroyFramebuffer)getDeviceProcAddr(device, "vkDestroyFramebuffer");
     this->destroyImageView = (PFN_vkDestroyImageView)getDeviceProcAddr(device, "vkDestroyImageView");
+    this->destroySemaphore = (PFN_vkDestroySemaphore)getDeviceProcAddr(device, "vkDestroySemaphore");
     this->destroyShaderModule = (PFN_vkDestroyShaderModule)getDeviceProcAddr(device, "vkDestroyShaderModule");
     this->destroySwapchainKHR = (PFN_vkDestroySwapchainKHR)getDeviceProcAddr(device, "vkDestroySwapchainKHR");
     this->endCommandBuffer = (PFN_vkEndCommandBuffer)getDeviceProcAddr(device, "vkEndCommandBuffer");
+    this->freeCommandBuffers = (PFN_vkFreeCommandBuffers)getDeviceProcAddr(device, "vkFreeCommandBuffers");
     this->getDeviceQueue = (PFN_vkGetDeviceQueue)getDeviceProcAddr(device, "vkGetDeviceQueue");
+    this->getFenceStatus = (PFN_vkGetFenceStatus)getDeviceProcAddr(device, "vkGetFenceStatus");
     this->getSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)getDeviceProcAddr(device, "vkGetSwapchainImagesKHR");
     this->queuePresentKHR = (PFN_vkQueuePresentKHR)getDeviceProcAddr(device, "vkQueuePresentKHR");
     this->queueSubmit = (PFN_vkQueueSubmit)getDeviceProcAddr(device, "vkQueueSubmit");
