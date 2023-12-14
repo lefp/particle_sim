@@ -1171,8 +1171,11 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
     RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)renderer.impl;
 
-    if (p_surface_resources->attached_render_resources != NULL)
+    LOG_F(INFO, "Attaching surface %p to renderer %p", p_surface_resources, p_render_resources);
+
+    if (p_surface_resources->attached_render_resources != NULL) {
         ABORT_F("Attempt to attach surface to renderer, but surface is already attached to a renderer.");
+    }
     p_surface_resources->attached_render_resources = p_render_resources;
 
     u32 swapchain_image_count = p_surface_resources->swapchain_image_count;
