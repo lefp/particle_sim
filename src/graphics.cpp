@@ -1290,6 +1290,9 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
         p_render_resources->per_image_stuff_array;
 
 
+    VkResult result = vk_dev_procs.queueWaitIdle(queue_);
+    assertVk(result);
+
     VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
 
     for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
