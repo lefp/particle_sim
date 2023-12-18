@@ -32,6 +32,13 @@ const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 };
 const double ASPECT_RATIO = 16.0 / 9.0;
 
 //
+// Global variables ==========================================================================================
+//
+
+vec3 camera_pos_ { 0, 0, 0 };
+vec3 camera_direction_unit_ { 1, 0, 0 };
+
+//
 // ===========================================================================================================
 //
 
@@ -151,23 +158,36 @@ int main(int argc, char** argv) {
         if (glfwWindowShouldClose(window)) break;
 
 
+        vec3 camera_horizontal_left_direction_unit = vec3(
+            camera_direction_unit_.z,
+            0,
+            -camera_direction_unit_.x
+        );
+        vec3 camera_y_axis = vec3(0, 1, 0);
+
+        int w_key_state = glfwGetKey(window, GLFW_KEY_W);
+        int s_key_state = glfwGetKey(window, GLFW_KEY_S);
+        int a_key_state = glfwGetKey(window, GLFW_KEY_A);
+        int d_key_state = glfwGetKey(window, GLFW_KEY_D);
+        int space_key_state = glfwGetKey(window, GLFW_KEY_SPACE);
+        int lshift_key_state = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
+        abortIfGlfwError();
+
+        // TODO do the delta_t thing here
+        if (w_key_state == GLFW_PRESS) camera_pos_ += 0.01f * camera_direction_unit_;
+        if (s_key_state == GLFW_PRESS) camera_pos_ -= 0.01f * camera_direction_unit_;
+        if (a_key_state == GLFW_PRESS) camera_pos_ += 0.01f * camera_horizontal_left_direction_unit;
+        if (d_key_state == GLFW_PRESS) camera_pos_ -= 0.01f * camera_horizontal_left_direction_unit;
+        if (space_key_state == GLFW_PRESS) camera_pos_.y += 0.01f;
+        if (lshift_key_state == GLFW_PRESS) camera_pos_.y -= 0.01f;
+
+
         mat4 world_to_screen_transform = glm::identity<mat4>();
         {
-            f32 angle_radians = (f32) ( 2.0*M_PI * (1.0/150.0)*fmod((f64)frame_counter, 150.0) );
-            vec3 rotation_axis = glm::normalize(vec3(cos(angle_radians), sin(angle_radians), -cos(angle_radians)));
-
-            f32 camera_distance = 3;
-            vec3 camera_pos = camera_distance * glm::normalize(vec3(1, -1, 1));
-            {
-                mat4 rot_mat = glm::rotate(glm::identity<mat4>(), angle_radians, rotation_axis);
-                vec4 cam_pos = rot_mat * vec4(camera_pos, 1.0);
-                camera_pos = vec3(cam_pos); // drops 4th component
-            }
-
             mat4 world_to_camera_transform = glm::lookAt(
-                camera_pos, // eye
-                vec3(0, 0, 0), // position you're looking at
-                rotation_axis // "Normalized up vector, how the camera is oriented."
+                camera_pos_, // eye
+                camera_pos_ + camera_direction_unit_, // position you're looking at
+                camera_y_axis // "Normalized up vector, how the camera is oriented."
             );
             mat4 camera_to_clip_transform = glm::perspective(
                 (f32)(0.25*M_PI * ASPECT_RATIO), // fovy
