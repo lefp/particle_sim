@@ -793,7 +793,8 @@ static Result createSwapchain(
 
     // Vk spec 1.3.259, appendix VK_KHR_swapchain, issue 12: suggests using capabilities.minImageCount + 1
     // to guarantee that vkAcquireNextImageKHR is non-blocking when using Mailbox present mode.
-    // Idk what effect this has on FIFO present mode, but I'm assuming it doesn't hurt.
+    // In FIFO mode, I don't expect this to have any negative effect, as long as we don't render too many
+    // frames in advance (which would cause noticeable input latency).
     u32 min_image_count = surface_capabilities.minImageCount + 1;
     {
         u32 count_preclamp = min_image_count;
