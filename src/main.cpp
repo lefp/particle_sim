@@ -215,12 +215,12 @@ int main(int argc, char** argv) {
         abortIfGlfwError();
 
         // TODO do the delta_t thing here
-        if (w_key_state == GLFW_PRESS) camera_pos_ += 0.01f * camera_direction_unit_;
-        if (s_key_state == GLFW_PRESS) camera_pos_ -= 0.01f * camera_direction_unit_;
-        if (d_key_state == GLFW_PRESS) camera_pos_ += 0.01f * camera_horizontal_right_direction_unit;
-        if (a_key_state == GLFW_PRESS) camera_pos_ -= 0.01f * camera_horizontal_right_direction_unit;
-        if (space_key_state == GLFW_PRESS) camera_pos_.y += 0.01f;
-        if (lshift_key_state == GLFW_PRESS) camera_pos_.y -= 0.01f;
+        if (w_key_state == GLFW_PRESS) camera_pos_ += 0.03f * camera_direction_unit_;
+        if (s_key_state == GLFW_PRESS) camera_pos_ -= 0.03f * camera_direction_unit_;
+        if (d_key_state == GLFW_PRESS) camera_pos_ += 0.03f * camera_horizontal_right_direction_unit;
+        if (a_key_state == GLFW_PRESS) camera_pos_ -= 0.03f * camera_horizontal_right_direction_unit;
+        if (space_key_state == GLFW_PRESS) camera_pos_.y += 0.03f;
+        if (lshift_key_state == GLFW_PRESS) camera_pos_.y -= 0.03f;
 
 
         dvec2 prev_cursor_pos = cursor_pos_;
@@ -229,7 +229,7 @@ int main(int argc, char** argv) {
             vec2 delta_cursor_pos = cursor_pos_ - prev_cursor_pos;
             vec2 delta_cursor_in_camera_frame = flip_screenXY_to_cameraXY(delta_cursor_pos);
 
-            f32 angle_coef = 0.001f; // arbitrarily chosen
+            f32 angle_coef = 0.005f; // arbitrarily chosen
             vec2 delta_angles = angle_coef * delta_cursor_in_camera_frame;
 
             mat4 horizontal_rotation = glm::rotate(-delta_angles.x, vec3(0, 1, 0));
