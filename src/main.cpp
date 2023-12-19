@@ -9,6 +9,7 @@
 #include <loguru/loguru.hpp>
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
+#include <glm/gtx/rotate_vector.hpp>
 
 #include "types.hpp"
 #include "error_util.hpp"
@@ -16,10 +17,12 @@
 
 namespace gfx = graphics;
 
+using glm::mat3;
 using glm::mat4;
 using glm::vec2;
 using glm::vec3;
 using glm::vec4;
+using glm::dvec2;
 
 //
 // Global constants ==========================================================================================
@@ -37,6 +40,7 @@ const double ASPECT_RATIO = 16.0 / 9.0;
 
 vec3 camera_pos_ { 0, 0, 0 };
 vec3 camera_direction_unit_ { 1, 0, 0 };
+dvec2 cursor_pos_ { 0, 0 };
 
 //
 // ===========================================================================================================
@@ -96,6 +100,27 @@ static void _assertGraphics(gfx::Result result, const char* file, int line) {
 #define assertGraphics(result) _assertGraphics(result, __FILE__, __LINE__)
 
 
+static void checkedGlfwGetCursorPos(GLFWwindow* window, double* x_out, double* y_out) {
+
+    glfwGetCursorPos(window, x_out, y_out);
+
+
+    const char* err_description = NULL;
+    int err_code = glfwGetError(&err_description);
+    if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
+
+    if (err_code == GLFW_NO_ERROR) {}
+    // TODO maybe downgrade this from ERROR to INFO, if it's an expected occurence and is fine.
+    else if (err_code == GLFW_PLATFORM_ERROR) LOG_F(ERROR, "Failed to get cursor position: GLFW_PLATFORM_ERROR");
+    else ABORT_F("GLFW error %i, description: `%s`.", err_code, err_description);
+}
+
+
+static vec2 flip_screenXY_to_cameraXY(vec2 screen_coords) {
+    return vec2(screen_coords.x, -screen_coords.y);
+}
+
+
 int main(int argc, char** argv) {
 
     loguru::init(argc, argv);
@@ -124,6 +149,17 @@ int main(int argc, char** argv) {
     );
     assertGlfw(window != NULL);
 
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    abortIfGlfwError();
+
+    bool raw_mouse_motion_supported = glfwRawMouseMotionSupported();
+    abortIfGlfwError();
+    if (raw_mouse_motion_supported) {
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+        abortIfGlfwError();
+    }
+    else LOG_F(WARNING, "GLFW says that raw mouse motion is unsupported; not enabling.");
+
     VkSurfaceKHR vk_surface = VK_NULL_HANDLE;
     VkResult result = glfwCreateWindowSurface(gfx::getVkInstance(), window, NULL, &vk_surface);
     assertVk(result);
@@ -148,6 +184,7 @@ int main(int argc, char** argv) {
     gfx::attachSurfaceToRenderer(gfx_surface, gfx_renderer);
 
 
+    checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
     u32fast frame_counter = 0;
 
     while (true) {
@@ -158,12 +195,16 @@ int main(int argc, char** argv) {
         if (glfwWindowShouldClose(window)) break;
 
 
-        vec3 camera_horizontal_left_direction_unit = vec3(
-            camera_direction_unit_.z,
+        vec3 camera_horizontal_right_direction_unit = vec3(
+            -camera_direction_unit_.z,
             0,
-            -camera_direction_unit_.x
+            camera_direction_unit_.x
         );
-        vec3 camera_y_axis = vec3(0, 1, 0);
+        vec3 camera_y_axis = glm::rotate(
+            camera_direction_unit_,
+            (f32)(0.5*M_PI),
+            camera_horizontal_right_direction_unit
+        );
 
         int w_key_state = glfwGetKey(window, GLFW_KEY_W);
         int s_key_state = glfwGetKey(window, GLFW_KEY_S);
@@ -176,10 +217,27 @@ int main(int argc, char** argv) {
         // TODO do the delta_t thing here
         if (w_key_state == GLFW_PRESS) camera_pos_ += 0.01f * camera_direction_unit_;
         if (s_key_state == GLFW_PRESS) camera_pos_ -= 0.01f * camera_direction_unit_;
-        if (a_key_state == GLFW_PRESS) camera_pos_ += 0.01f * camera_horizontal_left_direction_unit;
-        if (d_key_state == GLFW_PRESS) camera_pos_ -= 0.01f * camera_horizontal_left_direction_unit;
+        if (d_key_state == GLFW_PRESS) camera_pos_ += 0.01f * camera_horizontal_right_direction_unit;
+        if (a_key_state == GLFW_PRESS) camera_pos_ -= 0.01f * camera_horizontal_right_direction_unit;
         if (space_key_state == GLFW_PRESS) camera_pos_.y += 0.01f;
         if (lshift_key_state == GLFW_PRESS) camera_pos_.y -= 0.01f;
+
+
+        dvec2 prev_cursor_pos = cursor_pos_;
+        checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
+        {
+            vec2 delta_cursor_pos = cursor_pos_ - prev_cursor_pos;
+            vec2 delta_cursor_in_camera_frame = flip_screenXY_to_cameraXY(delta_cursor_pos);
+
+            f32 angle_coef = 0.001f; // arbitrarily chosen
+            vec2 delta_angles = angle_coef * delta_cursor_in_camera_frame;
+
+            mat4 horizontal_rotation = glm::rotate(-delta_angles.x, vec3(0, 1, 0));
+            mat4 vertical_rotation = glm::rotate(delta_angles.y, camera_horizontal_right_direction_unit);
+
+            camera_direction_unit_ = mat3(horizontal_rotation) * camera_direction_unit_;
+            camera_direction_unit_ = mat3(vertical_rotation) * camera_direction_unit_;
+        }
 
 
         mat4 world_to_screen_transform = glm::identity<mat4>();
