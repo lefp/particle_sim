@@ -290,7 +290,7 @@ int main(int argc, char** argv) {
                 assertGraphics(res);
                 goto LABEL_RENDER_LOOP_START;
             }
-            case gfx::RenderResult::success: {}
+            case gfx::RenderResult::success: break;
         }
 
         frame_counter++;
