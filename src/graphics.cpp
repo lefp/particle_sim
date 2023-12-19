@@ -808,6 +808,7 @@ static Result createSwapchain(
             count_preclamp, min_image_count
         );
     }
+    LOG_F(INFO, "Will request minImageCount=%" PRIu32 " for swapchain creation.", min_image_count);
 
 
     // Vk spec 1.3.234:
@@ -872,7 +873,7 @@ static Result createSwapchain(
     result = vk_dev_procs.createSwapchainKHR(device, &swapchain_info, NULL, &swapchain);
     assertVk(result);
 
-    LOG_F(INFO, "Built swapchain.");
+    LOG_F(INFO, "Built swapchain %p.", swapchain);
     *swapchain_out = swapchain;
     *extent_out = extent;
     return Result::success;
@@ -899,6 +900,7 @@ static u32 getSwapchainImages(
         ABORT_F("Expected VkResult VK_INCOMPLETE (%i), got %i.", VK_INCOMPLETE, result);
     else assertVk(result);
 
+    LOG_F(INFO, "Got %" PRIu32 " images from swapchain %p.", swapchain_image_count, swapchain);
     return swapchain_image_count;
 }
 
