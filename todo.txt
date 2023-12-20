@@ -1,4 +1,4 @@
-- [ ] Camera controls (WASD, mouse, shift, space, etc)
+- [x] Camera controls (WASD, mouse, shift, space, etc)
 - [ ] Draw arbitrary(ish?) number of cubes
 - [ ] Draw grid (maybe in XY, XZ, YZ planes; or just XY plane)
 - [ ] Draw outlines on cubes
