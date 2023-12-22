@@ -217,11 +217,11 @@ int main(int argc, char** argv) {
         }
 
 
-        vec3 camera_horizontal_right_direction_unit = vec3(
+        vec3 camera_horizontal_right_direction_unit = glm::normalize(vec3(
             -camera_direction_unit_.z,
             0,
             camera_direction_unit_.x
-        );
+        ));
         vec3 camera_y_axis = glm::rotate(
             camera_direction_unit_,
             (f32)(0.5*M_PI),
