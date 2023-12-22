@@ -109,11 +109,6 @@ struct VoxelPipelineVertexShaderPushConstants {
     mat4 transform;
 };
 
-struct FramebufferSet {
-    VkRenderPass render_pass;
-    VkFramebuffer framebuffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
-};
-
 struct RenderResourcesImpl {
     struct StuffThatIsPerSwapchainImage {
         VkCommandBuffer command_buffer;
