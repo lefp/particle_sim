@@ -217,11 +217,16 @@ int main(int argc, char** argv) {
         }
 
 
-        vec3 camera_horizontal_right_direction_unit = glm::normalize(vec3(
-            -camera_direction_unit_.z,
+        vec3 camera_horizontal_direction_unit = glm::normalize(vec3(
+            camera_direction_unit_.x,
             0,
-            camera_direction_unit_.x
+            camera_direction_unit_.z
         ));
+        vec3 camera_horizontal_right_direction_unit = vec3(
+            -camera_horizontal_direction_unit.z,
+            0,
+            camera_horizontal_direction_unit.x
+        );
         vec3 camera_y_axis = glm::rotate(
             camera_direction_unit_,
             (f32)(0.5*M_PI),
@@ -237,8 +242,8 @@ int main(int argc, char** argv) {
         abortIfGlfwError();
 
         // TODO do the delta_t thing here
-        if (w_key_state == GLFW_PRESS) camera_pos_ += 0.03f * camera_direction_unit_;
-        if (s_key_state == GLFW_PRESS) camera_pos_ -= 0.03f * camera_direction_unit_;
+        if (w_key_state == GLFW_PRESS) camera_pos_ += 0.03f * camera_horizontal_direction_unit;
+        if (s_key_state == GLFW_PRESS) camera_pos_ -= 0.03f * camera_horizontal_direction_unit;
         if (d_key_state == GLFW_PRESS) camera_pos_ += 0.03f * camera_horizontal_right_direction_unit;
         if (a_key_state == GLFW_PRESS) camera_pos_ -= 0.03f * camera_horizontal_right_direction_unit;
         if (space_key_state == GLFW_PRESS) camera_pos_.y += 0.03f;
