@@ -23,6 +23,7 @@ using glm::vec2;
 using glm::vec3;
 using glm::vec4;
 using glm::dvec2;
+using glm::ivec2;
 
 //
 // Global constants ==========================================================================================
@@ -41,6 +42,9 @@ const double ASPECT_RATIO = 16.0 / 9.0;
 vec3 camera_pos_ { 0, 0, 0 };
 vec3 camera_direction_unit_ { 1, 0, 0 };
 dvec2 cursor_pos_ { 0, 0 };
+
+ivec2 window_size_ { 0, 0 };
+ivec2 window_pos_ { 0, 0 };
 
 //
 // ===========================================================================================================
@@ -164,9 +168,8 @@ int main(int argc, char** argv) {
     VkResult result = glfwCreateWindowSurface(gfx::getVkInstance(), window, NULL, &vk_surface);
     assertVk(result);
 
-    int current_window_width = 0;
-    int current_window_height = 0;
-    glfwGetWindowSize(window, &current_window_width, &current_window_height);
+    glfwGetWindowSize(window, &window_size_.x, &window_size_.y);
+    glfwGetWindowPos(window, &window_pos_.x, &window_pos_.y);
     abortIfGlfwError();
     // TODO if current_width == current_height == 0, check if window is minimized or something; if it is, do
     // something that doesn't waste resources
@@ -174,7 +177,7 @@ int main(int argc, char** argv) {
     gfx::SurfaceResources gfx_surface {};
     res = gfx::createSurfaceResources(
         vk_surface,
-        VkExtent2D { .width = (u32)current_window_width, .height = (u32)current_window_height },
+        VkExtent2D { .width = (u32)window_size_.x, .height = (u32)window_size_.y },
         &gfx_surface
     );
     // TODO handle error_window_size_zero
@@ -193,6 +196,25 @@ int main(int argc, char** argv) {
 
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) break;
+
+
+        ivec2 prev_window_pos = window_pos_;
+        glfwGetWindowPos(window, &window_pos_.x, &window_pos_.y);
+        abortIfGlfwError();
+        bool window_repositioned = prev_window_pos != window_pos_;
+
+        ivec2 prev_window_size = window_size_;
+        glfwGetWindowSize(window, &window_size_.x, &window_size_.y);
+        abortIfGlfwError();
+        bool window_resized = prev_window_size != window_size_;
+
+        if (window_resized) {
+            res = gfx::updateSurfaceResources(
+                gfx_surface,
+                VkExtent2D { (u32)window_size_.x, (u32)window_size_.y }
+            );
+            assertGraphics(res);
+        }
 
 
         vec3 camera_horizontal_right_direction_unit = vec3(
@@ -225,6 +247,12 @@ int main(int argc, char** argv) {
 
         dvec2 prev_cursor_pos = cursor_pos_;
         checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
+
+        // If window is resized or moved, the virtual cursor position reported by glfw changes even if the
+        // user did not move it. We must ignore the cursor position change in this case.
+        if (window_resized || window_repositioned) prev_cursor_pos = cursor_pos_;
+
+        // compute new camera direction
         {
             vec2 delta_cursor_pos = cursor_pos_ - prev_cursor_pos;
             vec2 delta_cursor_in_camera_frame = flip_screenXY_to_cameraXY(delta_cursor_pos);
@@ -276,15 +304,15 @@ int main(int argc, char** argv) {
             case gfx::RenderResult::error_surface_resources_out_of_date:
             case gfx::RenderResult::success_surface_resources_out_of_date:
             {
-                current_window_width = 0;
-                current_window_height = 0;
-                glfwGetWindowSize(window, &current_window_width, &current_window_height);
+                window_size_.x = 0;
+                window_size_.y = 0;
+                glfwGetWindowSize(window, &window_size_.x, &window_size_.y);
                 abortIfGlfwError();
 
                 LOG_F(INFO, "Surface resources out of date; updating.");
                 res = gfx::updateSurfaceResources(
                     gfx_surface,
-                    VkExtent2D { .width = (u32)current_window_width, .height = (u32)current_window_height }
+                    VkExtent2D { .width = (u32)window_size_.x, .height = (u32)window_size_.y }
                 );
 
                 assertGraphics(res);
