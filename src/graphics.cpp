@@ -50,6 +50,8 @@ const u32 INVALID_SWAPCHAIN_IMAGE_IDX = UINT32_MAX;
 // Use to statically allocate arrays for swapchain images, image views, and framebuffers.
 const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
 
+const u32fast PHYSICAL_DEVICE_TYPE_COUNT = 5; // number of VK_PHYSICAL_DEVICE_TYPE_xxx variants
+
 //
 // Global variables ==========================================================================================
 //
@@ -82,21 +84,25 @@ struct QueueFamilyRequirements {
     bool require_presentation_support;
 };
 
+/// Initialize as follows:
+///   PhysicalDeviceTypePriorities priorities {};
+///   priorities.p[VK_PHYSICAL_DEVICE_TYPE_OTHER] = <your_number_here>
+///   priorities.p[VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU] = <your_number_here>
+///   ...
 struct PhysicalDeviceTypePriorities {
-    u8 other;
-    u8 integrated_gpu;
-    u8 discrete_gpu;
-    u8 virtual_gpu;
-    u8 cpu;
+    u8 p[PHYSICAL_DEVICE_TYPE_COUNT];
 
-    u8 getPriority(VkPhysicalDeviceType type) const {
-        // NOTE This implementation relies on the PhysicalDeviceType enum values specified in VK spec v1.3.234.
-        // We use the PhysicalDeviceType enum as an index.
-
-        alwaysAssert(0 <= type && type <= 4);
-        const u8* priorities = (const u8*)this;
-        return priorities[type];
+    u8 getPriority(VkPhysicalDeviceType device_type) {
+        alwaysAssert(0 <= device_type && device_type < PHYSICAL_DEVICE_TYPE_COUNT);
+        return this->p[device_type];
     }
+
+    static_assert(0 == VK_PHYSICAL_DEVICE_TYPE_OTHER);
+    static_assert(1 == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU);
+    static_assert(2 == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+    static_assert(3 == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU);
+    static_assert(4 == VK_PHYSICAL_DEVICE_TYPE_CPU);
+    static_assert(5 == PHYSICAL_DEVICE_TYPE_COUNT);
 };
 
 struct VoxelPipelineVertexShaderPushConstants {
@@ -387,13 +393,9 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
             .require_presentation_support = true,
         };
 
-        PhysicalDeviceTypePriorities device_type_priorities {
-            .other = 0,
-            .integrated_gpu = 1,
-            .discrete_gpu = 2,
-            .virtual_gpu = 0,
-            .cpu = 0,
-        };
+        PhysicalDeviceTypePriorities device_type_priorities {};
+        device_type_priorities.p[VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU] = 1;
+        device_type_priorities.p[VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU] = 2;
 
         u32 physical_device_idx = INVALID_PHYSICAL_DEVICE_IDX;
         selectPhysicalDeviceAndQueueFamily(
