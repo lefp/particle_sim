@@ -21,6 +21,7 @@ static bool allPointersNonNull(const StructOfPointers* struct_of_pointers) {
     constexpr u32fast ptr_count = sizeof(StructOfPointers) / sizeof(void*);
 
     using ArrayOfPointers =  void const *const *const;
+    // TODO FIXME: this might technically result in UB if the struct isn't declared with __attribute__((packed))
     ArrayOfPointers ptrs = (ArrayOfPointers)struct_of_pointers;
 
     for (u32fast i = 0; i < ptr_count; i++) if (ptrs[i] == NULL) return false;
