@@ -1,7 +1,6 @@
 #include <vulkan/vulkan.h>
 #include <loguru/loguru.hpp>
 
-#include "types.hpp"
 #include "vk_procs.hpp"
 
 //
