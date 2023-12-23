@@ -266,12 +266,12 @@ static void selectPhysicalDeviceAndQueueFamily(
 
 
         u32 family_count = 0;
-        vk_inst_procs.getPhysicalDeviceQueueFamilyProperties(device, &family_count, NULL);
+        vk_inst_procs.GetPhysicalDeviceQueueFamilyProperties(device, &family_count, NULL);
         alwaysAssert(family_count > 0);
 
         VkQueueFamilyProperties* family_props_list = mallocArray(family_count, VkQueueFamilyProperties);
         defer(free(family_props_list));
-        vk_inst_procs.getPhysicalDeviceQueueFamilyProperties(device, &family_count, family_props_list);
+        vk_inst_procs.GetPhysicalDeviceQueueFamilyProperties(device, &family_count, family_props_list);
 
         const u32 fam = firstSatisfactoryQueueFamily(
             instance, device, family_count, family_props_list, queue_family_requirements
@@ -340,7 +340,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
     // Select physical device and queue families -------------------------------------------------------------
     {
         u32 physical_device_count = 0;
-        VkResult result = vk_inst_procs.enumeratePhysicalDevices(instance_, &physical_device_count, NULL);
+        VkResult result = vk_inst_procs.EnumeratePhysicalDevices(instance_, &physical_device_count, NULL);
         assertVk(result);
 
         if (physical_device_count == 0) ABORT_F("Found no Vulkan devices.");
@@ -349,7 +349,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
         VkPhysicalDevice* physical_devices = mallocArray(physical_device_count, VkPhysicalDevice);
         defer(free(physical_devices));
 
-        result = vk_inst_procs.enumeratePhysicalDevices(instance_, &physical_device_count, physical_devices);
+        result = vk_inst_procs.EnumeratePhysicalDevices(instance_, &physical_device_count, physical_devices);
         assertVk(result);
 
 
@@ -361,7 +361,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
         for (u32 dev_idx = 0; dev_idx < physical_device_count; dev_idx++) {
 
             VkPhysicalDeviceProperties* p_dev_props = &physical_device_properties_list[dev_idx];
-            vk_inst_procs.getPhysicalDeviceProperties(physical_devices[dev_idx], p_dev_props);
+            vk_inst_procs.GetPhysicalDeviceProperties(physical_devices[dev_idx], p_dev_props);
 
             const char* device_name = p_dev_props->deviceName;
             LOG_F(INFO, "Found physical device %" PRIu32 ": `%s`.", dev_idx, device_name);
@@ -403,7 +403,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
         alwaysAssert(physical_device_idx != INVALID_PHYSICAL_DEVICE_IDX);
         physical_device_ = physical_devices[physical_device_idx];
 
-        vk_inst_procs.getPhysicalDeviceProperties(physical_device_, &physical_device_properties_);
+        vk_inst_procs.GetPhysicalDeviceProperties(physical_device_, &physical_device_properties_);
         LOG_F(INFO, "Selected physical device `%s`.", physical_device_properties_.deviceName);
         LOG_IF_F(
             WARNING,
@@ -436,15 +436,15 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
             .ppEnabledExtensionNames = device_extensions,
         };
 
-        VkResult result = vk_inst_procs.createDevice(physical_device_, &device_cinfo, NULL, &device_);
+        VkResult result = vk_inst_procs.CreateDevice(physical_device_, &device_cinfo, NULL, &device_);
         assertVk(result);
 
-        vk_dev_procs.init(device_, vk_inst_procs.getDeviceProcAddr);
+        vk_dev_procs.init(device_, vk_inst_procs.GetDeviceProcAddr);
 
         // NOTE: Vk Spec 1.3.259:
         //     vkGetDeviceQueue must only be used to get queues that were created with the `flags` parameter
         //     of VkDeviceQueueCreateInfo set to zero.
-        vk_dev_procs.getDeviceQueue(device_, queue_family_, 0, &queue_);
+        vk_dev_procs.GetDeviceQueue(device_, queue_family_, 0, &queue_);
     }
 }
 
@@ -508,7 +508,7 @@ static VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, V
     };
 
     VkShaderModule shader_module = VK_NULL_HANDLE;
-    VkResult result = vk_dev_procs.createShaderModule(device, &cinfo, NULL, &shader_module);
+    VkResult result = vk_dev_procs.CreateShaderModule(device, &cinfo, NULL, &shader_module);
     assertVk(result);
 
     return shader_module;
@@ -564,7 +564,7 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
     };
 
     VkRenderPass render_pass = VK_NULL_HANDLE;
-    VkResult result = vk_dev_procs.createRenderPass(device, &render_pass_info, NULL, &render_pass);
+    VkResult result = vk_dev_procs.CreateRenderPass(device, &render_pass_info, NULL, &render_pass);
     assertVk(result);
 
     return render_pass;
@@ -580,11 +580,11 @@ static VkPipeline createVoxelPipeline(
 
     VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/voxel.vert.spv", device);
     alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
-    defer(vk_dev_procs.destroyShaderModule(device, vertex_shader_module, NULL));
+    defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
 
     VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/voxel.frag.spv", device);
     alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
-    defer(vk_dev_procs.destroyShaderModule(device, fragment_shader_module, NULL));
+    defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
 
     constexpr u32 shader_stage_info_count = 2;
     const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
@@ -720,7 +720,7 @@ static VkPipeline createVoxelPipeline(
     };
 
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    VkResult result = vk_dev_procs.createPipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
+    VkResult result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
     assertVk(result);
     *pipeline_layout_out = pipeline_layout;
 
@@ -746,7 +746,7 @@ static VkPipeline createVoxelPipeline(
     };
 
     VkPipeline graphics_pipeline = VK_NULL_HANDLE;
-    result = vk_dev_procs.createGraphicsPipelines(
+    result = vk_dev_procs.CreateGraphicsPipelines(
         device,
         VK_NULL_HANDLE, // pipelineCache
         1, // createInfoCount
@@ -782,7 +782,7 @@ static Result createSwapchain(
 ) {
 
     VkSurfaceCapabilitiesKHR surface_capabilities {};
-    VkResult result = vk_inst_procs.getPhysicalDeviceSurfaceCapabilitiesKHR(
+    VkResult result = vk_inst_procs.GetPhysicalDeviceSurfaceCapabilitiesKHR(
         physical_device, surface, &surface_capabilities
     );
     assertVk(result);
@@ -868,7 +868,7 @@ static Result createSwapchain(
     };
 
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-    result = vk_dev_procs.createSwapchainKHR(device, &swapchain_info, NULL, &swapchain);
+    result = vk_dev_procs.CreateSwapchainKHR(device, &swapchain_info, NULL, &swapchain);
     assertVk(result);
 
     LOG_F(INFO, "Built swapchain %p.", swapchain);
@@ -888,12 +888,12 @@ static u32 getSwapchainImages(
 ) {
 
     u32 swapchain_image_count = 0;
-    VkResult result = vk_dev_procs.getSwapchainImagesKHR(device, swapchain, &swapchain_image_count, NULL);
+    VkResult result = vk_dev_procs.GetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, NULL);
     assertVk(result);
 
     bool max_too_small = max_image_count < swapchain_image_count;
 
-    result = vk_dev_procs.getSwapchainImagesKHR(device, swapchain, &max_image_count, images_out);
+    result = vk_dev_procs.GetSwapchainImagesKHR(device, swapchain, &max_image_count, images_out);
     if (max_too_small and result != VK_INCOMPLETE)
         ABORT_F("Expected VkResult VK_INCOMPLETE (%i), got %i.", VK_INCOMPLETE, result);
     else assertVk(result);
@@ -940,7 +940,7 @@ static bool createImageViewsForSwapchain(
             .subresourceRange = subresource_range,
         };
 
-        VkResult result = vk_dev_procs.createImageView(device, &image_view_info, NULL, p_image_view);
+        VkResult result = vk_dev_procs.CreateImageView(device, &image_view_info, NULL, p_image_view);
         assertVk(result);
     }
 
@@ -975,7 +975,7 @@ static bool createFramebuffersForSwapchain(
             .layers = 1,
         };
 
-        VkResult result = vk_dev_procs.createFramebuffer(device, &framebuffer_info, NULL, p_framebuffer);
+        VkResult result = vk_dev_procs.CreateFramebuffer(device, &framebuffer_info, NULL, p_framebuffer);
         assertVk(result);
     }
 
@@ -1030,7 +1030,7 @@ static bool recordVoxelCommandBuffer(
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     };
-    VkResult result = vk_dev_procs.beginCommandBuffer(command_buffer, &begin_info);
+    VkResult result = vk_dev_procs.BeginCommandBuffer(command_buffer, &begin_info);
     assertVk(result);
 
     {
@@ -1043,11 +1043,11 @@ static bool recordVoxelCommandBuffer(
             .clearValueCount = 1,
             .pClearValues = &clear_value,
         };
-        vk_dev_procs.cmdBeginRenderPass(
+        vk_dev_procs.CmdBeginRenderPass(
             command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE
         );
 
-        vk_dev_procs.cmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
         const VkViewport viewport {
             .x = (f32)swapchain_roi.offset.x,
@@ -1057,20 +1057,20 @@ static bool recordVoxelCommandBuffer(
             .minDepth = 0,
             .maxDepth = 1,
         };
-        vk_dev_procs.cmdSetViewport(command_buffer, 0, 1, &viewport);
-        vk_dev_procs.cmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
+        vk_dev_procs.CmdSetViewport(command_buffer, 0, 1, &viewport);
+        vk_dev_procs.CmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
 
-        vk_dev_procs.cmdPushConstants(
+        vk_dev_procs.CmdPushConstants(
             command_buffer, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
             sizeof(*push_constants), push_constants
         );
 
-        vk_dev_procs.cmdDraw(command_buffer, 36, 1, 0, 0);
+        vk_dev_procs.CmdDraw(command_buffer, 36, 1, 0, 0);
 
-        vk_dev_procs.cmdEndRenderPass(command_buffer);
+        vk_dev_procs.CmdEndRenderPass(command_buffer);
     }
 
-    result = vk_dev_procs.endCommandBuffer(command_buffer);
+    result = vk_dev_procs.EndCommandBuffer(command_buffer);
     assertVk(result);
 
     return true;
@@ -1151,7 +1151,7 @@ extern Result createSurfaceResources(
 
         VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
-            VkResult result = vk_dev_procs.createSemaphore(
+            VkResult result = vk_dev_procs.CreateSemaphore(
                 device_, &semaphore_info, NULL, &p_resources->swapchain_image_acquired_semaphores[im_idx]
             );
             assertVk(result);
@@ -1190,7 +1190,7 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
 
         // Destroy out-of-date resources.
 
-        VkResult result = vk_dev_procs.queueWaitIdle(queue_);
+        VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
         assertVk(result);
 
         RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff_array =
@@ -1198,18 +1198,18 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
 
         for (u32fast i = 0; i < swapchain_image_count; i++) {
 
-            vk_dev_procs.destroyFramebuffer(device_, per_image_stuff_array[i].framebuffer, NULL);
+            vk_dev_procs.DestroyFramebuffer(device_, per_image_stuff_array[i].framebuffer, NULL);
 
             // Destroy semaphores because they may be in the signaled state, and we have no other way to
             // reset them.
-            vk_dev_procs.destroySemaphore(device_, per_image_stuff_array[i].render_finished_semaphore, NULL);
+            vk_dev_procs.DestroySemaphore(device_, per_image_stuff_array[i].render_finished_semaphore, NULL);
 
             // No need to destroy command_buffer_pending_fences; we want them to start signaled, and at this
             // point we expect them to already be signaled; there's no reason to have reset them after they
             // were last used.
             // Just to be sure they're actually signalled:
             assertVk(
-                vk_dev_procs.getFenceStatus(device_, per_image_stuff_array[i].command_buffer_pending_fence)
+                vk_dev_procs.GetFenceStatus(device_, per_image_stuff_array[i].command_buffer_pending_fence)
             );
         }
     }
@@ -1236,7 +1236,7 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
         .commandBufferCount = swapchain_image_count,
     };
     VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
-    VkResult result = vk_dev_procs.allocateCommandBuffers(device_, &cmd_buf_alloc_info, p_command_buffers);
+    VkResult result = vk_dev_procs.AllocateCommandBuffers(device_, &cmd_buf_alloc_info, p_command_buffers);
     assertVk(result);
 
     for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
@@ -1253,12 +1253,12 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
             .layers = 1,
         };
         VkFramebuffer* p_framebuffer = &per_image_stuff_array[im_idx].framebuffer;
-        result = vk_dev_procs.createFramebuffer(device_, &framebuffer_info, NULL, p_framebuffer);
+        result = vk_dev_procs.CreateFramebuffer(device_, &framebuffer_info, NULL, p_framebuffer);
         assertVk(result);
 
         const VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         VkSemaphore* p_semaphore = &per_image_stuff_array[im_idx].render_finished_semaphore;
-        result = vk_dev_procs.createSemaphore(device_, &semaphore_info, NULL, p_semaphore);
+        result = vk_dev_procs.CreateSemaphore(device_, &semaphore_info, NULL, p_semaphore);
         assertVk(result);
 
         // In theory, we shouldn't _have_ to create all the fences because we shouldn't have needed to destroy
@@ -1271,7 +1271,7 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
             .flags = VK_FENCE_CREATE_SIGNALED_BIT,
         };
         VkFence* p_fence = &per_image_stuff_array[im_idx].command_buffer_pending_fence;
-        result = vk_dev_procs.createFence(device_, &fence_info, NULL, p_fence);
+        result = vk_dev_procs.CreateFence(device_, &fence_info, NULL, p_fence);
         assertVk(result);
     }
 }
@@ -1290,21 +1290,21 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
         p_render_resources->per_image_stuff_array;
 
 
-    VkResult result = vk_dev_procs.queueWaitIdle(queue_);
+    VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
     assertVk(result);
 
     VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
 
     for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
         // We shouldn't actually need to destroy the fences, but doing so anyway for simplicity.
-        vk_dev_procs.destroyFence(device_, per_image_stuff_array[im_idx].command_buffer_pending_fence, NULL);
-        vk_dev_procs.destroySemaphore(device_, per_image_stuff_array[im_idx].render_finished_semaphore, NULL);
-        vk_dev_procs.destroyFramebuffer(device_, per_image_stuff_array[im_idx].framebuffer, NULL);
+        vk_dev_procs.DestroyFence(device_, per_image_stuff_array[im_idx].command_buffer_pending_fence, NULL);
+        vk_dev_procs.DestroySemaphore(device_, per_image_stuff_array[im_idx].render_finished_semaphore, NULL);
+        vk_dev_procs.DestroyFramebuffer(device_, per_image_stuff_array[im_idx].framebuffer, NULL);
         p_command_buffers[im_idx] = per_image_stuff_array[im_idx].command_buffer;
     }
 
     // We shouldn't actually need to free the command buffers, but doing so anyway for simplicity.
-    vk_dev_procs.freeCommandBuffers(
+    vk_dev_procs.FreeCommandBuffers(
         device_, p_render_resources->command_pool, swapchain_image_count, p_command_buffers
     );
 }
@@ -1331,22 +1331,22 @@ extern Result updateSurfaceResources(
     // Destory out-of-date resources.
     {
         // Make sure they're not in use.
-        VkResult result = vk_dev_procs.queueWaitIdle(queue_);
+        VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
         assertVk(result);
 
 
-        vk_dev_procs.destroySwapchainKHR(device_, old_swapchain, NULL);
+        vk_dev_procs.DestroySwapchainKHR(device_, old_swapchain, NULL);
 
         VkImageView* image_views = p_surface_resources->swapchain_image_views;
         for (u32fast im_idx = 0; im_idx < old_image_count; im_idx++)
-            vk_dev_procs.destroyImageView(device_, image_views[im_idx], NULL);
+            vk_dev_procs.DestroyImageView(device_, image_views[im_idx], NULL);
 
         // I don't think we actually need to destory and recreate the semaphores; the only reason to do so
         // would be if the semaphores were left in the signalled state, but I'm don't think that happens here.
         // Doing it anyway just in case. Can remove it later if it significantly affects performance.
         VkSemaphore* im_acquired_semaphores = p_surface_resources->swapchain_image_acquired_semaphores;
         for (u32fast im_idx = 0; im_idx < old_image_count; im_idx++)
-            vk_dev_procs.destroySemaphore(device_, im_acquired_semaphores[im_idx], NULL);
+            vk_dev_procs.DestroySemaphore(device_, im_acquired_semaphores[im_idx], NULL);
     }
 
     // Recreate resources.
@@ -1372,7 +1372,7 @@ extern Result updateSurfaceResources(
         for (u32fast im_idx = 0; im_idx < new_image_count; im_idx++) {
             VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
             VkResult result =
-                vk_dev_procs.createSemaphore(device_, &semaphore_info, NULL, &im_acquired_semaphores[im_idx]);
+                vk_dev_procs.CreateSemaphore(device_, &semaphore_info, NULL, &im_acquired_semaphores[im_idx]);
             assertVk(result);
         }
         p_surface_resources->last_used_swapchain_image_acquired_semaphore_idx = 0;
@@ -1404,7 +1404,7 @@ extern Result createVoxelRenderer(RenderResources* render_resources_out) {
         .queueFamilyIndex = queue_family_,
     };
 
-    VkResult result = vk_dev_procs.createCommandPool(
+    VkResult result = vk_dev_procs.CreateCommandPool(
         device_, &command_pool_info, NULL, &p_render_resources->command_pool
     );
     assertVk(result);
@@ -1435,7 +1435,7 @@ RenderResult render(SurfaceResources surface, const mat4* transform) {
         swapchain_image_acquired_semaphore =
             p_surface_resources->swapchain_image_acquired_semaphores[im_acquired_semaphore_idx];
 
-        result = vk_dev_procs.acquireNextImageKHR(
+        result = vk_dev_procs.AcquireNextImageKHR(
             device_,
             p_surface_resources->swapchain,
             UINT64_MAX,
@@ -1464,16 +1464,16 @@ RenderResult render(SurfaceResources surface, const mat4* transform) {
 
     const VkFence command_buffer_pending_fence = this_image_render_resources.command_buffer_pending_fence;
 
-    result = vk_dev_procs.waitForFences(device_, 1, &command_buffer_pending_fence, VK_TRUE, UINT64_MAX);
+    result = vk_dev_procs.WaitForFences(device_, 1, &command_buffer_pending_fence, VK_TRUE, UINT64_MAX);
     assertVk(result);
 
-    result = vk_dev_procs.resetFences(device_, 1, &command_buffer_pending_fence);
+    result = vk_dev_procs.ResetFences(device_, 1, &command_buffer_pending_fence);
     assertVk(result);
 
 
     VkCommandBuffer command_buffer = this_image_render_resources.command_buffer;
 
-    vk_dev_procs.resetCommandBuffer(command_buffer, 0);
+    vk_dev_procs.ResetCommandBuffer(command_buffer, 0);
 
 
     VoxelPipelineVertexShaderPushConstants push_constants {
@@ -1504,7 +1504,7 @@ RenderResult render(SurfaceResources surface, const mat4* transform) {
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = &this_image_render_resources.render_finished_semaphore,
     };
-    result = vk_dev_procs.queueSubmit(queue_, 1, &submit_info, command_buffer_pending_fence);
+    result = vk_dev_procs.QueueSubmit(queue_, 1, &submit_info, command_buffer_pending_fence);
     assertVk(result);
 
 
@@ -1516,7 +1516,7 @@ RenderResult render(SurfaceResources surface, const mat4* transform) {
         .pSwapchains = &p_surface_resources->swapchain,
         .pImageIndices = &acquired_swapchain_image_idx,
     };
-    result = vk_dev_procs.queuePresentKHR(queue_, &present_info);
+    result = vk_dev_procs.QueuePresentKHR(queue_, &present_info);
 
     switch (result) {
         case VK_ERROR_OUT_OF_DATE_KHR: return RenderResult::error_surface_resources_out_of_date;
