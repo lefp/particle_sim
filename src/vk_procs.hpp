@@ -1,65 +1,83 @@
 #ifndef _VK_PROCS_HPP
 #define _VK_PROCS_HPP
 
-// #include <vulkan/vulkan.h>
+#include <vulkan/vulkan.h>
 
 //
 // ===========================================================================================================
 //
 
+/// These are where you define the lists of procedures you want to use.
+
+#define FOR_EACH_INSTANCE_PROC(X) \
+    X(CreateDevice) \
+    X(EnumeratePhysicalDevices) \
+    X(GetDeviceProcAddr) \
+    X(GetPhysicalDeviceProperties) \
+    X(GetPhysicalDeviceQueueFamilyProperties) \
+    X(GetPhysicalDeviceSurfaceCapabilitiesKHR)
+
+#define FOR_EACH_DEVICE_PROC(X) \
+    X(AcquireNextImageKHR) \
+    X(AllocateCommandBuffers) \
+    X(BeginCommandBuffer) \
+    X(CmdBeginRenderPass) \
+    X(CmdBindPipeline) \
+    X(CmdDraw) \
+    X(CmdEndRenderPass) \
+    X(CmdPushConstants) \
+    X(CmdSetScissor) \
+    X(CmdSetViewport) \
+    X(CreateCommandPool) \
+    X(CreateFence) \
+    X(CreateFramebuffer) \
+    X(CreateGraphicsPipelines) \
+    X(CreateImageView) \
+    X(CreatePipelineLayout) \
+    X(CreateRenderPass) \
+    X(CreateSemaphore) \
+    X(CreateShaderModule) \
+    X(CreateSwapchainKHR) \
+    X(DestroyFence) \
+    X(DestroyFramebuffer) \
+    X(DestroyImageView) \
+    X(DestroySemaphore) \
+    X(DestroyShaderModule) \
+    X(DestroySwapchainKHR) \
+    X(EndCommandBuffer) \
+    X(FreeCommandBuffers) \
+    X(GetDeviceQueue) \
+    X(GetFenceStatus) \
+    X(GetSwapchainImagesKHR) \
+    X(QueuePresentKHR) \
+    X(QueueSubmit) \
+    X(QueueWaitIdle) \
+    X(ResetCommandBuffer) \
+    X(ResetCommandPool) \
+    X(ResetFences) \
+    X(WaitForFences)
+
+//
+// ===========================================================================================================
+//
+
+#define DECLARE_PROC_PTR(PROC_NAME) PFN_vk##PROC_NAME PROC_NAME;
+
+
 struct VulkanInstanceProcs {
-    PFN_vkCreateDevice createDevice;
-    PFN_vkEnumeratePhysicalDevices enumeratePhysicalDevices;
-    PFN_vkGetDeviceProcAddr getDeviceProcAddr;
-    PFN_vkGetPhysicalDeviceProperties getPhysicalDeviceProperties;
-    PFN_vkGetPhysicalDeviceQueueFamilyProperties getPhysicalDeviceQueueFamilyProperties;
-    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR getPhysicalDeviceSurfaceCapabilitiesKHR;
+    FOR_EACH_INSTANCE_PROC(DECLARE_PROC_PTR);
 
     void init(VkInstance, PFN_vkGetInstanceProcAddr);
 };
 
 struct VulkanDeviceProcs {
-    PFN_vkAcquireNextImageKHR acquireNextImageKHR;
-    PFN_vkAllocateCommandBuffers allocateCommandBuffers;
-    PFN_vkBeginCommandBuffer beginCommandBuffer;
-    PFN_vkCmdBeginRenderPass cmdBeginRenderPass;
-    PFN_vkCmdBindPipeline cmdBindPipeline;
-    PFN_vkCmdDraw cmdDraw;
-    PFN_vkCmdEndRenderPass cmdEndRenderPass;
-    PFN_vkCmdPushConstants cmdPushConstants;
-    PFN_vkCmdSetScissor cmdSetScissor;
-    PFN_vkCmdSetViewport cmdSetViewport;
-    PFN_vkCreateCommandPool createCommandPool;
-    PFN_vkCreateFence createFence;
-    PFN_vkCreateFramebuffer createFramebuffer;
-    PFN_vkCreateGraphicsPipelines createGraphicsPipelines;
-    PFN_vkCreateImageView createImageView;
-    PFN_vkCreatePipelineLayout createPipelineLayout;
-    PFN_vkCreateRenderPass createRenderPass;
-    PFN_vkCreateSemaphore createSemaphore;
-    PFN_vkCreateShaderModule createShaderModule;
-    PFN_vkCreateSwapchainKHR createSwapchainKHR;
-    PFN_vkDestroyFence destroyFence;
-    PFN_vkDestroyFramebuffer destroyFramebuffer;
-    PFN_vkDestroyImageView destroyImageView;
-    PFN_vkDestroySemaphore destroySemaphore;
-    PFN_vkDestroyShaderModule destroyShaderModule;
-    PFN_vkDestroySwapchainKHR destroySwapchainKHR;
-    PFN_vkEndCommandBuffer endCommandBuffer;
-    PFN_vkFreeCommandBuffers freeCommandBuffers;
-    PFN_vkGetDeviceQueue getDeviceQueue;
-    PFN_vkGetFenceStatus getFenceStatus;
-    PFN_vkGetSwapchainImagesKHR getSwapchainImagesKHR;
-    PFN_vkQueuePresentKHR queuePresentKHR;
-    PFN_vkQueueSubmit queueSubmit;
-    PFN_vkQueueWaitIdle queueWaitIdle;
-    PFN_vkResetCommandBuffer resetCommandBuffer;
-    PFN_vkResetCommandPool resetCommandPool;
-    PFN_vkResetFences resetFences;
-    PFN_vkWaitForFences waitForFences;
+    FOR_EACH_DEVICE_PROC(DECLARE_PROC_PTR);
 
     void init(VkDevice, PFN_vkGetDeviceProcAddr);
 };
+
+
+#undef DECLARE_PROC_PTR
 
 //
 // ===========================================================================================================
