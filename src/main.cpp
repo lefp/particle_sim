@@ -42,7 +42,12 @@ const double CAMERA_MOVEMENT_SPEED = 3.0; // unit: m/s
 //
 
 vec3 camera_pos_ { 0, 0, 0 };
-vec3 camera_direction_unit_ { 1, 0, 0 };
+
+/// Spherical coordinates.
+/// .x = rotation in XZ plane. Range [0, 2 pi). 0 = along x-axis, 0.5 pi = along negative z-axis
+/// .y = angle from XZ plane. Range [-0.5 pi, 0.5 pi]. 0.5 pi = along y-axis.
+vec2 camera_angles_ { 0, 0 };
+
 dvec2 cursor_pos_ { 0, 0 };
 
 ivec2 window_size_ { 0, 0 };
@@ -228,18 +233,21 @@ int main(int argc, char** argv) {
         }
 
 
-        vec3 camera_horizontal_direction_unit = glm::normalize(vec3(
-            camera_direction_unit_.x,
+        vec3 camera_direction_unit = glm::rotate(vec3(1, 0, 0), camera_angles_.y, vec3(0, 0, 1));
+        camera_direction_unit = glm::rotate(camera_direction_unit, camera_angles_.x, vec3(0, 1, 0));
+
+        vec3 camera_horizontal_direction_unit = vec3(
+            glm::cos(camera_angles_.x),
             0,
-            camera_direction_unit_.z
-        ));
+            -glm::sin(camera_angles_.x)
+        );
         vec3 camera_horizontal_right_direction_unit = vec3(
             -camera_horizontal_direction_unit.z,
             0,
             camera_horizontal_direction_unit.x
         );
         vec3 camera_y_axis = glm::rotate(
-            camera_direction_unit_,
+            camera_direction_unit,
             (f32)(0.5*M_PI),
             camera_horizontal_right_direction_unit
         );
@@ -287,12 +295,13 @@ int main(int argc, char** argv) {
 
             f32 angle_coef = 0.005f; // arbitrarily chosen
             vec2 delta_angles = angle_coef * delta_cursor_in_camera_frame;
+            delta_angles.x = -delta_angles.x; // positive angle is counterclockwise about y-axis
 
-            mat4 horizontal_rotation = glm::rotate(-delta_angles.x, vec3(0, 1, 0));
-            mat4 vertical_rotation = glm::rotate(delta_angles.y, camera_horizontal_right_direction_unit);
+            vec2 new_cam_angles = camera_angles_ + delta_angles;
+            new_cam_angles.x = (f32)glm::mod((f64)new_cam_angles.x, 2.*M_PI);
+            new_cam_angles.y = (f32)glm::clamp((f64)new_cam_angles.y, -0.5*M_PI, 0.5*M_PI);
 
-            camera_direction_unit_ = mat3(horizontal_rotation) * camera_direction_unit_;
-            camera_direction_unit_ = mat3(vertical_rotation) * camera_direction_unit_;
+            camera_angles_ = new_cam_angles;
         }
 
 
@@ -300,7 +309,7 @@ int main(int argc, char** argv) {
         {
             mat4 world_to_camera_transform = glm::lookAt(
                 camera_pos_, // eye
-                camera_pos_ + camera_direction_unit_, // position you're looking at
+                camera_pos_ + camera_direction_unit, // position you're looking at
                 camera_y_axis // "Normalized up vector, how the camera is oriented."
             );
             mat4 camera_to_clip_transform = glm::perspective(
