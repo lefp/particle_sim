@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
 
     while (true) {
 
-        LABEL_RENDER_LOOP_START: {}
+        LABEL_MAIN_LOOP_START: {}
 
         f64 delta_t_seconds;
         {
@@ -206,7 +206,7 @@ int main(int argc, char** argv) {
         }
 
         glfwPollEvents();
-        if (glfwWindowShouldClose(window)) break;
+        if (glfwWindowShouldClose(window)) goto LABEL_EXIT_MAIN_LOOP;
 
 
         ivec2 prev_window_pos = window_pos_;
@@ -344,13 +344,15 @@ int main(int argc, char** argv) {
                 );
 
                 assertGraphics(res);
-                goto LABEL_RENDER_LOOP_START;
+                goto LABEL_MAIN_LOOP_START;
             }
             case gfx::RenderResult::success: break;
         }
 
         frame_counter++;
     };
+
+    LABEL_EXIT_MAIN_LOOP: {}
 
 
     glfwTerminate();
