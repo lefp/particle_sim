@@ -35,6 +35,8 @@ const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 };
 
 const double ASPECT_RATIO = 16.0 / 9.0;
 
+const double CAMERA_MOVEMENT_SPEED = 3.0; // unit: m/s
+
 //
 // Global variables ==========================================================================================
 //
@@ -45,6 +47,8 @@ dvec2 cursor_pos_ { 0, 0 };
 
 ivec2 window_size_ { 0, 0 };
 ivec2 window_pos_ { 0, 0 };
+
+f64 frame_start_time_seconds = 0;
 
 //
 // ===========================================================================================================
@@ -194,6 +198,13 @@ int main(int argc, char** argv) {
 
         LABEL_RENDER_LOOP_START: {}
 
+        f64 delta_t_seconds;
+        {
+            f64 time = glfwGetTime();
+            delta_t_seconds = time - frame_start_time_seconds;
+            frame_start_time_seconds = time;
+        }
+
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) break;
 
@@ -241,13 +252,22 @@ int main(int argc, char** argv) {
         int lshift_key_state = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
         abortIfGlfwError();
 
-        // TODO do the delta_t thing here
-        if (w_key_state == GLFW_PRESS) camera_pos_ += 0.03f * camera_horizontal_direction_unit;
-        if (s_key_state == GLFW_PRESS) camera_pos_ -= 0.03f * camera_horizontal_direction_unit;
-        if (d_key_state == GLFW_PRESS) camera_pos_ += 0.03f * camera_horizontal_right_direction_unit;
-        if (a_key_state == GLFW_PRESS) camera_pos_ -= 0.03f * camera_horizontal_right_direction_unit;
-        if (space_key_state == GLFW_PRESS) camera_pos_.y += 0.03f;
-        if (lshift_key_state == GLFW_PRESS) camera_pos_.y -= 0.03f;
+        vec3 camera_vel = vec3(0);
+        {
+            if (w_key_state == GLFW_PRESS) camera_vel += camera_horizontal_direction_unit;
+            if (s_key_state == GLFW_PRESS) camera_vel -= camera_horizontal_direction_unit;
+            if (d_key_state == GLFW_PRESS) camera_vel += camera_horizontal_right_direction_unit;
+            if (a_key_state == GLFW_PRESS) camera_vel -= camera_horizontal_right_direction_unit;
+            if (space_key_state == GLFW_PRESS) camera_vel.y += 1.0f;
+            if (lshift_key_state == GLFW_PRESS) camera_vel.y -= 1.0f;
+
+            f32 tmp_speed = length(camera_vel);
+            if (tmp_speed > 1e-5) {
+                camera_vel /= tmp_speed;
+                camera_vel *= CAMERA_MOVEMENT_SPEED;
+            }
+        }
+        camera_pos_ += camera_vel * (f32)delta_t_seconds;
 
 
         dvec2 prev_cursor_pos = cursor_pos_;
@@ -259,6 +279,9 @@ int main(int argc, char** argv) {
 
         // compute new camera direction
         {
+            // We don't need to scale anything by delta_t here; `cursor_pos - prev_cursor_pos` already scales
+            // linearly with frame duration.
+
             vec2 delta_cursor_pos = cursor_pos_ - prev_cursor_pos;
             vec2 delta_cursor_in_camera_frame = flip_screenXY_to_cameraXY(delta_cursor_pos);
 
