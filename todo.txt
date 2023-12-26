@@ -1,5 +1,7 @@
 - [x] Camera controls (WASD, mouse, shift, space, etc)
 - [ ] Draw grid (maybe in XY, XZ, YZ planes; or just XY plane)
 - [ ] Place and remove blocks
-- [ ] Draw arbitrary(ish?) number of cubes
 - [ ] Draw outlines on cubes
+- [ ] Simple terrain generation
+- [ ] Fog and volumetric lighting
+- [ ] Fire physics
