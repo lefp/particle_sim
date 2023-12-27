@@ -67,10 +67,12 @@ static VkRenderPass simple_render_pass_ = VK_NULL_HANDLE;
 
 static struct {
     VkPipeline voxel_pipeline = VK_NULL_HANDLE;
+    VkPipeline grid_pipeline = VK_NULL_HANDLE;
 } pipelines_;
 
 static struct {
     VkPipelineLayout voxel_pipeline_layout = VK_NULL_HANDLE;
+    VkPipelineLayout grid_pipeline_layout = VK_NULL_HANDLE;
 } pipeline_layouts_;
 
 static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
@@ -108,6 +110,8 @@ struct PhysicalDeviceTypePriorities {
 struct VoxelPipelineVertexShaderPushConstants {
     mat4 transform;
 };
+
+using GridPipelineFragmentShaderPushConstants = CameraInfo;
 
 struct RenderResourcesImpl {
     struct StuffThatIsPerSwapchainImage {
@@ -760,6 +764,199 @@ static VkPipeline createVoxelPipeline(
 }
 
 
+static VkPipeline createGridPipeline(
+    VkDevice device,
+    VkRenderPass render_pass,
+    u32 subpass,
+    VkPipelineLayout* pipeline_layout_out
+) {
+
+    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/grid.vert.spv", device);
+    alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
+    defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
+
+    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/grid.frag.spv", device);
+    alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
+    defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
+
+    constexpr u32 shader_stage_info_count = 2;
+    const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_VERTEX_BIT,
+            .module = vertex_shader_module,
+            .pName = "main",
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .module = fragment_shader_module,
+            .pName = "main",
+        },
+    };
+
+
+    const VkPipelineVertexInputStateCreateInfo vertex_input_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 0,
+        .pVertexBindingDescriptions = NULL,
+        .vertexAttributeDescriptionCount = 0,
+        .pVertexAttributeDescriptions = NULL,
+    };
+
+
+    const VkPipelineInputAssemblyStateCreateInfo input_assembly_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = VK_FALSE,
+    };
+
+
+    const VkPipelineViewportStateCreateInfo viewport_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .pViewports = NULL, // using dynamic viewport
+        .scissorCount = 1,
+        .pScissors = NULL, // using dynamic scissor
+    };
+
+
+    const VkPipelineRasterizationStateCreateInfo rasterization_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = VK_FALSE,
+        .rasterizerDiscardEnable = VK_FALSE,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .depthBiasEnable = VK_FALSE,
+        .depthBiasConstantFactor = 0.0,
+        .depthBiasClamp = 0.0,
+        .depthBiasSlopeFactor = 0.0,
+        .lineWidth = 1.0,
+    };
+
+
+    const VkPipelineMultisampleStateCreateInfo multisample_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable = VK_FALSE,
+        .minSampleShading = 0.0,
+        .pSampleMask = NULL,
+        .alphaToCoverageEnable = VK_FALSE,
+        .alphaToOneEnable = VK_FALSE,
+    };
+
+
+    // TODO we'll probably want to enable depth
+    const VkPipelineDepthStencilStateCreateInfo depth_stencil_state_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_FALSE,
+        .depthWriteEnable = VK_FALSE,
+        .depthCompareOp = VK_COMPARE_OP_NEVER,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable = VK_FALSE,
+        .front = {},
+        .back = {},
+        .minDepthBounds = 0.0,
+        .maxDepthBounds = 1.0,
+    };
+
+
+    // TODO If the grid is not the first thing we draw after clearing, I think we need to enable blending,
+    // because otherwise drawing non-gridline fragments using alpha=0 will destroy whatever was previously
+    // drawn in that fragment.
+    const VkPipelineColorBlendAttachmentState color_blend_attachment_info {
+        .blendEnable = VK_FALSE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .colorBlendOp = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp = VK_BLEND_OP_ADD,
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+
+    const VkPipelineColorBlendStateCreateInfo color_blend_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .logicOp = VK_LOGIC_OP_CLEAR,
+        .attachmentCount = 1,
+        .pAttachments = &color_blend_attachment_info,
+        .blendConstants = {0.0, 0.0, 0.0, 0.0},
+    };
+
+
+    constexpr u32 dynamic_state_count = 2;
+    const VkDynamicState dynamic_states[dynamic_state_count] {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
+
+    const VkPipelineDynamicStateCreateInfo dynamic_state_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = dynamic_state_count,
+        .pDynamicStates = dynamic_states,
+    };
+
+
+    constexpr u32 push_constant_range_count = 1;
+    VkPushConstantRange push_constant_ranges[push_constant_range_count] {
+        VkPushConstantRange {
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .offset = 0,
+            .size = sizeof(GridPipelineFragmentShaderPushConstants),
+        },
+    };
+
+    const VkPipelineLayoutCreateInfo pipeline_layout_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0,
+        .pSetLayouts = NULL,
+        .pushConstantRangeCount = push_constant_range_count,
+        .pPushConstantRanges = push_constant_ranges,
+    };
+
+    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+    VkResult result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
+    assertVk(result);
+    *pipeline_layout_out = pipeline_layout;
+
+
+    const VkGraphicsPipelineCreateInfo pipeline_info {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = shader_stage_info_count,
+        .pStages = shader_stage_infos,
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly_info,
+        .pTessellationState = NULL,
+        .pViewportState = &viewport_info,
+        .pRasterizationState = &rasterization_info,
+        .pMultisampleState = &multisample_info,
+        .pDepthStencilState = &depth_stencil_state_info,
+        .pColorBlendState = &color_blend_info,
+        .pDynamicState = &dynamic_state_info,
+        .layout = pipeline_layout,
+        .renderPass = render_pass,
+        .subpass = subpass,
+        .basePipelineHandle = VK_NULL_HANDLE,
+        .basePipelineIndex = -1,
+    };
+
+    VkPipeline graphics_pipeline = VK_NULL_HANDLE;
+    result = vk_dev_procs.CreateGraphicsPipelines(
+        device,
+        VK_NULL_HANDLE, // pipelineCache
+        1, // createInfoCount
+        &pipeline_info,
+        NULL, // allocationCallbacks
+        &graphics_pipeline
+    );
+    assertVk(result);
+
+    return graphics_pipeline;
+}
+
+
 /// Doesn't verify surface support. You must do so before calling this.
 /// `fallback_extent` is used if the surface doesn't report a specific extent via Vulkan surface properties.
 ///     If you want resizing to work on all platforms, you should probably get the window's current dimensions
@@ -1015,15 +1212,18 @@ static VkRect2D centeredSubregion_16x9(VkExtent2D image_extent) {
 
 
 /// Returns `true` if successful.
-static bool recordVoxelCommandBuffer(
+static bool recordCommandBuffer(
     VkCommandBuffer command_buffer,
     VkRenderPass render_pass,
-    VkPipeline pipeline,
-    VkPipelineLayout pipeline_layout,
+    VkPipeline voxel_pipeline,
+    VkPipelineLayout voxel_pipeline_layout,
+    VkPipeline grid_pipeline,
+    VkPipelineLayout grid_pipeline_layout,
     VkExtent2D swapchain_extent,
     VkRect2D swapchain_roi,
     VkFramebuffer framebuffer,
-    const VoxelPipelineVertexShaderPushConstants* push_constants
+    const VoxelPipelineVertexShaderPushConstants* voxel_pipeline_push_constants,
+    const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants
 ) {
 
     VkCommandBufferBeginInfo begin_info {
@@ -1047,8 +1247,6 @@ static bool recordVoxelCommandBuffer(
             command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE
         );
 
-        vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
         const VkViewport viewport {
             .x = (f32)swapchain_roi.offset.x,
             .y = (f32)swapchain_roi.offset.y,
@@ -1060,12 +1258,26 @@ static bool recordVoxelCommandBuffer(
         vk_dev_procs.CmdSetViewport(command_buffer, 0, 1, &viewport);
         vk_dev_procs.CmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
 
+
+        vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, grid_pipeline);
+
         vk_dev_procs.CmdPushConstants(
-            command_buffer, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-            sizeof(*push_constants), push_constants
+            command_buffer, grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+            sizeof(*grid_pipeline_push_constants), grid_pipeline_push_constants
+        );
+
+        vk_dev_procs.CmdDraw(command_buffer, 6, 1, 0, 0);
+
+
+        vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_pipeline);
+
+        vk_dev_procs.CmdPushConstants(
+            command_buffer, voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+            sizeof(*voxel_pipeline_push_constants), voxel_pipeline_push_constants
         );
 
         vk_dev_procs.CmdDraw(command_buffer, 36, 1, 0, 0);
+
 
         vk_dev_procs.CmdEndRenderPass(command_buffer);
     }
@@ -1091,12 +1303,22 @@ extern void init(const char* app_name, const char* specific_named_device_request
     simple_render_pass_ = render_pass;
 
 
-    const u32 subpass = 0;
-    VkPipeline pipeline = createVoxelPipeline(
-        device_, render_pass, subpass, &pipeline_layouts_.voxel_pipeline_layout
-    );
-    alwaysAssert(pipeline != VK_NULL_HANDLE);
-    pipelines_.voxel_pipeline = pipeline;
+    {
+        const u32 subpass = 0;
+        VkPipeline pipeline;
+
+        pipeline = createVoxelPipeline(
+            device_, render_pass, subpass, &pipeline_layouts_.voxel_pipeline_layout
+        );
+        alwaysAssert(pipeline != VK_NULL_HANDLE);
+        pipelines_.voxel_pipeline = pipeline;
+
+        pipeline = createGridPipeline(
+            device_, render_pass, subpass, &pipeline_layouts_.grid_pipeline_layout
+        );
+        alwaysAssert(pipeline != VK_NULL_HANDLE);
+        pipelines_.grid_pipeline = pipeline;
+    }
 }
 
 
@@ -1415,7 +1637,11 @@ extern Result createVoxelRenderer(RenderResources* render_resources_out) {
 }
 
 
-RenderResult render(SurfaceResources surface, const mat4* transform) {
+RenderResult render(
+    SurfaceResources surface,
+    const mat4* world_to_screen_transform,
+    const CameraInfo* camera_info
+) {
 
     VkResult result;
 
@@ -1476,19 +1702,26 @@ RenderResult render(SurfaceResources surface, const mat4* transform) {
     vk_dev_procs.ResetCommandBuffer(command_buffer, 0);
 
 
-    VoxelPipelineVertexShaderPushConstants push_constants {
-        .transform = *transform // OPTIMIZE: you're copying 64 bytes here (mat4)
+    VoxelPipelineVertexShaderPushConstants voxel_pipeline_push_constants {
+        // OPTIMIZE: you're copying 64 bytes here (mat4)
+        .transform = *world_to_screen_transform
     };
 
-    bool success = recordVoxelCommandBuffer(
+    // TODO maybe we shouldn't hardcode this, if we're doing the whole "attached renderer" thing?
+    // Maybe have a function pointer in the renderer or something to the appropriate Render function. Idk,
+    // this is getting kinda weird. Maybe we should just ditch the whole generic crap.
+    bool success = recordCommandBuffer(
         command_buffer,
         p_render_resources->render_pass,
-        pipelines_.voxel_pipeline, // TODO use p_render_resources ?
-        pipeline_layouts_.voxel_pipeline_layout, // TODO use p_render_resources ?
+        pipelines_.voxel_pipeline,
+        pipeline_layouts_.voxel_pipeline_layout,
+        pipelines_.grid_pipeline,
+        pipeline_layouts_.grid_pipeline_layout,
         p_surface_resources->swapchain_extent,
         swapchain_roi,
         this_image_render_resources.framebuffer,
-        &push_constants
+        &voxel_pipeline_push_constants,
+        camera_info
     );
     alwaysAssert(success);
 

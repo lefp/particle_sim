@@ -6,6 +6,10 @@
 
 namespace graphics {
 
+using glm::vec2;
+using glm::vec3;
+using glm::mat4;
+
 //
 // ===========================================================================================================
 //
@@ -15,6 +19,14 @@ struct SurfaceResources {
 };
 struct RenderResources {
     void* impl;
+};
+
+struct CameraInfo {
+    alignas(16) vec3 camera_direction_unit;
+    alignas(16) vec3 camera_right_direction_unit;
+    alignas(16) vec3 camera_up_direction_unit;
+    alignas(16) vec3 eye_pos;
+    alignas(16) vec2 frustum_near_side_size;
 };
 
 enum class [[nodiscard]] Result {
@@ -54,7 +66,11 @@ void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources rendere
 
 Result createVoxelRenderer(RenderResources* render_resources_out);
 
-RenderResult render(SurfaceResources, const glm::mat4* world_to_screen_transform);
+RenderResult render(
+    SurfaceResources,
+    const mat4* world_to_screen_transform,
+    const CameraInfo* camera_info
+);
 
 
 /// `init()` must have been called before this; otherwise returns VK_NULL_HANDLE.

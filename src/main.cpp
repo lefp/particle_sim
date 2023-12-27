@@ -31,11 +31,20 @@ using glm::ivec2;
 
 const char* APP_NAME = "an game";
 
-const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 };
+const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 }; // TODO weird default, because everything else is 16:9
 
 const double ASPECT_RATIO = 16.0 / 9.0;
 
 const double CAMERA_MOVEMENT_SPEED = 3.0; // unit: m/s
+
+const double VIEW_FRUSTUM_NEAR_SIDE_DISTANCE = 0.15; // unit: m
+
+const double FOV_Y = (f32)(0.25*M_PI * ASPECT_RATIO);
+
+const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE {
+    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::sin(FOV_Y*ASPECT_RATIO)),
+    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::sin(FOV_Y)),
+};
 
 //
 // Global variables ==========================================================================================
@@ -246,7 +255,7 @@ int main(int argc, char** argv) {
             0,
             camera_horizontal_direction_unit.x
         );
-        vec3 camera_y_axis = glm::rotate(
+        vec3 camera_y_axis_unit = glm::rotate(
             camera_direction_unit,
             (f32)(0.5*M_PI),
             camera_horizontal_right_direction_unit
@@ -310,12 +319,12 @@ int main(int argc, char** argv) {
             mat4 world_to_camera_transform = glm::lookAt(
                 camera_pos_, // eye
                 camera_pos_ + camera_direction_unit, // position you're looking at
-                camera_y_axis // "Normalized up vector, how the camera is oriented."
+                camera_y_axis_unit // "Normalized up vector, how the camera is oriented."
             );
             mat4 camera_to_clip_transform = glm::perspective(
-                (f32)(0.25*M_PI * ASPECT_RATIO), // fovy
+                (f32)FOV_Y, // fovy
                 (f32)ASPECT_RATIO, // aspect
-                0.15f, // zNear
+                (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE, // zNear
                 500.0f // zFar
             );
 
@@ -335,7 +344,18 @@ int main(int argc, char** argv) {
             world_to_screen_transform = glm_to_vulkan * world_to_screen_transform;
         }
 
-        gfx::RenderResult render_result = gfx::render(gfx_surface, &world_to_screen_transform);
+        gfx::CameraInfo camera_info {
+            .camera_direction_unit = camera_direction_unit,
+            .camera_right_direction_unit = camera_horizontal_right_direction_unit,
+            .camera_up_direction_unit = camera_y_axis_unit,
+            .eye_pos = camera_pos_,
+            .frustum_near_side_size = VIEW_FRUSTUM_NEAR_SIDE_SIZE,
+        };
+        gfx::RenderResult render_result = gfx::render(
+            gfx_surface,
+            &world_to_screen_transform,
+            &camera_info
+        );
 
         switch (render_result) {
             case gfx::RenderResult::error_surface_resources_out_of_date:
