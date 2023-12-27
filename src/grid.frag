@@ -43,11 +43,11 @@ void main(void) {
     float pos_depth = lambda - ray_travel_distance_to_near_plane;
 
 
-    vec2 pos_mod_grid_interval = mod(pos_on_xz_plane, grid_interval);
+    vec2 pos_mod_grid_interval = mod(pos_on_xz_plane, vec2(grid_interval));
     bool pos_is_on_a_gridline =
         pos_depth >= 0 && (
             any(lessThan(pos_mod_grid_interval, vec2(gridline_radius))) ||
-            any(lessThan(grid_interval - pos_mod_grid_interval, vec2(gridline_radius)))
+            any(lessThan(vec2(grid_interval) - pos_mod_grid_interval, vec2(gridline_radius)))
         );
 
 
