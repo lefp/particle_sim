@@ -8,6 +8,7 @@ layout(push_constant, std140) uniform PushConstants {
     vec3 camera_up_direction_unit_;
     vec3 eye_pos_;
     vec2 frustum_near_side_size_;
+    float frustum_near_side_distance_;
 };
 
 // TODO can make this a push constant or specialization constant
@@ -20,25 +21,31 @@ void main(void) {
     f.y = -f.y; // screen y-axis is down, world y-axis is up
 
     // Direction of this ray.
-    vec3 v =
-        camera_direction_unit_ +
+    vec3 eye_to_near_plane_vector =
+        camera_direction_unit_ * frustum_near_side_distance_ +
         camera_right_direction_unit_ * f.x * 0.5*frustum_near_side_size_.x +
         camera_up_direction_unit_ * f.y * 0.5*frustum_near_side_size_.y;
-    v = normalize(v);
+
+    float ray_travel_distance_to_near_plane = length(eye_to_near_plane_vector);
+    vec3 ray_direction_unit = eye_to_near_plane_vector / ray_travel_distance_to_near_plane;
 
     // Find intersection with XZ-plane, as follows:
     // Solve
     //     (eye_pos_ + lambda*v).y = 0.
     // Then (eye_pos_ + lambda*v) is the intersection point.
-    if (v.y == 0) v.y = 1; // don't divide by zero
-    float lambda = -eye_pos_.y / v.y;
+    float v_y = ray_direction_unit.y;
+    if (v_y == 0) v_y = 1; // don't divide by zero
+    float lambda = -eye_pos_.y / v_y;
 
-    vec2 pos_on_xz_plane = eye_pos_.xz + lambda*v.xz;
+    vec2 pos_on_xz_plane = eye_pos_.xz + lambda*ray_direction_unit.xz;
+
+
+    float pos_depth = lambda - ray_travel_distance_to_near_plane;
 
 
     vec2 pos_mod_grid_interval = mod(pos_on_xz_plane, grid_interval);
     bool pos_is_on_a_gridline =
-        lambda >= 0 && (
+        pos_depth >= 0 && (
             any(lessThan(pos_mod_grid_interval, vec2(gridline_radius))) ||
             any(lessThan(grid_interval - pos_mod_grid_interval, vec2(gridline_radius)))
         );

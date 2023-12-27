@@ -42,8 +42,9 @@ const double VIEW_FRUSTUM_NEAR_SIDE_DISTANCE = 0.15; // unit: m
 const double FOV_Y = (f32)(0.25*M_PI * ASPECT_RATIO);
 
 const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE {
-    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::sin(FOV_Y*ASPECT_RATIO)),
-    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::sin(FOV_Y)),
+    // TODO should this be 0.5*FOV_Y*...? Is FOV_Y the full frustum angle or half of it?
+    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::tan(FOV_Y*ASPECT_RATIO)),
+    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::tan(FOV_Y)),
 };
 
 //
@@ -292,6 +293,7 @@ int main(int argc, char** argv) {
 
         // If window is resized or moved, the virtual cursor position reported by glfw changes even if the
         // user did not move it. We must ignore the cursor position change in this case.
+        // TODO this doesn't seem to have actually solved the problem
         if (window_resized || window_repositioned) prev_cursor_pos = cursor_pos_;
 
         // compute new camera direction
@@ -350,6 +352,7 @@ int main(int argc, char** argv) {
             .camera_up_direction_unit = camera_y_axis_unit,
             .eye_pos = camera_pos_,
             .frustum_near_side_size = VIEW_FRUSTUM_NEAR_SIDE_SIZE,
+            .frustum_near_side_distance = (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
         };
         gfx::RenderResult render_result = gfx::render(
             gfx_surface,
