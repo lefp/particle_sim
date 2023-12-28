@@ -33,18 +33,21 @@ const char* APP_NAME = "an game";
 
 const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 }; // TODO weird default, because everything else is 16:9
 
-const double ASPECT_RATIO = 16.0 / 9.0;
+const double ASPECT_RATIO_X_OVER_Y = 16.0 / 9.0;
+const double ASPECT_RATIO_Y_OVER_X = 1.0 / ASPECT_RATIO_X_OVER_Y;
 
 const double CAMERA_MOVEMENT_SPEED = 3.0; // unit: m/s
 
 const double VIEW_FRUSTUM_NEAR_SIDE_DISTANCE = 0.15; // unit: m
 
-const double FOV_Y = (f32)(0.25*M_PI * ASPECT_RATIO);
+// These are the full angles from left to right (or top to bottom) of the view frustum.
+const double FOV_X = (f32)(0.5*M_PI);
+const double FOV_Y = FOV_X * ASPECT_RATIO_Y_OVER_X;
 
 const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE {
-    // TODO should this be 0.5*FOV_Y*...? Is FOV_Y the full frustum angle or half of it?
-    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::tan(FOV_Y*ASPECT_RATIO)),
-    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::tan(FOV_Y)),
+    // TODO FIXME: as x -> 90deg, tan(x) -> inf. Probably just cap the max FOV to something lower than 180deg.
+    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::tan(0.5*FOV_X)),
+    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::tan(0.5*FOV_Y)),
 };
 
 //
@@ -325,7 +328,7 @@ int main(int argc, char** argv) {
             );
             mat4 camera_to_clip_transform = glm::perspective(
                 (f32)FOV_Y, // fovy
-                (f32)ASPECT_RATIO, // aspect
+                (f32)ASPECT_RATIO_X_OVER_Y, // aspect
                 (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE, // zNear
                 500.0f // zFar
             );
