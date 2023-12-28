@@ -1,5 +1,7 @@
 - [x] Camera controls (WASD, mouse, shift, space, etc)
-- [ ] Draw grid (maybe in XY, XZ, YZ planes; or just XY plane)
+- [ ] Draw grid (maybe in XY, XZ, YZ planes; or just XZ plane)
+	- [ ] Use depth to get objects drawn in the right order
+	- [ ] Anti-alias
 - [ ] Place and remove blocks
 - [ ] Draw outlines on cubes
 - [ ] Simple terrain generation
