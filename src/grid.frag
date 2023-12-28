@@ -34,7 +34,7 @@ void main(void) {
     //     (eye_pos_ + lambda*v).y = 0.
     // Then (eye_pos_ + lambda*v) is the intersection point.
     float v_y = ray_direction_unit.y;
-    if (v_y == 0) v_y = 1; // don't divide by zero
+    if (abs(v_y) < 1e-5) v_y = 1; // don't divide by zero
     float lambda = -eye_pos_.y / v_y;
 
     vec2 pos_on_xz_plane = eye_pos_.xz + lambda*ray_direction_unit.xz;
