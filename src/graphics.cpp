@@ -1393,7 +1393,7 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
     RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)renderer.impl;
 
-    LOG_F(INFO, "Attaching surface %p to renderer %p", p_surface_resources, p_render_resources);
+    LOG_F(INFO, "Attaching surface %p to renderer %p.", p_surface_resources, p_render_resources);
 
     if (p_surface_resources->attached_render_resources != NULL) {
         ABORT_F("Attempt to attach surface to renderer, but surface is already attached to a renderer.");
@@ -1502,6 +1502,8 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
 
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
     RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)renderer.impl;
+
+    LOG_F(INFO, "Detaching surface %p from renderer %p.", p_surface_resources, p_render_resources);
 
     alwaysAssert(p_surface_resources->attached_render_resources == p_render_resources);
     p_surface_resources->attached_render_resources = NULL;
