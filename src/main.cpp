@@ -46,8 +46,8 @@ const double FOV_Y = FOV_X * ASPECT_RATIO_Y_OVER_X;
 
 const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE {
     // TODO FIXME: as x -> 90deg, tan(x) -> inf. Probably just cap the max FOV to something lower than 180deg.
-    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::tan(0.5*FOV_X)),
-    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * glm::tan(0.5*FOV_Y)),
+    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * 2.0*glm::tan(0.5*FOV_X)),
+    (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * 2.0*glm::tan(0.5*FOV_Y)),
 };
 
 //
