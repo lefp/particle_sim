@@ -351,6 +351,7 @@ int main(int argc, char** argv) {
             .camera_right_direction_unit = camera_horizontal_right_direction_unit,
             .camera_up_direction_unit = camera_y_axis_unit,
             .eye_pos = camera_pos_,
+            .viewport_size = window_size_,
             .frustum_near_side_size = VIEW_FRUSTUM_NEAR_SIDE_SIZE,
             .frustum_near_side_distance = (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
         };
