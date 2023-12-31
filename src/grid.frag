@@ -10,6 +10,7 @@ layout(push_constant, std140) uniform PushConstants {
     vec2 viewport_size_;
     vec2 frustum_near_side_size_;
     float frustum_near_side_distance_;
+    float frustum_far_side_distance_;
 };
 
 // TODO can make this a push constant or specialization constant
@@ -61,6 +62,5 @@ void main(void) {
     else frag_color = vec4(0.0, 0.0, 0.0, 0.0);
 
     fragment_color_out_ = frag_color;
-    // TODO output depth information somewhere
-    // Keep in mind that we might want distance from the near plane, not distance from the eye.
+    gl_FragDepth = pos_depth / (frustum_far_side_distance_ - frustum_near_side_distance_);
 }

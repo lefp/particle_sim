@@ -2,12 +2,17 @@
 #define _VK_PROCS_HPP
 
 #include <vulkan/vulkan.h>
+#include <loguru/loguru.hpp>
 
 //
 // ===========================================================================================================
 //
 
 /// These are where you define the lists of procedures you want to use.
+
+#define FOR_EACH_BASE_PROC(X) \
+    X(CreateInstance) \
+    X(GetInstanceProcAddr)
 
 #define FOR_EACH_INSTANCE_PROC(X) \
     X(CreateDevice) \
@@ -25,6 +30,7 @@
     X(CmdBindPipeline) \
     X(CmdDraw) \
     X(CmdEndRenderPass) \
+    X(CmdPipelineBarrier) \
     X(CmdPushConstants) \
     X(CmdSetScissor) \
     X(CmdSetViewport) \
@@ -63,6 +69,11 @@
 
 #define DECLARE_PROC_PTR(PROC_NAME) PFN_vk##PROC_NAME PROC_NAME;
 
+struct VulkanBaseProcs {
+    FOR_EACH_BASE_PROC(DECLARE_PROC_PTR);
+
+    void init(PFN_vkGetInstanceProcAddr);
+};
 
 struct VulkanInstanceProcs {
     FOR_EACH_INSTANCE_PROC(DECLARE_PROC_PTR);
@@ -83,6 +94,7 @@ struct VulkanDeviceProcs {
 // ===========================================================================================================
 //
 
+extern VulkanBaseProcs vk_base_procs;
 extern VulkanInstanceProcs vk_inst_procs;
 extern VulkanDeviceProcs vk_dev_procs;
 

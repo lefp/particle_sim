@@ -18,6 +18,10 @@
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 #include <loguru/loguru.hpp>
+#define VMA_IMPLEMENTATION
+#define VMA_STATIC_VULKAN_FUNCTIONS 0
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
+#include <VulkanMemoryAllocator/vk_mem_alloc.h>
 
 #include "types.hpp"
 #include "error_util.hpp"
@@ -39,8 +43,15 @@ using glm::vec4;
 //
 
 #define VULKAN_API_VERSION VK_API_VERSION_1_3
-#define SWAPCHAIN_FORMAT VK_FORMAT_B8G8R8A8_SRGB
-#define SWAPCHAIN_COLOR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+
+const VkFormat SWAPCHAIN_FORMAT = VK_FORMAT_B8G8R8A8_SRGB;
+const VkColorSpaceKHR SWAPCHAIN_COLOR_SPACE = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+
+// TODO FIXME:
+//     Implement a check to verify that this format is supported. If it isn't, either pick a different format
+//     or abort.
+const VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
+const VkImageLayout DEPTH_IMAGE_LAYOUT = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 // Invalid values for unsigned types, where you can't use -1 and `0` could be valid.
 const u32 INVALID_QUEUE_FAMILY_IDX = UINT32_MAX;
@@ -76,6 +87,8 @@ static struct {
 } pipeline_layouts_;
 
 static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
+
+static VmaAllocator vma_allocator_ = NULL;
 
 //
 // ===========================================================================================================
@@ -119,6 +132,10 @@ struct RenderResourcesImpl {
         VkFramebuffer framebuffer;
         VkSemaphore render_finished_semaphore;
         VkFence command_buffer_pending_fence;
+
+        VkImage depth_buffer;
+        VkImageView depth_buffer_view;
+        VmaAllocation depth_buffer_allocation;
     };
 
     // This is only initialized when attached to a swapchain; otherwise it is NULL.
@@ -303,8 +320,7 @@ static void selectPhysicalDeviceAndQueueFamily(
 static void initGraphicsUptoQueueCreation(const char* app_name, const char* specific_named_device_request) {
 
     if (!glfwVulkanSupported()) ABORT_F("Failed to find Vulkan; do you need to install drivers?");
-    auto vkCreateInstance = (PFN_vkCreateInstance)glfwGetInstanceProcAddress(NULL, "vkCreateInstance");
-    assertGlfw(vkCreateInstance != NULL);
+    vk_base_procs.init((PFN_vkGetInstanceProcAddr)glfwGetInstanceProcAddress);
 
     // Create instance ---------------------------------------------------------------------------------------
     {
@@ -335,7 +351,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
             .ppEnabledExtensionNames = extensions_required_by_glfw,
         };
 
-        VkResult result = vkCreateInstance(&instance_info, NULL, &instance_);
+        VkResult result = vk_base_procs.CreateInstance(&instance_info, NULL, &instance_);
         assertVk(result);
 
         vk_inst_procs.init(instance_, (PFN_vkGetInstanceProcAddr)glfwGetInstanceProcAddress);
@@ -520,8 +536,9 @@ static VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, V
 
 
 static VkRenderPass createSimpleRenderPass(VkDevice device) {
-    constexpr u32 attachment_count = 1;
+    constexpr u32 attachment_count = 2;
     const VkAttachmentDescription attachment_descriptions[attachment_count] {
+        // color attachment
         {
             .format = SWAPCHAIN_FORMAT,
             .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -531,6 +548,17 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
             .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
             .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        },
+        // depth attachment
+        {
+            .format = DEPTH_FORMAT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = DEPTH_IMAGE_LAYOUT,
+            .finalLayout = DEPTH_IMAGE_LAYOUT,
         }
     };
 
@@ -542,6 +570,11 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
         }
     };
 
+    const VkAttachmentReference depth_attachment {
+        .attachment = 1,
+        .layout = DEPTH_IMAGE_LAYOUT,
+    };
+
     constexpr u32 subpass_count = 1;
     const VkSubpassDescription subpass_descriptions[subpass_count] {
         {
@@ -551,7 +584,7 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
             .colorAttachmentCount = color_attachment_count,
             .pColorAttachments = color_attachments,
             .pResolveAttachments = NULL,
-            .pDepthStencilAttachment = NULL,
+            .pDepthStencilAttachment = &depth_attachment,
             .preserveAttachmentCount = 0,
             .pPreserveAttachments = NULL,
         }
@@ -660,9 +693,9 @@ static VkPipeline createVoxelPipeline(
 
     const VkPipelineDepthStencilStateCreateInfo depth_stencil_state_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthTestEnable = VK_FALSE,
-        .depthWriteEnable = VK_FALSE,
-        .depthCompareOp = VK_COMPARE_OP_NEVER,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable = VK_FALSE,
         .front = {},
@@ -847,12 +880,11 @@ static VkPipeline createGridPipeline(
     };
 
 
-    // TODO we'll probably want to enable depth
     const VkPipelineDepthStencilStateCreateInfo depth_stencil_state_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthTestEnable = VK_FALSE,
-        .depthWriteEnable = VK_FALSE,
-        .depthCompareOp = VK_COMPARE_OP_NEVER,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable = VK_FALSE,
         .front = {},
@@ -1234,14 +1266,20 @@ static bool recordCommandBuffer(
     assertVk(result);
 
     {
-        VkClearValue clear_value { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } };
+        // TODO replace magic number with some named constant (it's the number of render pass attachments with
+        // loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
+        constexpr u32 clear_value_count = 2;
+        VkClearValue clear_values[clear_value_count] {
+            { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
+            { .depthStencil = VkClearDepthStencilValue { .depth = 0 } },
+        };
         VkRenderPassBeginInfo render_pass_begin_info {
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             .renderPass = render_pass,
             .framebuffer = framebuffer,
             .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
-            .clearValueCount = 1,
-            .pClearValues = &clear_value,
+            .clearValueCount = clear_value_count,
+            .pClearValues = clear_values,
         };
         vk_dev_procs.CmdBeginRenderPass(
             command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE
@@ -1296,6 +1334,22 @@ extern void init(const char* app_name, const char* specific_named_device_request
     // will be logged if we're logging to a file.
 
     initGraphicsUptoQueueCreation(app_name, specific_named_device_request);
+
+
+    VmaVulkanFunctions vma_vulkan_functions {
+        .vkGetInstanceProcAddr = vk_base_procs.GetInstanceProcAddr,
+        .vkGetDeviceProcAddr = vk_inst_procs.GetDeviceProcAddr,
+    };
+
+    VmaAllocatorCreateInfo vma_allocator_info {
+        .physicalDevice = physical_device_,
+        .device = device_,
+        .pVulkanFunctions = &vma_vulkan_functions,
+        .instance = instance_,
+        .vulkanApiVersion = VULKAN_API_VERSION,
+    };
+    VkResult result = vmaCreateAllocator(&vma_allocator_info, &vma_allocator_);
+    assertVk(result);
 
 
     VkRenderPass render_pass = createSimpleRenderPass(device_);
@@ -1463,13 +1517,128 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
 
     for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
 
-        per_image_stuff_array[im_idx].command_buffer = p_command_buffers[im_idx];
+        VkCommandBuffer command_buffer = p_command_buffers[im_idx];
+        per_image_stuff_array[im_idx].command_buffer = command_buffer;
 
+
+        VkImageCreateInfo depth_image_info {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = DEPTH_FORMAT,
+            .extent = VkExtent3D { swapchain_extent.width, swapchain_extent.height, 1 },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &queue_family_,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, // TODO FIXME use an image barrier to transition to DEPTH_IMAGE_LAYOUT
+        };
+        VmaAllocationCreateInfo depth_image_alloc_info {
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        };
+        result = vmaCreateImage(
+            vma_allocator_, &depth_image_info, &depth_image_alloc_info,
+            &per_image_stuff_array[im_idx].depth_buffer,
+            &per_image_stuff_array[im_idx].depth_buffer_allocation,
+            NULL // pAllocationInfo, an output parameter
+        );
+        assertVk(result);
+
+
+        VkCommandBufferBeginInfo cmd_buf_begin_info {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        };
+        result = vk_dev_procs.BeginCommandBuffer(command_buffer, &cmd_buf_begin_info);
+        assertVk(result);
+
+        VkImageMemoryBarrier image_barrier {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_NONE,
+            .dstAccessMask =
+                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = DEPTH_IMAGE_LAYOUT,
+            .srcQueueFamilyIndex = queue_family_,
+            .dstQueueFamilyIndex = queue_family_,
+            .image = per_image_stuff_array[im_idx].depth_buffer,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+
+        vk_dev_procs.CmdPipelineBarrier(
+            command_buffer,
+            // TOP_OF_PIPE_BIT "specifies no stage of execution when specified in the first scope"
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, // srcStageMask
+            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, // dstStageMask
+            0, // dependencyFlags
+            0, // memoryBarrierCount
+            NULL, // pMemoryBarriers
+            0, // bufferMemoryBarrierCount
+            NULL, // pBufferMemoryBarriers
+            1, // imageMemoryBarrierCount
+            &image_barrier // pImageMemoryBarriers
+        );
+
+        result = vk_dev_procs.EndCommandBuffer(command_buffer);
+        assertVk(result);
+
+        VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &command_buffer,
+        };
+        result = vk_dev_procs.QueueSubmit(queue_, 1, &submit_info, VK_NULL_HANDLE);
+        assertVk(result);
+
+
+        VkImageViewCreateInfo depth_image_view_info {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = per_image_stuff_array[im_idx].depth_buffer,
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = DEPTH_FORMAT,
+            .components = {
+                .r = VK_COMPONENT_SWIZZLE_R,
+                .g = VK_COMPONENT_SWIZZLE_G,
+                .b = VK_COMPONENT_SWIZZLE_B,
+                .a = VK_COMPONENT_SWIZZLE_A,
+            },
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+        result = vk_dev_procs.CreateImageView(
+            device_,
+            &depth_image_view_info,
+            NULL,
+            &per_image_stuff_array[im_idx].depth_buffer_view
+        );
+        assertVk(result);
+
+
+        constexpr u32 attachment_count = 2; // TODO magic number, maybe try organizing so that the dependency on the render pass attachments is more obvious
+        const VkImageView attachments[attachment_count] {
+            p_surface_resources->swapchain_image_views[im_idx],
+            per_image_stuff_array[im_idx].depth_buffer_view,
+        };
         const VkFramebufferCreateInfo framebuffer_info {
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .renderPass = p_render_resources->render_pass,
-            .attachmentCount = 1,
-            .pAttachments = &p_surface_resources->swapchain_image_views[im_idx],
+            .attachmentCount = 2,
+            .pAttachments = attachments,
             .width = swapchain_extent.width,
             .height = swapchain_extent.height,
             .layers = 1,
@@ -1496,6 +1665,10 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
         result = vk_dev_procs.CreateFence(device_, &fence_info, NULL, p_fence);
         assertVk(result);
     }
+
+    // wait for any command buffers we just submitted, such as barriers for image layout transitions
+    result = vk_dev_procs.QueueWaitIdle(queue_);
+    assertVk(result);
 }
 
 extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources renderer) {
@@ -1520,11 +1693,22 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
     VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
 
     for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
+
+        const RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff =
+            &per_image_stuff_array[im_idx];
+
         // We shouldn't actually need to destroy the fences, but doing so anyway for simplicity.
-        vk_dev_procs.DestroyFence(device_, per_image_stuff_array[im_idx].command_buffer_pending_fence, NULL);
-        vk_dev_procs.DestroySemaphore(device_, per_image_stuff_array[im_idx].render_finished_semaphore, NULL);
-        vk_dev_procs.DestroyFramebuffer(device_, per_image_stuff_array[im_idx].framebuffer, NULL);
-        p_command_buffers[im_idx] = per_image_stuff_array[im_idx].command_buffer;
+        vk_dev_procs.DestroyFence(device_, per_image_stuff->command_buffer_pending_fence, NULL);
+        vk_dev_procs.DestroySemaphore(device_, per_image_stuff->render_finished_semaphore, NULL);
+        vk_dev_procs.DestroyFramebuffer(device_, per_image_stuff->framebuffer, NULL);
+        p_command_buffers[im_idx] = per_image_stuff->command_buffer;
+
+        vk_dev_procs.DestroyImageView(device_, per_image_stuff->depth_buffer_view, NULL);
+        vmaDestroyImage(
+            vma_allocator_,
+            per_image_stuff->depth_buffer,
+            per_image_stuff->depth_buffer_allocation
+        );
     }
 
     // We shouldn't actually need to free the command buffers, but doing so anyway for simplicity.

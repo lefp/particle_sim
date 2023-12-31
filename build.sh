@@ -1,5 +1,11 @@
 #!/bin/sh
 
+# grep --recursive --line-number 'FIXME' src
+# if [ $? -eq 0 ] ; then
+#   echo '^ You have unresolved FIXMEs. Aborting build.'
+#   exit
+# fi
+
 ls src | grep -E '\.(vert|frag|comp)$' | while IFS= read -r src_file ; do
   glslc -o build/"$src_file".spv src/"$src_file"
 done
