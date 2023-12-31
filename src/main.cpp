@@ -39,6 +39,7 @@ const double ASPECT_RATIO_Y_OVER_X = 1.0 / ASPECT_RATIO_X_OVER_Y;
 const double CAMERA_MOVEMENT_SPEED = 3.0; // unit: m/s
 
 const double VIEW_FRUSTUM_NEAR_SIDE_DISTANCE = 0.15; // unit: m
+const double VIEW_FRUSTUM_FAR_SIDE_DISTANCE = 500.0;
 
 // These are the full angles from left to right (or top to bottom) of the view frustum.
 const double FOV_X = (f32)(0.5*M_PI);
@@ -330,7 +331,7 @@ int main(int argc, char** argv) {
                 (f32)FOV_Y, // fovy
                 (f32)ASPECT_RATIO_X_OVER_Y, // aspect
                 (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE, // zNear
-                500.0f // zFar
+                (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE // zFar
             );
 
             // In GLM normalized device coordinates, by default:
@@ -357,6 +358,7 @@ int main(int argc, char** argv) {
             .viewport_size = window_size_,
             .frustum_near_side_size = VIEW_FRUSTUM_NEAR_SIDE_SIZE,
             .frustum_near_side_distance = (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
+            .frustum_far_side_distance = (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE,
         };
         gfx::RenderResult render_result = gfx::render(
             gfx_surface,

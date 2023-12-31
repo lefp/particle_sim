@@ -1271,7 +1271,7 @@ static bool recordCommandBuffer(
         constexpr u32 clear_value_count = 2;
         VkClearValue clear_values[clear_value_count] {
             { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
-            { .depthStencil = VkClearDepthStencilValue { .depth = 0 } },
+            { .depthStencil = VkClearDepthStencilValue { .depth = 1 } },
         };
         VkRenderPassBeginInfo render_pass_begin_info {
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,

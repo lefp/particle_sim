@@ -57,10 +57,21 @@ void main(void) {
         );
 
 
+    float far_plane_depth =
+        (frustum_far_side_distance_ - frustum_near_side_distance_)
+        * (ray_travel_distance_to_near_plane / frustum_near_side_distance_);
+
     vec4 frag_color;
-    if (pos_is_on_a_gridline) frag_color = vec4(0.5, 0.5, 0.5, 1.0);
-    else frag_color = vec4(0.0, 0.0, 0.0, 0.0);
+    float frag_depth;
+    if (pos_is_on_a_gridline) {
+        frag_color = vec4(0.5, 0.5, 0.5, 1.0);
+        frag_depth = pos_depth / far_plane_depth;
+    }
+    else {
+        frag_color = vec4(0.0, 0.0, 0.0, 0.0);
+        frag_depth = 1.1; // > 1 so it doesn't overwrite anything
+    }
 
     fragment_color_out_ = frag_color;
-    gl_FragDepth = pos_depth / (frustum_far_side_distance_ - frustum_near_side_distance_);
+    gl_FragDepth = frag_depth;
 }
