@@ -1213,36 +1213,6 @@ static bool createFramebuffersForSwapchain(
 */
 
 
-/// Returns a 16:9 subregion centered in an image, which maximizes the subregion's area.
-static VkRect2D centeredSubregion_16x9(VkExtent2D image_extent) {
-
-    const bool limiting_dim_is_x = image_extent.width * 9 <= image_extent.height * 16;
-
-    VkOffset2D offset {};
-    VkExtent2D extent {};
-    if (limiting_dim_is_x) {
-        extent.width = image_extent.width;
-        extent.height = image_extent.width * 9 / 16;
-        offset.x = 0;
-        offset.y = ((i32)image_extent.height - (i32)extent.height) / 2;
-    }
-    else {
-        extent.height = image_extent.height;
-        extent.width = image_extent.height * 16 / 9;
-        offset.y = 0;
-        offset.x = ((i32)image_extent.width - (i32)extent.width) / 2;
-    }
-
-    assert(offset.x >= 0);
-    assert(offset.y >= 0);
-
-    return VkRect2D {
-        .offset = offset,
-        .extent = extent,
-    };
-}
-
-
 /// Returns `true` if successful.
 static bool recordCommandBuffer(
     VkCommandBuffer command_buffer,
@@ -1825,6 +1795,7 @@ extern Result createVoxelRenderer(RenderResources* render_resources_out) {
 
 RenderResult render(
     SurfaceResources surface,
+    VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
     const CameraInfo* camera_info
 ) {
@@ -1867,9 +1838,6 @@ RenderResult render(
     }
 
 
-    VkRect2D swapchain_roi = centeredSubregion_16x9(p_surface_resources->swapchain_extent);
-
-
     RenderResourcesImpl::StuffThatIsPerSwapchainImage this_image_render_resources =
         p_render_resources->per_image_stuff_array[acquired_swapchain_image_idx];
 
@@ -1904,7 +1872,7 @@ RenderResult render(
         pipelines_.grid_pipeline,
         pipeline_layouts_.grid_pipeline_layout,
         p_surface_resources->swapchain_extent,
-        swapchain_roi,
+        window_subregion,
         this_image_render_resources.framebuffer,
         &voxel_pipeline_push_constants,
         camera_info

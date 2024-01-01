@@ -70,7 +70,8 @@ void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources rendere
 Result createVoxelRenderer(RenderResources* render_resources_out);
 
 RenderResult render(
-    SurfaceResources,
+    SurfaceResources surface,
+    VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
     const CameraInfo* camera_info
 );

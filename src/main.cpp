@@ -66,6 +66,9 @@ dvec2 cursor_pos_ { 0, 0 };
 
 ivec2 window_size_ { 0, 0 };
 ivec2 window_pos_ { 0, 0 };
+VkRect2D window_draw_region_ {};
+
+bool window_or_surface_out_of_date_ = false;
 
 f64 frame_start_time_seconds = 0;
 
@@ -148,6 +151,36 @@ static vec2 flip_screenXY_to_cameraXY(vec2 screen_coords) {
 }
 
 
+/// Returns a 16:9 subregion centered in an image, which maximizes the subregion's area.
+static VkRect2D centeredSubregion_16x9(u32 image_width, u32 image_height) {
+
+    const bool limiting_dim_is_x = image_width * 9 <= image_height * 16;
+
+    VkOffset2D offset {};
+    VkExtent2D extent {};
+    if (limiting_dim_is_x) {
+        extent.width = image_width;
+        extent.height = image_width * 9 / 16;
+        offset.x = 0;
+        offset.y = ((i32)image_height - (i32)extent.height) / 2;
+    }
+    else {
+        extent.height = image_height;
+        extent.width = image_height * 16 / 9;
+        offset.y = 0;
+        offset.x = ((i32)image_width - (i32)extent.width) / 2;
+    }
+
+    assert(offset.x >= 0);
+    assert(offset.y >= 0);
+
+    return VkRect2D {
+        .offset = offset,
+        .extent = extent,
+    };
+}
+
+
 int main(int argc, char** argv) {
 
     loguru::init(argc, argv);
@@ -206,6 +239,8 @@ int main(int argc, char** argv) {
     // TODO handle error_window_size_zero
     assertGraphics(res);
 
+    window_draw_region_ = centeredSubregion_16x9((u32)window_size_.x, (u32)window_size_.y);
+
 
     gfx::attachSurfaceToRenderer(gfx_surface, gfx_renderer);
 
@@ -236,14 +271,22 @@ int main(int argc, char** argv) {
         ivec2 prev_window_size = window_size_;
         glfwGetWindowSize(window, &window_size_.x, &window_size_.y);
         abortIfGlfwError();
-        bool window_resized = prev_window_size != window_size_;
 
-        if (window_resized) {
+        bool window_resized = prev_window_size != window_size_;
+        window_or_surface_out_of_date_ |= window_resized;
+
+
+        if (window_or_surface_out_of_date_) {
+
             res = gfx::updateSurfaceResources(
                 gfx_surface,
                 VkExtent2D { (u32)window_size_.x, (u32)window_size_.y }
             );
             assertGraphics(res);
+
+            window_draw_region_ = centeredSubregion_16x9((u32)window_size_.x, (u32)window_size_.y);
+
+            window_or_surface_out_of_date_ = false;
         }
 
 
@@ -355,13 +398,14 @@ int main(int argc, char** argv) {
             .camera_right_direction_unit = camera_horizontal_right_direction_unit,
             .camera_up_direction_unit = camera_y_axis_unit,
             .eye_pos = camera_pos_,
-            .viewport_size = window_size_,
+            .viewport_size = vec2(window_draw_region_.extent.width, window_draw_region_.extent.height),
             .frustum_near_side_size = VIEW_FRUSTUM_NEAR_SIDE_SIZE,
             .frustum_near_side_distance = (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
             .frustum_far_side_distance = (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE,
         };
         gfx::RenderResult render_result = gfx::render(
             gfx_surface,
+            window_draw_region_,
             &world_to_screen_transform,
             &camera_info
         );
@@ -370,18 +414,8 @@ int main(int argc, char** argv) {
             case gfx::RenderResult::error_surface_resources_out_of_date:
             case gfx::RenderResult::success_surface_resources_out_of_date:
             {
-                window_size_.x = 0;
-                window_size_.y = 0;
-                glfwGetWindowSize(window, &window_size_.x, &window_size_.y);
-                abortIfGlfwError();
-
-                LOG_F(INFO, "Surface resources out of date; updating.");
-                res = gfx::updateSurfaceResources(
-                    gfx_surface,
-                    VkExtent2D { .width = (u32)window_size_.x, .height = (u32)window_size_.y }
-                );
-
-                assertGraphics(res);
+                LOG_F(INFO, "Surface resources out of date.");
+                window_or_surface_out_of_date_ = true;
                 goto LABEL_MAIN_LOOP_START;
             }
             case gfx::RenderResult::success: break;
