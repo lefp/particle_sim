@@ -86,7 +86,8 @@ static struct {
     VkPipelineLayout grid_pipeline_layout = VK_NULL_HANDLE;
 } pipeline_layouts_;
 
-static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
+// TODO FIXME use a FIFO fallback if this present mode is not supported
+static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_MAILBOX_KHR;
 
 static VmaAllocator vma_allocator_ = NULL;
 
