@@ -31,22 +31,24 @@ using glm::ivec2;
 
 const char* APP_NAME = "an game";
 
-const VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 }; // TODO weird default, because everything else is 16:9
+constexpr VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 }; // TODO weird default, because everything else is 16:9
 
-const double ASPECT_RATIO_X_OVER_Y = 16.0 / 9.0;
-const double ASPECT_RATIO_Y_OVER_X = 1.0 / ASPECT_RATIO_X_OVER_Y;
+constexpr double ASPECT_RATIO_X_OVER_Y = 16.0 / 9.0;
+constexpr double ASPECT_RATIO_Y_OVER_X = 1.0 / ASPECT_RATIO_X_OVER_Y;
 
-const double CAMERA_MOVEMENT_SPEED = 3.0; // unit: m/s
+constexpr double CAMERA_MOVEMENT_SPEED = 3.0; // unit: m/s
 
-const double VIEW_FRUSTUM_NEAR_SIDE_DISTANCE = 0.15; // unit: m
-const double VIEW_FRUSTUM_FAR_SIDE_DISTANCE = 500.0;
+constexpr double VIEW_FRUSTUM_NEAR_SIDE_DISTANCE = 0.15; // unit: m
+constexpr double VIEW_FRUSTUM_FAR_SIDE_DISTANCE = 500.0;
 
 // These are the full angles from left to right (or top to bottom) of the view frustum.
-const double FOV_X = (f32)(0.5*M_PI);
-const double FOV_Y = FOV_X * ASPECT_RATIO_Y_OVER_X;
+constexpr double FOV_X = (f32)(0.5*M_PI);
+constexpr double FOV_Y = FOV_X * ASPECT_RATIO_Y_OVER_X;
+static_assert(FOV_X < M_PI - 1e-5);
+static_assert(FOV_Y < M_PI - 1e-5);
 
 const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE {
-    // TODO FIXME: as x -> 90deg, tan(x) -> inf. Probably just cap the max FOV to something lower than 180deg.
+    // NOTE: as x -> 90deg, tan(x) -> inf. Don't let any FOV come close to 180 deg.
     (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * 2.0*glm::tan(0.5*FOV_X)),
     (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * 2.0*glm::tan(0.5*FOV_Y)),
 };
