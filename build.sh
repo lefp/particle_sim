@@ -9,7 +9,8 @@ echo 'building -----------------------------------------------------------------
 # fi
 
 
-set DEBUG_FLAG=-g3
+DEBUG_FLAG=-g3
+PREPROC_DEFS=-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES
 
 
 ls -d build &> /dev/null && rm -r build
@@ -22,9 +23,30 @@ ls src | grep -E '\.(vert|frag|comp)$' | while IFS= read -r src_file ; do
 done
 
 
+ls libs/imgui | grep -E '\.cpp$' | while IFS= read -r src_file ; do
+  echo "Compiling $src_file"
+  g++ \
+    $DEBUG_FLAG \
+    $PREPROC_DEFS \
+    -c \
+    libs/imgui/"$src_file" \
+    -I libs/imgui \
+    -o build/intermediate_objects/"$src_file".o
+done
+
+echo 'Compiling libs/imgui/backends/imgui_impl_vulkan.cpp'
+g++ \
+  $DEBUG_FLAG \
+  $PREPROC_DEFS \
+  -c \
+  -I libs/imgui \
+  libs/imgui/backends/imgui_impl_vulkan.cpp \
+  -o build/intermediate_objects/imgui_impl_vulkan.cpp.o
+
 echo 'Compiling libs/loguru/loguru.cpp'
 g++ \
   $DEBUG_FLAG \
+  $PREPROC_DEFS \
   -c \
   -I libs/loguru \
   libs/loguru/loguru.cpp \
@@ -40,6 +62,7 @@ ls src | grep -E '\.cpp$' | while IFS= read -r src_file ; do
     -Wunused-result -Wwrite-strings -Wsign-conversion \
     -Wno-missing-field-initializers \
     $DEBUG_FLAG \
+    $PREPROC_DEFS \
     -isystem libs \
     -c \
     src/"$src_file" \
