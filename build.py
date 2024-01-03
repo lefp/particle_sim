@@ -79,6 +79,7 @@ if os.path.isdir(BUILD_DIR_PATH):
 os.mkdir(BUILD_DIR_PATH)
 os.mkdir(INTERMEDIATE_OBJECTS_PATH)
 
+# compile shaders --------------------------------------------------------------------------------------------
 
 shader_source_files = filter(
     lambda s: s.endswith('.vert') or s.endswith('.frag') or s.endswith('.comp'),
@@ -93,6 +94,7 @@ for shader_source_file in shader_source_files:
     ])
     compilation_processes.append(glslc_process)
 
+# compile cpp files ------------------------------------------------------------------------------------------
 
 lib_my_app = Library(
     source_file_paths = [
@@ -128,6 +130,7 @@ for lib in libs:
         )
         compilation_processes.append(gcc_process)
 
+# link -------------------------------------------------------------------------------------------------------
 
 for p in compilation_processes: p.communicate()
 
