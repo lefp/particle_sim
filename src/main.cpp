@@ -216,11 +216,9 @@ int main(int argc, char** argv) {
 
     bool raw_mouse_motion_supported = glfwRawMouseMotionSupported();
     abortIfGlfwError();
-    if (raw_mouse_motion_supported) {
-        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-        abortIfGlfwError();
-    }
-    else LOG_F(WARNING, "GLFW says that raw mouse motion is unsupported; not enabling.");
+    if (!raw_mouse_motion_supported) ABORT_F("GLFW claims that raw mouse motion is unsupported.");
+    glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    abortIfGlfwError();
 
     VkSurfaceKHR vk_surface = VK_NULL_HANDLE;
     VkResult result = glfwCreateWindowSurface(gfx::getVkInstance(), window, NULL, &vk_surface);
