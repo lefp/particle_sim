@@ -226,6 +226,9 @@ int main(int argc, char** argv) {
     VkResult result = glfwCreateWindowSurface(gfx::getVkInstance(), window, NULL, &vk_surface);
     assertVk(result);
 
+    // TODO FIXME sometimes we want glfwGetWindowSize, sometimes we want glfwGetFramebufferSize.
+    //     Check every instance of a window size being passed into a function call, and determine which one
+    //     we should actually be passing.
     glfwGetWindowSize(window, &window_size_.x, &window_size_.y);
     glfwGetWindowPos(window, &window_pos_.x, &window_pos_.y);
     abortIfGlfwError();
