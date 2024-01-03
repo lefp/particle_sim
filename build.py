@@ -70,6 +70,9 @@ def filesInDirWithSuffix(dir: str, suffix: str):
 print('building...');
 
 
+compilation_processes: list[sp.Popen] = []
+
+
 if os.path.isdir(BUILD_DIR_PATH):
     sh.rmtree(BUILD_DIR_PATH)
 
@@ -88,7 +91,7 @@ for shader_source_file in shader_source_files:
         'src/' + shader_source_file,
         '-o', BUILD_DIR_PATH + '/' + shader_source_file + '.spv'
     ])
-    glslc_process.communicate()
+    compilation_processes.append(glslc_process)
 
 
 lib_my_app = Library(
@@ -123,7 +126,10 @@ for lib in libs:
             + COMMON_COMPILE_FLAGS
             + lib.additional_compile_flags
         )
-        gcc_process.communicate()
+        compilation_processes.append(gcc_process)
+
+
+for p in compilation_processes: p.communicate()
 
 gcc_process = sp.Popen(
     [
