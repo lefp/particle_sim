@@ -131,9 +131,16 @@ for lib in libs:
         )
         compilation_processes.append(gcc_process)
 
-# link -------------------------------------------------------------------------------------------------------
+a_compilation_failed: bool = False
+for p in compilation_processes:
+    p.communicate()
+    if p.returncode != 0: a_compilation_failed = True
 
-for p in compilation_processes: p.communicate()
+if a_compilation_failed:
+    print('A compilation failed; aborting build.')
+    exit(1);
+
+# link -------------------------------------------------------------------------------------------------------
 
 gcc_process = sp.Popen(
     [
