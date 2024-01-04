@@ -22,6 +22,7 @@
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #include <VulkanMemoryAllocator/vk_mem_alloc.h>
+#include <imgui/imgui_impl_vulkan.h>
 
 #include "types.hpp"
 #include "error_util.hpp"
@@ -57,6 +58,7 @@ const VkImageLayout DEPTH_IMAGE_LAYOUT = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMEN
 const u32 INVALID_QUEUE_FAMILY_IDX = UINT32_MAX;
 const u32 INVALID_PHYSICAL_DEVICE_IDX = UINT32_MAX;
 const u32 INVALID_SWAPCHAIN_IMAGE_IDX = UINT32_MAX;
+const u32 INVALID_SUBPASS_IDX = UINT32_MAX;
 
 // Use to statically allocate arrays for swapchain images, image views, and framebuffers.
 const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
@@ -67,6 +69,8 @@ const u32fast PHYSICAL_DEVICE_TYPE_COUNT = 5; // number of VK_PHYSICAL_DEVICE_TY
 // Global variables ==========================================================================================
 //
 
+static bool initialized_ = false;
+
 static VkInstance instance_ = VK_NULL_HANDLE;
 static VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
 static VkPhysicalDeviceProperties physical_device_properties_;
@@ -75,6 +79,7 @@ static VkDevice device_ = VK_NULL_HANDLE;
 static VkQueue queue_ = VK_NULL_HANDLE;
 
 static VkRenderPass simple_render_pass_ = VK_NULL_HANDLE;
+static u32 the_only_subpass_ = INVALID_SUBPASS_IDX;
 
 static struct {
     VkPipeline voxel_pipeline = VK_NULL_HANDLE;
@@ -1104,6 +1109,7 @@ static Result createSwapchain(
     LOG_F(INFO, "Built swapchain %p.", swapchain);
     *swapchain_out = swapchain;
     *extent_out = extent;
+    // TODO FIXME ImGui_SetMinImageCount() if imgui is enabled or something
     return Result::success;
 }
 
@@ -1214,6 +1220,7 @@ static bool createFramebuffersForSwapchain(
 */
 
 
+/// Does not call `BeginCommandBuffer` and `EndCommandBuffer`; you are responsible for doing that.
 /// Returns `true` if successful.
 static bool recordCommandBuffer(
     VkCommandBuffer command_buffer,
@@ -1229,72 +1236,130 @@ static bool recordCommandBuffer(
     const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants
 ) {
 
-    VkCommandBufferBeginInfo begin_info {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    // TODO replace magic number with some named constant (it's the number of render pass attachments with
+    // loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
+    constexpr u32 clear_value_count = 2;
+    VkClearValue clear_values[clear_value_count] {
+        { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
+        { .depthStencil = VkClearDepthStencilValue { .depth = 1 } },
     };
-    VkResult result = vk_dev_procs.BeginCommandBuffer(command_buffer, &begin_info);
-    assertVk(result);
+    VkRenderPassBeginInfo render_pass_begin_info {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = render_pass,
+        .framebuffer = framebuffer,
+        .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
+        .clearValueCount = clear_value_count,
+        .pClearValues = clear_values,
+    };
+    vk_dev_procs.CmdBeginRenderPass(
+        command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE
+    );
 
-    {
-        // TODO replace magic number with some named constant (it's the number of render pass attachments with
-        // loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
-        constexpr u32 clear_value_count = 2;
-        VkClearValue clear_values[clear_value_count] {
-            { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
-            { .depthStencil = VkClearDepthStencilValue { .depth = 1 } },
-        };
-        VkRenderPassBeginInfo render_pass_begin_info {
-            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-            .renderPass = render_pass,
-            .framebuffer = framebuffer,
-            .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
-            .clearValueCount = clear_value_count,
-            .pClearValues = clear_values,
-        };
-        vk_dev_procs.CmdBeginRenderPass(
-            command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE
-        );
-
-        const VkViewport viewport {
-            .x = (f32)swapchain_roi.offset.x,
-            .y = (f32)swapchain_roi.offset.y,
-            .width = (f32)swapchain_roi.extent.width,
-            .height = (f32)swapchain_roi.extent.height,
-            .minDepth = 0,
-            .maxDepth = 1,
-        };
-        vk_dev_procs.CmdSetViewport(command_buffer, 0, 1, &viewport);
-        vk_dev_procs.CmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
+    const VkViewport viewport {
+        .x = (f32)swapchain_roi.offset.x,
+        .y = (f32)swapchain_roi.offset.y,
+        .width = (f32)swapchain_roi.extent.width,
+        .height = (f32)swapchain_roi.extent.height,
+        .minDepth = 0,
+        .maxDepth = 1,
+    };
+    vk_dev_procs.CmdSetViewport(command_buffer, 0, 1, &viewport);
+    vk_dev_procs.CmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
 
 
-        vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, grid_pipeline);
+    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, grid_pipeline);
 
-        vk_dev_procs.CmdPushConstants(
-            command_buffer, grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-            sizeof(*grid_pipeline_push_constants), grid_pipeline_push_constants
-        );
+    vk_dev_procs.CmdPushConstants(
+        command_buffer, grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+        sizeof(*grid_pipeline_push_constants), grid_pipeline_push_constants
+    );
 
-        vk_dev_procs.CmdDraw(command_buffer, 6, 1, 0, 0);
-
-
-        vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_pipeline);
-
-        vk_dev_procs.CmdPushConstants(
-            command_buffer, voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-            sizeof(*voxel_pipeline_push_constants), voxel_pipeline_push_constants
-        );
-
-        vk_dev_procs.CmdDraw(command_buffer, 36, 1, 0, 0);
+    vk_dev_procs.CmdDraw(command_buffer, 6, 1, 0, 0);
 
 
-        vk_dev_procs.CmdEndRenderPass(command_buffer);
-    }
+    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_pipeline);
 
-    result = vk_dev_procs.EndCommandBuffer(command_buffer);
-    assertVk(result);
+    vk_dev_procs.CmdPushConstants(
+        command_buffer, voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        sizeof(*voxel_pipeline_push_constants), voxel_pipeline_push_constants
+    );
+
+    vk_dev_procs.CmdDraw(command_buffer, 36, 1, 0, 0);
+
+
+    vk_dev_procs.CmdEndRenderPass(command_buffer);
 
     return true;
+}
+
+
+static void imguiVkResultCheckCallback(VkResult result) {
+
+    if (result == VK_SUCCESS) return;
+
+    // TODO what if it's a recoverable result, similarly to VK_SUBOPTIMAL_KHR?
+    ABORT_F("Imgui encountered VkResult %i.", result);
+}
+
+
+static PFN_vkVoidFunction imguiLoadVkProcCallback(const char* proc_name, void* user_data) {
+    (void)user_data;
+
+    assert(initialized_);
+
+    // NOTE I assume here, without a strong reason, that ImGui will only attempt to get procedures that can be
+    // obtained via vkGetDeviceProcAddr.
+    return vk_base_procs.GetInstanceProcAddr(instance_, proc_name);
+}
+
+
+extern bool initImGuiVulkanBackend(void) {
+
+    alwaysAssert(initialized_);
+
+    bool success = ImGui_ImplVulkan_LoadFunctions(imguiLoadVkProcCallback, NULL);
+    alwaysAssert(success);
+
+    // This descriptor pool initialization was pretty much copied from imgui's `example_glfw_vulkan`
+    // TODO do we actually need this?
+    VkDescriptorPoolSize descriptor_pool_size {
+        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = 1,
+    };
+    VkDescriptorPoolCreateInfo descriptor_pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .maxSets = 1,
+        .poolSizeCount = 1,
+        .pPoolSizes = &descriptor_pool_size,
+    };
+
+    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+    VkResult result = vk_dev_procs.CreateDescriptorPool(
+        device_, &descriptor_pool_info, NULL, &descriptor_pool
+    );
+    assertVk(result);
+
+    ImGui_ImplVulkan_InitInfo imgui_vk_init_info {
+        .Instance = instance_,
+        .PhysicalDevice = physical_device_,
+        .Device = device_,
+        .QueueFamily = queue_family_,
+        .Queue = queue_,
+        .PipelineCache = VK_NULL_HANDLE,
+        .DescriptorPool = descriptor_pool,
+        .Subpass = the_only_subpass_,
+        // Imgui asserts >= 2; we'll set the actual number later using ImGui_ImplVulkan_SetMinImageCount.
+        // Pretty sure Imgui doesn't even use this, as long as we don't use its swapchain creation helpers.
+        .MinImageCount = 2,
+        // NOTE I'm assuming here that setting ImageCount > the actual swapchain image count won't have
+        // a significant negative effect.
+        .ImageCount = MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT,
+        .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+        .CheckVkResultFn = imguiVkResultCheckCallback,
+    };
+    bool imgui_result = ImGui_ImplVulkan_Init(&imgui_vk_init_info, simple_render_pass_);
+    return imgui_result;
 }
 
 
@@ -1328,22 +1393,24 @@ extern void init(const char* app_name, const char* specific_named_device_request
     simple_render_pass_ = render_pass;
 
 
+    the_only_subpass_ = 0;
     {
-        const u32 subpass = 0;
         VkPipeline pipeline;
 
         pipeline = createVoxelPipeline(
-            device_, render_pass, subpass, &pipeline_layouts_.voxel_pipeline_layout
+            device_, render_pass, the_only_subpass_, &pipeline_layouts_.voxel_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.voxel_pipeline = pipeline;
 
         pipeline = createGridPipeline(
-            device_, render_pass, subpass, &pipeline_layouts_.grid_pipeline_layout
+            device_, render_pass, the_only_subpass_, &pipeline_layouts_.grid_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.grid_pipeline = pipeline;
     }
+
+    initialized_ = true;
 }
 
 
@@ -1798,7 +1865,8 @@ RenderResult render(
     SurfaceResources surface,
     VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
-    const CameraInfo* camera_info
+    const CameraInfo* camera_info,
+    ImDrawData* imgui_draw_data
 ) {
 
     VkResult result;
@@ -1862,23 +1930,36 @@ RenderResult render(
         .transform = *world_to_screen_transform
     };
 
-    // TODO maybe we shouldn't hardcode this, if we're doing the whole "attached renderer" thing?
-    // Maybe have a function pointer in the renderer or something to the appropriate Render function. Idk,
-    // this is getting kinda weird. Maybe we should just ditch the whole generic crap.
-    bool success = recordCommandBuffer(
-        command_buffer,
-        p_render_resources->render_pass,
-        pipelines_.voxel_pipeline,
-        pipeline_layouts_.voxel_pipeline_layout,
-        pipelines_.grid_pipeline,
-        pipeline_layouts_.grid_pipeline_layout,
-        p_surface_resources->swapchain_extent,
-        window_subregion,
-        this_image_render_resources.framebuffer,
-        &voxel_pipeline_push_constants,
-        camera_info
-    );
-    alwaysAssert(success);
+
+    VkCommandBufferBeginInfo begin_info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+    result = vk_dev_procs.BeginCommandBuffer(command_buffer, &begin_info);
+    assertVk(result);
+    {
+        // TODO maybe we shouldn't hardcode this, if we're doing the whole "attached renderer" thing?
+        // Maybe have a function pointer in the renderer or something to the appropriate Render function. Idk,
+        // this is getting kinda weird. Maybe we should just ditch the whole generic crap.
+        bool success = recordCommandBuffer(
+            command_buffer,
+            p_render_resources->render_pass,
+            pipelines_.voxel_pipeline,
+            pipeline_layouts_.voxel_pipeline_layout,
+            pipelines_.grid_pipeline,
+            pipeline_layouts_.grid_pipeline_layout,
+            p_surface_resources->swapchain_extent,
+            window_subregion,
+            this_image_render_resources.framebuffer,
+            &voxel_pipeline_push_constants,
+            camera_info
+        );
+        alwaysAssert(success);
+
+        if (imgui_draw_data != NULL) ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
+    }
+    result = vk_dev_procs.EndCommandBuffer(command_buffer);
+    assertVk(result);
 
 
     const VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

@@ -3,6 +3,7 @@
 
 // #include <vulkan/vulkan.h>
 // #include <glm/glm.hpp>
+// #include <imgui/imgui.h>
 
 namespace graphics {
 
@@ -52,6 +53,9 @@ enum class [[nodiscard]] RenderResult {
 /// If no such device exists or no such device satisfies requirements, silently selects a different device.
 void init(const char* app_name, const char* specific_named_device_request);
 
+/// Calls `ImGui_ImplVulkan_Init()`. You might need to call `ImGui::CreateContext()` earlier, idk.
+bool initImGuiVulkanBackend(void);
+
 /// The fallback size is used if it fails to determine the window size via Vulkan. I recommend you pass the
 /// current window size, as reported by the window library you're using (GLFW, X11, etc).
 /// Returns `error_window_size_zero` if the max surface size is found to be zero, or if the fallback size is
@@ -69,11 +73,13 @@ void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources rendere
 
 Result createVoxelRenderer(RenderResources* render_resources_out);
 
+/// If `imgui_draw_data` is non-null, calls `ImGui_ImplVulkan_RenderDrawData`.
 RenderResult render(
     SurfaceResources surface,
     VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
-    const CameraInfo* camera_info
+    const CameraInfo* camera_info,
+    ImDrawData* imgui_draw_data
 );
 
 

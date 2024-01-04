@@ -10,6 +10,8 @@
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 #include <glm/gtx/rotate_vector.hpp>
+#include <imgui/imgui_impl_glfw.h>
+#include <imgui/imgui_impl_vulkan.h>
 
 #include "types.hpp"
 #include "error_util.hpp"
@@ -251,6 +253,14 @@ int main(int argc, char** argv) {
     checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
     u32fast frame_counter = 0;
 
+    ImGuiContext* imgui_context = ImGui::CreateContext();
+    (void)imgui_context; // TODO FIXME
+    success = ImGui_ImplGlfw_InitForVulkan(window, true);
+    alwaysAssert(success);
+    success = gfx::initImGuiVulkanBackend();
+    alwaysAssert(success);
+
+
     while (true) {
 
         LABEL_MAIN_LOOP_START: {}
@@ -261,6 +271,10 @@ int main(int argc, char** argv) {
             delta_t_seconds = time - frame_start_time_seconds;
             frame_start_time_seconds = time;
         }
+
+        ImGui_ImplGlfw_NewFrame();
+        ImGui_ImplVulkan_NewFrame();
+        ImGui::NewFrame();
 
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) goto LABEL_EXIT_MAIN_LOOP;
@@ -406,11 +420,14 @@ int main(int argc, char** argv) {
             .frustum_near_side_distance = (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
             .frustum_far_side_distance = (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE,
         };
+
+        ImGui::Render();
         gfx::RenderResult render_result = gfx::render(
             gfx_surface,
             window_draw_region_,
             &world_to_screen_transform,
-            &camera_info
+            &camera_info,
+            NULL // TODO FIXME pass some ImGui draw data here.
         );
 
         switch (render_result) {

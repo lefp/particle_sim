@@ -35,6 +35,7 @@
     X(CmdSetScissor) \
     X(CmdSetViewport) \
     X(CreateCommandPool) \
+    X(CreateDescriptorPool) \
     X(CreateFence) \
     X(CreateFramebuffer) \
     X(CreateGraphicsPipelines) \
