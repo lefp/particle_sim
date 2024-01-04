@@ -111,9 +111,8 @@ lib_imgui = Library(
     source_file_paths = [
         'libs/imgui/' + s
         for s in filesInDirWithSuffix('libs/imgui', '.cpp')
-    ]
-    + ['libs/imgui/backends/imgui_impl_vulkan.cpp', 'libs/imgui/backends/imgui_impl_glfw.cpp'],
-    additional_compile_flags = ['-I', 'libs/imgui']
+    ],
+    additional_compile_flags = []
 )
 
 libs = [lib_my_app, lib_loguru, lib_imgui]
