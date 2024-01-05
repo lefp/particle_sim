@@ -1,9 +1,22 @@
 - [x] Camera controls (WASD, mouse, shift, space, etc)
 - [ ] Draw grid (maybe in XY, XZ, YZ planes; or just XZ plane)
-	- [ ] Use depth to get objects drawn in the right order
-	- [ ] Anti-alias
+    - [ ] Use depth to get objects drawn in the right order
+    - [ ] Anti-alias
 - [ ] Place and remove blocks
 - [ ] Draw outlines on cubes
 - [ ] Simple terrain generation
 - [ ] Fog and volumetric lighting
 - [ ] Fire physics
+
+
+# current work
+- [ ] Remove every instance of `MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT`
+For SurfaceResourcesImpl::
+    VkImage* swapchain_images
+    VkImageView* swapchain_image_views
+    VkSemaphore* swapchain_image_acquired_semaphores
+    - [x] malloc them in attachSurfaceToRenderer
+    - [x] free them in detachSurfaceFromRenderer
+    - [x] do whatever you need to in updateSurfaceResources
+For RenderResourcesImpl:
+    - [ ] Replace the PerSwapchainImageStuff thing with PerFrameStuff

@@ -156,9 +156,11 @@ struct SurfaceResourcesImpl {
 
     VkSurfaceKHR surface;
     VkSwapchainKHR swapchain;
-    VkImage swapchain_images[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
-    VkImageView swapchain_image_views[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
-    VkSemaphore swapchain_image_acquired_semaphores[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
+
+    // per-image resources
+    VkImage* swapchain_images;
+    VkImageView* swapchain_image_views;
+    VkSemaphore* swapchain_image_acquired_semaphores;
 
     VkExtent2D swapchain_extent;
     u32 swapchain_image_count;
@@ -1113,34 +1115,6 @@ static Result createSwapchain(
 }
 
 
-/// Writes at most `max_image_count` to `images_out`.
-/// Returns the actual number of images in the swapchain.
-static u32 getSwapchainImages(
-    VkDevice device,
-    VkSwapchainKHR swapchain,
-    u32 max_image_count,
-    VkImage* images_out
-) {
-
-    u32 swapchain_image_count = 0;
-    // TODO FIXME: just encountered a case where we requested minImageCount = 4, and received 5 images.
-    //     (1) we need to be able to handle this; probably just handle an arbitrary number of swapchain images.
-    //     (2) we really need to figure out a synchronization solution for FIFO so that we don't end up with huge latency.
-    VkResult result = vk_dev_procs.GetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, NULL);
-    assertVk(result);
-
-    bool max_too_small = max_image_count < swapchain_image_count;
-
-    result = vk_dev_procs.GetSwapchainImagesKHR(device, swapchain, &max_image_count, images_out);
-    if (max_too_small and result != VK_INCOMPLETE)
-        ABORT_F("Expected VkResult VK_INCOMPLETE (%i), got %i.", VK_INCOMPLETE, result);
-    else assertVk(result);
-
-    LOG_F(INFO, "Got %" PRIu32 " images from swapchain %p.", swapchain_image_count, swapchain);
-    return swapchain_image_count;
-}
-
-
 /// Returns whether it succeeded.
 static bool createImageViewsForSwapchain(
     VkDevice device,
@@ -1183,6 +1157,71 @@ static bool createImageViewsForSwapchain(
     }
 
     return true;
+}
+
+
+static void createPerSwapchainImageSurfaceResources(
+    VkSwapchainKHR swapchain,
+    u32* image_count_out,
+    VkImage** images_out,
+    VkImageView** image_views_out,
+    VkSemaphore** image_acquired_semaphores_out
+) {
+
+    u32 image_count = 0;
+    VkResult result = vk_dev_procs.GetSwapchainImagesKHR(device_, swapchain, &image_count, NULL);
+    assertVk(result);
+
+    LOG_F(INFO, "Got %" PRIu32 " images from swapchain %p.", image_count, swapchain);
+
+
+    VkImage* swapchain_images = mallocArray(image_count, VkImage);
+    result = vk_dev_procs.GetSwapchainImagesKHR(device_, swapchain, &image_count, swapchain_images);
+    assertVk(result);
+
+
+    VkImageView* swapchain_image_views = mallocArray(image_count, VkImageView);
+    bool success = createImageViewsForSwapchain(device_, image_count, swapchain_images, swapchain_image_views);
+    alwaysAssert(success);
+
+
+    VkSemaphore* swapchain_image_acquired_semaphores = mallocArray(image_count, VkSemaphore);
+
+    VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
+        result = vk_dev_procs.CreateSemaphore(
+            device_, &semaphore_info, NULL, &swapchain_image_acquired_semaphores[im_idx]
+        );
+        assertVk(result);
+    }
+
+
+    *image_count_out = image_count;
+    *images_out = swapchain_images;
+    *image_views_out = swapchain_image_views;
+    *image_acquired_semaphores_out = swapchain_image_acquired_semaphores;
+}
+
+/// Does not synchronize.
+/// You are responsible for ensuring the resources are not in use (e.g. via vkDeviceWaitIdle).
+static void destroyPerSwapchainImageSurfaceResources(
+    u32 image_count,
+    VkImage* images,
+    VkImageView* image_views,
+    VkSemaphore* image_acquired_semaphores
+) {
+
+    for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
+        vk_dev_procs.DestroySemaphore(device_, image_acquired_semaphores[im_idx], NULL);
+    }
+    free(*image_acquired_semaphores);
+
+    for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
+        vk_dev_procs.DestroyImageView(device_, image_views[im_idx], NULL);
+    }
+    free(*image_views);
+
+    free(*images);
 }
 
 
@@ -1448,31 +1487,13 @@ extern Result createSurfaceResources(
     p_resources->swapchain_extent = swapchain_extent;
 
 
-    u32 swapchain_image_count = 0;
-    {
-        swapchain_image_count = getSwapchainImages(
-            device_, swapchain, MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT, p_resources->swapchain_images
-        );
-        if (swapchain_image_count > MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT) ABORT_F(
-            "Unexpectedly large swapchain image count; assumed at most %" PRIu32 ", actually %" PRIu32 ".",
-            MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT, swapchain_image_count
-        );
-        p_resources->swapchain_image_count = swapchain_image_count;
-
-        bool success = createImageViewsForSwapchain(
-            device_, swapchain_image_count, p_resources->swapchain_images, p_resources->swapchain_image_views
-        );
-        alwaysAssert(success);
-
-
-        VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-        for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
-            VkResult result = vk_dev_procs.CreateSemaphore(
-                device_, &semaphore_info, NULL, &p_resources->swapchain_image_acquired_semaphores[im_idx]
-            );
-            assertVk(result);
-        }
-    }
+    createPerSwapchainImageSurfaceResources(
+        swapchain,
+        &p_resources->swapchain_image_count,
+        &p_resources->swapchain_images,
+        &p_resources->swapchain_image_views,
+        &p_resources->swapchain_image_acquired_semaphores
+    );
 
 
     surface_resources_out->impl = p_resources;
@@ -1496,7 +1517,6 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
 
     u32 swapchain_image_count = p_surface_resources->swapchain_image_count;
     alwaysAssert(0 < swapchain_image_count);
-    alwaysAssert(swapchain_image_count <= MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT);
 
     // TODO Delete this. If it's not NULL, we just still have an allocated block. We shouldn't destroy any
     // resources here because they should already have been destroyed when the user called detach() on the
@@ -1766,15 +1786,19 @@ extern Result updateSurfaceResources(
 
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface_resources.impl;
 
-    u32fast old_image_count = p_surface_resources->swapchain_image_count;
+
     VkSwapchainKHR old_swapchain = p_surface_resources->swapchain;
+    VkSwapchainKHR new_swapchain = VK_NULL_HANDLE;
 
     Result res = createSwapchain(
         physical_device_, device_, p_surface_resources->surface, fallback_window_size, queue_family_,
-        present_mode_, old_swapchain, &p_surface_resources->swapchain, &p_surface_resources->swapchain_extent
+        present_mode_, old_swapchain, &new_swapchain, &p_surface_resources->swapchain_extent
     );
     if (res == Result::error_window_size_zero) return res;
     else assertGraphics(res);
+
+    p_surface_resources->swapchain = new_swapchain;
+
 
     // Destory out-of-date resources.
     {
@@ -1782,47 +1806,26 @@ extern Result updateSurfaceResources(
         VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
         assertVk(result);
 
+        destroyPerSwapchainImageSurfaceResources(
+            p_surface_resources->swapchain_image_count,
+            p_surface_resources->swapchain_images,
+            p_surface_resources->swapchain_image_views,
+            p_surface_resources->swapchain_image_acquired_semaphores
+        );
 
         vk_dev_procs.DestroySwapchainKHR(device_, old_swapchain, NULL);
-
-        VkImageView* image_views = p_surface_resources->swapchain_image_views;
-        for (u32fast im_idx = 0; im_idx < old_image_count; im_idx++)
-            vk_dev_procs.DestroyImageView(device_, image_views[im_idx], NULL);
-
-        // I don't think we actually need to destory and recreate the semaphores; the only reason to do so
-        // would be if the semaphores were left in the signalled state, but I'm don't think that happens here.
-        // Doing it anyway just in case. Can remove it later if it significantly affects performance.
-        VkSemaphore* im_acquired_semaphores = p_surface_resources->swapchain_image_acquired_semaphores;
-        for (u32fast im_idx = 0; im_idx < old_image_count; im_idx++)
-            vk_dev_procs.DestroySemaphore(device_, im_acquired_semaphores[im_idx], NULL);
     }
 
     // Recreate resources.
     {
-        VkImage* p_swapchain_images = p_surface_resources->swapchain_images;
-        u32 new_image_count = getSwapchainImages(
-            device_, p_surface_resources->swapchain, MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT, p_swapchain_images
+        createPerSwapchainImageSurfaceResources(
+            new_swapchain,
+            &p_surface_resources->swapchain_image_count,
+            &p_surface_resources->swapchain_images,
+            &p_surface_resources->swapchain_image_views,
+            &p_surface_resources->swapchain_image_acquired_semaphores
         );
-        // I don't feel like handling a changing number of swapchain images.
-        // We'd have to change the number of command buffers, fences, semaphores.
-        // TODO handle this, it's probably not hard.
-        alwaysAssert(new_image_count == old_image_count);
 
-        p_surface_resources->swapchain_image_count = new_image_count;
-
-        VkImageView* p_swapchain_image_views = p_surface_resources->swapchain_image_views;
-        bool success = createImageViewsForSwapchain(
-            device_, new_image_count, p_swapchain_images, p_swapchain_image_views
-        );
-        alwaysAssert(success);
-
-        VkSemaphore* im_acquired_semaphores = p_surface_resources->swapchain_image_acquired_semaphores;
-        for (u32fast im_idx = 0; im_idx < new_image_count; im_idx++) {
-            VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-            VkResult result =
-                vk_dev_procs.CreateSemaphore(device_, &semaphore_info, NULL, &im_acquired_semaphores[im_idx]);
-            assertVk(result);
-        }
         p_surface_resources->last_used_swapchain_image_acquired_semaphore_idx = 0;
     }
 
