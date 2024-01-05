@@ -1124,6 +1124,9 @@ static u32 getSwapchainImages(
 ) {
 
     u32 swapchain_image_count = 0;
+    // TODO FIXME: just encountered a case where we requested minImageCount = 4, and received 5 images.
+    //     (1) we need to be able to handle this; probably just handle an arbitrary number of swapchain images.
+    //     (2) we really need to figure out a synchronization solution for FIFO so that we don't end up with huge latency.
     VkResult result = vk_dev_procs.GetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, NULL);
     assertVk(result);
 
