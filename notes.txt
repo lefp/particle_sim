@@ -1,7 +1,37 @@
 Coordinate system: right-handed.
-	x points right
-	y points up
-	z points out of screen
+    x points right
+    y points up
+    z points out of screen
 I chose right-handed because:
     1. It's GLM's default
     2. Positive angles going clockwise around an axis (when looking in the negative direction) makes sense to me.
+
+
+// scratch work ----------------------------------------------------------------------------------------------
+
+Problem:
+    1. We want to decouple the number of frames from the number of swapchain images.
+    2. Each framebuffer is currently (1) a frame resource, and (2) associated with a swapchain image.
+    3. Each framebuffer needs to be associated with a color attachment and a depth attachment.
+    4. If we make a framebuffer for each swapchain image,
+       we'd also need to make a depth buffer for each swapchain image.
+       But that would mean making more depth buffers than necessary.
+Solutions:
+    a. Just have a framebuffer and depth buffer for each swapchain image.
+       A few extra resources, what's the big deal?
+    b. Have a framebuffer and depth buffer for each frame. Also have an image for each frame, which you render
+       into, and copy the image contents to the swapchain image.
+       This would probably take up more memory overall, because each extra color image here (16 bytes per
+       pixel?) is significantly larger than each extra depth image (4 bytes per pixel).
+       You'd also have to rebuild these images whenever the swapchain resolution changes.
+       But we'll probably need those extra images later to implement screen-recording anyway.
+       This seems like the simplest solution.
+    c. Have a framebuffer for each swapchain image. Don't include a depth buffer in the framebuffer; instead,
+       pass the depth buffer via descriptor or something.
+       This would probably require extra logic from the fragment shader side?
+
+Something to keep in mind when evaluating solutions: how will you handle video recording?
+Some ideas:
+    a. Render to an image. Copy image to swapchain image, copy image to disk.
+    b. Render to both swapchain image and image at the same time, by setting two color attachments in the
+       framebuffer. Copy the image to disk.
