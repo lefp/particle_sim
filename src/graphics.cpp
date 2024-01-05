@@ -1109,7 +1109,6 @@ static Result createSwapchain(
     LOG_F(INFO, "Built swapchain %p.", swapchain);
     *swapchain_out = swapchain;
     *extent_out = extent;
-    // TODO FIXME ImGui_SetMinImageCount() if imgui is enabled or something
     return Result::success;
 }
 
