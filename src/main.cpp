@@ -74,7 +74,11 @@ VkRect2D window_draw_region_ {};
 
 bool window_or_surface_out_of_date_ = false;
 
-f64 frame_start_time_seconds = 0;
+f64 frame_start_time_seconds_ = 0;
+
+bool cursor_visible_ = false;
+
+bool left_alt_is_pressed_ = false;
 
 //
 // ===========================================================================================================
@@ -213,14 +217,19 @@ int main(int argc, char** argv) {
     );
     assertGlfw(window != NULL);
 
+
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     abortIfGlfwError();
 
     bool raw_mouse_motion_supported = glfwRawMouseMotionSupported();
     abortIfGlfwError();
+
     if (!raw_mouse_motion_supported) ABORT_F("GLFW claims that raw mouse motion is unsupported.");
     glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
     abortIfGlfwError();
+
+    cursor_visible_ = false;
+
 
     VkSurfaceKHR vk_surface = VK_NULL_HANDLE;
     VkResult result = glfwCreateWindowSurface(gfx::getVkInstance(), window, NULL, &vk_surface);
@@ -253,10 +262,16 @@ int main(int argc, char** argv) {
     checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
     u32fast frame_counter = 0;
 
+
     ImGuiContext* imgui_context = ImGui::CreateContext();
-    (void)imgui_context; // TODO FIXME
+    alwaysAssert(imgui_context != NULL);
+
+    ImGuiIO& imgui_io = ImGui::GetIO();
+    (void)imgui_io;
+
     success = ImGui_ImplGlfw_InitForVulkan(window, true);
     alwaysAssert(success);
+
     success = gfx::initImGuiVulkanBackend();
     alwaysAssert(success);
 
@@ -268,16 +283,30 @@ int main(int argc, char** argv) {
         f64 delta_t_seconds;
         {
             f64 time = glfwGetTime();
-            delta_t_seconds = time - frame_start_time_seconds;
-            frame_start_time_seconds = time;
+            delta_t_seconds = time - frame_start_time_seconds_;
+            frame_start_time_seconds_ = time;
         }
-
-        ImGui_ImplGlfw_NewFrame();
-        ImGui_ImplVulkan_NewFrame();
-        ImGui::NewFrame();
 
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) goto LABEL_EXIT_MAIN_LOOP;
+
+
+        bool left_alt_was_pressed = left_alt_is_pressed_;
+        left_alt_is_pressed_ = glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS;
+
+        if (!left_alt_was_pressed and left_alt_is_pressed_) {
+
+            cursor_visible_ = !cursor_visible_;
+
+            if (cursor_visible_) {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
+            }
+            else {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+            }
+        }
 
 
         ivec2 prev_window_pos = window_pos_;
@@ -335,7 +364,7 @@ int main(int argc, char** argv) {
         abortIfGlfwError();
 
         vec3 camera_vel = vec3(0);
-        {
+        if (!cursor_visible_) {
             if (w_key_state == GLFW_PRESS) camera_vel += camera_horizontal_direction_unit;
             if (s_key_state == GLFW_PRESS) camera_vel -= camera_horizontal_direction_unit;
             if (d_key_state == GLFW_PRESS) camera_vel += camera_horizontal_right_direction_unit;
@@ -360,8 +389,9 @@ int main(int argc, char** argv) {
         // TODO this doesn't seem to have actually solved the problem
         if (window_resized || window_repositioned) prev_cursor_pos = cursor_pos_;
 
+
         // compute new camera direction
-        {
+        if (!cursor_visible_) {
             // We don't need to scale anything by delta_t here; `cursor_pos - prev_cursor_pos` already scales
             // linearly with frame duration.
 
@@ -378,6 +408,20 @@ int main(int argc, char** argv) {
 
             camera_angles_ = new_cam_angles;
         }
+
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::SetNextWindowSize({ 200, 100 });
+        ImGui::Begin("your mom");
+        f32 asdf[3];
+        if (ImGui::InputFloat3("pos", asdf, "%.2f")) {
+            camera_pos_.x = asdf[0];
+            camera_pos_.y = asdf[1];
+            camera_pos_.z = asdf[2];
+        };
+        ImGui::End();
 
 
         mat4 world_to_screen_transform = glm::identity<mat4>();
@@ -422,12 +466,14 @@ int main(int argc, char** argv) {
         };
 
         ImGui::Render();
+        ImDrawData* imgui_draw_data = ImGui::GetDrawData();
+
         gfx::RenderResult render_result = gfx::render(
             gfx_surface,
             window_draw_region_,
             &world_to_screen_transform,
             &camera_info,
-            NULL // TODO FIXME pass some ImGui draw data here.
+            imgui_draw_data
         );
 
         switch (render_result) {

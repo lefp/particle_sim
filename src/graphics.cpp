@@ -1297,7 +1297,8 @@ static bool recordCommandBuffer(
     VkRect2D swapchain_roi,
     VkFramebuffer framebuffer,
     const VoxelPipelineVertexShaderPushConstants* voxel_pipeline_push_constants,
-    const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants
+    const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants,
+    ImDrawData* imgui_draw_data
 ) {
 
     // TODO replace magic number with some named constant (it's the number of render pass attachments with
@@ -1350,6 +1351,8 @@ static bool recordCommandBuffer(
 
     vk_dev_procs.CmdDraw(command_buffer, 36, 1, 0, 0);
 
+
+    if (imgui_draw_data != NULL) ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
 
     vk_dev_procs.CmdEndRenderPass(command_buffer);
 
@@ -2017,11 +2020,10 @@ RenderResult render(
             window_subregion,
             this_frame_resources->framebuffer,
             &voxel_pipeline_push_constants,
-            camera_info
+            camera_info,
+            imgui_draw_data
         );
         alwaysAssert(success);
-
-        if (imgui_draw_data != NULL) ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
 
 
         // transition swapchain image layout to transfer_dst
