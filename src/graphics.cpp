@@ -1778,10 +1778,11 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
 
     for (u32 frame_idx = 0; frame_idx < MAX_FRAMES_IN_FLIGHT; frame_idx++) {
 
-        const RenderResourcesImpl::PerFrameResources* this_frame_resources =
+        RenderResourcesImpl::PerFrameResources* this_frame_resources =
             &p_render_resources->frame_resources_array[frame_idx];
 
         vk_dev_procs.DestroyFramebuffer(device_, this_frame_resources->framebuffer, NULL);
+        this_frame_resources->framebuffer = VK_NULL_HANDLE;
 
         vk_dev_procs.DestroyImageView(device_, this_frame_resources->render_target_view, NULL);
         vmaDestroyImage(
@@ -1789,6 +1790,8 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
             this_frame_resources->render_target,
             this_frame_resources->render_target_allocation
         );
+        this_frame_resources->render_target_view = VK_NULL_HANDLE;
+        this_frame_resources->render_target_allocation = VMA_NULL;
 
         vk_dev_procs.DestroyImageView(device_, this_frame_resources->depth_buffer_view, NULL);
         vmaDestroyImage(
@@ -1796,6 +1799,8 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
             this_frame_resources->depth_buffer,
             this_frame_resources->depth_buffer_allocation
         );
+        this_frame_resources->depth_buffer = VK_NULL_HANDLE;
+        this_frame_resources->depth_buffer_allocation = VMA_NULL;
     }
 }
 
