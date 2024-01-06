@@ -1231,16 +1231,20 @@ static void createPerSwapchainImageSurfaceResources(
 /// You are responsible for ensuring the resources are not in use (e.g. via vkDeviceWaitIdle).
 static void destroyPerSwapchainImageSurfaceResources(
     u32 image_count,
-    VkImage* images,
-    VkSemaphore* image_acquired_semaphores
+    VkImage** pp_images,
+    VkSemaphore** pp_image_acquired_semaphores
 ) {
+    assert(pp_images != NULL);
+    assert(pp_image_acquired_semaphores != NULL);
+
+    VkSemaphore* p_image_acquired_semaphores = *pp_image_acquired_semaphores;
 
     for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
-        vk_dev_procs.DestroySemaphore(device_, image_acquired_semaphores[im_idx], NULL);
+        vk_dev_procs.DestroySemaphore(device_, p_image_acquired_semaphores[im_idx], NULL);
     }
-    free(*image_acquired_semaphores);
+    free(*pp_image_acquired_semaphores);
 
-    free(*images);
+    free(*pp_images);
 }
 
 
@@ -1829,8 +1833,8 @@ extern Result updateSurfaceResources(
 
         destroyPerSwapchainImageSurfaceResources(
             p_surface_resources->swapchain_image_count,
-            p_surface_resources->swapchain_images,
-            p_surface_resources->swapchain_image_acquired_semaphores
+            &p_surface_resources->swapchain_images,
+            &p_surface_resources->swapchain_image_acquired_semaphores
         );
 
         vk_dev_procs.DestroySwapchainKHR(device_, old_swapchain, NULL);
