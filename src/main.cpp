@@ -203,7 +203,7 @@ int main(int argc, char** argv) {
 
 
     gfx::RenderResources gfx_renderer {};
-    gfx::Result res = gfx::createVoxelRenderer(&gfx_renderer);
+    gfx::Result res = gfx::createRenderer(&gfx_renderer);
     assertGraphics(res);
 
 

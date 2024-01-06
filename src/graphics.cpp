@@ -45,8 +45,16 @@ using glm::vec4;
 
 #define VULKAN_API_VERSION VK_API_VERSION_1_3
 
+// TODO FIXME:
+//     Implement a check to verify that this format is supported. If it isn't, either pick a different format
+//     or abort.
 const VkFormat SWAPCHAIN_FORMAT = VK_FORMAT_B8G8R8A8_SRGB;
 const VkColorSpaceKHR SWAPCHAIN_COLOR_SPACE = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+
+const VkImageLayout SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT =
+    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+const VkImageLayout SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT =
+    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; // we'll copy the image into a swapchain image
 
 // TODO FIXME:
 //     Implement a check to verify that this format is supported. If it isn't, either pick a different format
@@ -60,8 +68,7 @@ const u32 INVALID_PHYSICAL_DEVICE_IDX = UINT32_MAX;
 const u32 INVALID_SWAPCHAIN_IMAGE_IDX = UINT32_MAX;
 const u32 INVALID_SUBPASS_IDX = UINT32_MAX;
 
-// Use to statically allocate arrays for swapchain images, image views, and framebuffers.
-const u32 MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT = 4; // just picked a probably-reasonable number, idk
+const u32fast MAX_FRAMES_IN_FLIGHT = 2;
 
 const u32fast PHYSICAL_DEVICE_TYPE_COUNT = 5; // number of VK_PHYSICAL_DEVICE_TYPE_xxx variants
 
@@ -133,23 +140,48 @@ struct VoxelPipelineVertexShaderPushConstants {
 using GridPipelineFragmentShaderPushConstants = CameraInfo;
 
 struct RenderResourcesImpl {
-    struct StuffThatIsPerSwapchainImage {
+    struct PerFrameResources {
+
+        // Lifetime: same as the lifetime of this RenderResourcesImpl.
+
         VkCommandBuffer command_buffer;
-        VkFramebuffer framebuffer;
-        VkSemaphore render_finished_semaphore;
         VkFence command_buffer_pending_fence;
+        // TODO FIXME: Do we need to destroy and recreate this when attaching/detaching from a swapchain,
+        // just to be sure that it wasn't left signalled?
+        VkSemaphore render_finished_semaphore;
+
+        // Lifetime: as long as this RenderResourcesImpl is attached to a SurfaceImpl.
+        // In theory, we only need to destroy them when we attach to a surface of different size than these
+        // resources; but we can destroy them for simplicity.
+
+        VkFramebuffer framebuffer;
+
+        // OPTIMIZE:
+        // The above resources are accessed at least once per frame.
+        // The below resources are only accessed when attaching/detaching from a surface.
+        // Maybe store them in a separate array.
+
+        VkImage render_target;
+        VkImageView render_target_view;
+        VmaAllocation render_target_allocation;
 
         VkImage depth_buffer;
         VkImageView depth_buffer_view;
         VmaAllocation depth_buffer_allocation;
     };
 
-    // This is only initialized when attached to a swapchain; otherwise it is NULL.
-    // It's an array; the `count` parameter should be stored with whatever swapchain we are attached to.
-    StuffThatIsPerSwapchainImage* per_image_stuff_array;
-
     VkRenderPass render_pass;
     VkCommandPool command_pool;
+
+    u32 last_used_frame_idx;
+    PerFrameResources frame_resources_array[MAX_FRAMES_IN_FLIGHT];
+
+
+    PerFrameResources* getNextFrameResources(void) {
+        u32 this_frame_idx = (this->last_used_frame_idx + 1) % MAX_FRAMES_IN_FLIGHT;
+        this->last_used_frame_idx = this_frame_idx;
+        return &this->frame_resources_array[this_frame_idx];
+    }
 };
 
 struct SurfaceResourcesImpl {
@@ -159,7 +191,6 @@ struct SurfaceResourcesImpl {
 
     // per-image resources
     VkImage* swapchain_images;
-    VkImageView* swapchain_image_views;
     VkSemaphore* swapchain_image_acquired_semaphores;
 
     VkExtent2D swapchain_extent;
@@ -554,8 +585,8 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
             .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
             .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
             .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .initialLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+            .finalLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT,
         },
         // depth attachment
         {
@@ -1081,8 +1112,7 @@ static Result createSwapchain(
     }
 
 
-    // Vk spec 1.3.259 guarantees that this is true, but just in case.
-    alwaysAssert(surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+    alwaysAssert(surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
 
     VkSwapchainCreateInfoKHR swapchain_info {
@@ -1093,7 +1123,7 @@ static Result createSwapchain(
         .imageColorSpace = SWAPCHAIN_COLOR_SPACE,
         .imageExtent = extent,
         .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 1,
         .pQueueFamilyIndices = &queue_family_index,
@@ -1115,6 +1145,7 @@ static Result createSwapchain(
 }
 
 
+/*
 /// Returns whether it succeeded.
 static bool createImageViewsForSwapchain(
     VkDevice device,
@@ -1158,13 +1189,13 @@ static bool createImageViewsForSwapchain(
 
     return true;
 }
+*/
 
 
 static void createPerSwapchainImageSurfaceResources(
     VkSwapchainKHR swapchain,
     u32* image_count_out,
     VkImage** images_out,
-    VkImageView** image_views_out,
     VkSemaphore** image_acquired_semaphores_out
 ) {
 
@@ -1180,11 +1211,6 @@ static void createPerSwapchainImageSurfaceResources(
     assertVk(result);
 
 
-    VkImageView* swapchain_image_views = mallocArray(image_count, VkImageView);
-    bool success = createImageViewsForSwapchain(device_, image_count, swapchain_images, swapchain_image_views);
-    alwaysAssert(success);
-
-
     VkSemaphore* swapchain_image_acquired_semaphores = mallocArray(image_count, VkSemaphore);
 
     VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -1198,7 +1224,6 @@ static void createPerSwapchainImageSurfaceResources(
 
     *image_count_out = image_count;
     *images_out = swapchain_images;
-    *image_views_out = swapchain_image_views;
     *image_acquired_semaphores_out = swapchain_image_acquired_semaphores;
 }
 
@@ -1207,7 +1232,6 @@ static void createPerSwapchainImageSurfaceResources(
 static void destroyPerSwapchainImageSurfaceResources(
     u32 image_count,
     VkImage* images,
-    VkImageView* image_views,
     VkSemaphore* image_acquired_semaphores
 ) {
 
@@ -1215,11 +1239,6 @@ static void destroyPerSwapchainImageSurfaceResources(
         vk_dev_procs.DestroySemaphore(device_, image_acquired_semaphores[im_idx], NULL);
     }
     free(*image_acquired_semaphores);
-
-    for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
-        vk_dev_procs.DestroyImageView(device_, image_views[im_idx], NULL);
-    }
-    free(*image_views);
 
     free(*images);
 }
@@ -1390,12 +1409,10 @@ extern bool initImGuiVulkanBackend(void) {
         .PipelineCache = VK_NULL_HANDLE,
         .DescriptorPool = descriptor_pool,
         .Subpass = the_only_subpass_,
-        // Imgui asserts >= 2; we'll set the actual number later using ImGui_ImplVulkan_SetMinImageCount.
-        // Pretty sure Imgui doesn't even use this, as long as we don't use its swapchain creation helpers.
+        // Imgui asserts >= 2. Pretty sure the actual number doesn't matter, because
+        // Imgui doesn't even use this, as long as we don't use its swapchain creation helpers.
         .MinImageCount = 2,
-        // NOTE I'm assuming here that setting ImageCount > the actual swapchain image count won't have
-        // a significant negative effect.
-        .ImageCount = MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT,
+        .ImageCount = MAX_FRAMES_IN_FLIGHT, // NOTE I _think_ this is right, but not sure
         .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
         .CheckVkResultFn = imguiVkResultCheckCallback,
     };
@@ -1491,7 +1508,6 @@ extern Result createSurfaceResources(
         swapchain,
         &p_resources->swapchain_image_count,
         &p_resources->swapchain_images,
-        &p_resources->swapchain_image_views,
         &p_resources->swapchain_image_acquired_semaphores
     );
 
@@ -1504,6 +1520,8 @@ extern Result createSurfaceResources(
 /// `renderer` must not currently have any surface attached.
 /// `surface` must not currently have any renderer attached.
 extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources renderer) {
+
+    VkResult result;
 
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
     RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)renderer.impl;
@@ -1518,68 +1536,44 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
     u32 swapchain_image_count = p_surface_resources->swapchain_image_count;
     alwaysAssert(0 < swapchain_image_count);
 
-    // TODO Delete this. If it's not NULL, we just still have an allocated block. We shouldn't destroy any
-    // resources here because they should already have been destroyed when the user called detach() on the
-    // previous surface; and if they didn't call detach(), that's their mistake.
-    /*
-    if (p_render_resources->per_image_stuff_array != NULL) {
-
-        // Destroy out-of-date resources.
-
-        VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
-        assertVk(result);
-
-        RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff_array =
-            p_render_resources->per_image_stuff_array;
-
-        for (u32fast i = 0; i < swapchain_image_count; i++) {
-
-            vk_dev_procs.DestroyFramebuffer(device_, per_image_stuff_array[i].framebuffer, NULL);
-
-            // Destroy semaphores because they may be in the signaled state, and we have no other way to
-            // reset them.
-            vk_dev_procs.DestroySemaphore(device_, per_image_stuff_array[i].render_finished_semaphore, NULL);
-
-            // No need to destroy command_buffer_pending_fences; we want them to start signaled, and at this
-            // point we expect them to already be signaled; there's no reason to have reset them after they
-            // were last used.
-            // Just to be sure they're actually signalled:
-            assertVk(
-                vk_dev_procs.GetFenceStatus(device_, per_image_stuff_array[i].command_buffer_pending_fence)
-            );
-        }
-    }
-    */
-
-    RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff_array = reallocArray(
-        p_render_resources->per_image_stuff_array, swapchain_image_count,
-        RenderResourcesImpl::StuffThatIsPerSwapchainImage
-    );
-    p_render_resources->per_image_stuff_array = per_image_stuff_array;
 
     VkExtent2D swapchain_extent = p_surface_resources->swapchain_extent;
 
 
-    // We shouldn't actually have to allocate all the command buffers, because we shouldn't have had to free
-    // them when the previous surface was detached. We should only have to allocate new command buffers if
-    // this swapchain has more images than the previous one, or this is the first time we're allocating
-    // command buffers. But to keep things simple and avoid keeping track of those things, I'm sticking to
-    // just freeing and allocating all of them, until I find that it's a performance problem.
-    VkCommandBufferAllocateInfo cmd_buf_alloc_info {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = p_render_resources->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = swapchain_image_count,
-    };
-    VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
-    VkResult result = vk_dev_procs.AllocateCommandBuffers(device_, &cmd_buf_alloc_info, p_command_buffers);
+    result = vk_dev_procs.QueueWaitIdle(queue_); // ensure none of the command buffers are busy
     assertVk(result);
 
-    for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
+    for (u32 frame_idx = 0; frame_idx < MAX_FRAMES_IN_FLIGHT; frame_idx++) {
 
-        VkCommandBuffer command_buffer = p_command_buffers[im_idx];
-        per_image_stuff_array[im_idx].command_buffer = command_buffer;
+        RenderResourcesImpl::PerFrameResources* this_frame_resources =
+            &p_render_resources->frame_resources_array[frame_idx];
 
+
+        VkImageCreateInfo color_image_info {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = SWAPCHAIN_FORMAT,
+            .extent = VkExtent3D { swapchain_extent.width, swapchain_extent.height, 1 },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &queue_family_,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        };
+        VmaAllocationCreateInfo color_image_alloc_info {
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        };
+        result = vmaCreateImage(
+            vma_allocator_, &color_image_info, &color_image_alloc_info,
+            &this_frame_resources->render_target, &this_frame_resources->render_target_allocation,
+            NULL // pAllocationInfo, an output parameter
+        );
+        assertVk(result);
 
         VkImageCreateInfo depth_image_info {
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -1594,7 +1588,7 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 1,
             .pQueueFamilyIndices = &queue_family_,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, // TODO FIXME use an image barrier to transition to DEPTH_IMAGE_LAYOUT
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
         };
         VmaAllocationCreateInfo depth_image_alloc_info {
             .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
@@ -1602,12 +1596,14 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
         };
         result = vmaCreateImage(
             vma_allocator_, &depth_image_info, &depth_image_alloc_info,
-            &per_image_stuff_array[im_idx].depth_buffer,
-            &per_image_stuff_array[im_idx].depth_buffer_allocation,
+            &this_frame_resources->depth_buffer,
+            &this_frame_resources->depth_buffer_allocation,
             NULL // pAllocationInfo, an output parameter
         );
         assertVk(result);
 
+
+        VkCommandBuffer command_buffer = this_frame_resources->command_buffer;
 
         VkCommandBufferBeginInfo cmd_buf_begin_info {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1616,22 +1612,44 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
         result = vk_dev_procs.BeginCommandBuffer(command_buffer, &cmd_buf_begin_info);
         assertVk(result);
 
-        VkImageMemoryBarrier image_barrier {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_NONE,
-            .dstAccessMask =
-                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = DEPTH_IMAGE_LAYOUT,
-            .srcQueueFamilyIndex = queue_family_,
-            .dstQueueFamilyIndex = queue_family_,
-            .image = per_image_stuff_array[im_idx].depth_buffer,
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
+        constexpr u32 image_barrier_count = 2;
+        VkImageMemoryBarrier image_barriers[image_barrier_count] {
+            // color image
+            {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_NONE,
+                .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+                .srcQueueFamilyIndex = queue_family_,
+                .dstQueueFamilyIndex = queue_family_,
+                .image = this_frame_resources->render_target,
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            },
+            // depth image
+            {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_NONE,
+                .dstAccessMask =
+                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = DEPTH_IMAGE_LAYOUT,
+                .srcQueueFamilyIndex = queue_family_,
+                .dstQueueFamilyIndex = queue_family_,
+                .image = this_frame_resources->depth_buffer,
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
             },
         };
 
@@ -1639,14 +1657,14 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
             command_buffer,
             // TOP_OF_PIPE_BIT "specifies no stage of execution when specified in the first scope"
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, // srcStageMask
-            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, // dstStageMask
+            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // dstStageMask
             0, // dependencyFlags
             0, // memoryBarrierCount
             NULL, // pMemoryBarriers
             0, // bufferMemoryBarrierCount
             NULL, // pBufferMemoryBarriers
-            1, // imageMemoryBarrierCount
-            &image_barrier // pImageMemoryBarriers
+            image_barrier_count, // imageMemoryBarrierCount
+            image_barriers // pImageMemoryBarriers
         );
 
         result = vk_dev_procs.EndCommandBuffer(command_buffer);
@@ -1661,9 +1679,36 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
         assertVk(result);
 
 
+        VkImageViewCreateInfo color_image_view_info {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = this_frame_resources->render_target,
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = SWAPCHAIN_FORMAT,
+            .components = {
+                .r = VK_COMPONENT_SWIZZLE_R,
+                .g = VK_COMPONENT_SWIZZLE_G,
+                .b = VK_COMPONENT_SWIZZLE_B,
+                .a = VK_COMPONENT_SWIZZLE_A,
+            },
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+        result = vk_dev_procs.CreateImageView(
+            device_,
+            &color_image_view_info,
+            NULL,
+            &this_frame_resources->render_target_view
+        );
+        assertVk(result);
+
         VkImageViewCreateInfo depth_image_view_info {
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = per_image_stuff_array[im_idx].depth_buffer,
+            .image = this_frame_resources->depth_buffer,
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
             .format = DEPTH_FORMAT,
             .components = {
@@ -1684,15 +1729,15 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
             device_,
             &depth_image_view_info,
             NULL,
-            &per_image_stuff_array[im_idx].depth_buffer_view
+            &this_frame_resources->depth_buffer_view
         );
         assertVk(result);
 
 
-        constexpr u32 attachment_count = 2; // TODO magic number, maybe try organizing so that the dependency on the render pass attachments is more obvious
+        constexpr u32 attachment_count = 2;
         const VkImageView attachments[attachment_count] {
-            p_surface_resources->swapchain_image_views[im_idx],
-            per_image_stuff_array[im_idx].depth_buffer_view,
+            this_frame_resources->render_target_view,
+            this_frame_resources->depth_buffer_view,
         };
         const VkFramebufferCreateInfo framebuffer_info {
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -1703,26 +1748,8 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
             .height = swapchain_extent.height,
             .layers = 1,
         };
-        VkFramebuffer* p_framebuffer = &per_image_stuff_array[im_idx].framebuffer;
+        VkFramebuffer* p_framebuffer = &this_frame_resources->framebuffer;
         result = vk_dev_procs.CreateFramebuffer(device_, &framebuffer_info, NULL, p_framebuffer);
-        assertVk(result);
-
-        const VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-        VkSemaphore* p_semaphore = &per_image_stuff_array[im_idx].render_finished_semaphore;
-        result = vk_dev_procs.CreateSemaphore(device_, &semaphore_info, NULL, p_semaphore);
-        assertVk(result);
-
-        // In theory, we shouldn't _have_ to create all the fences because we shouldn't have needed to destroy
-        // them when the previous surface was detached; although it's possible this is the first time a
-        // surface is being attached. The number of swapchain images may also have changed. For simplicity,
-        // I'm sticking to just destroying and creating all of them, until I find that it's a performance
-        // problem.
-        const VkFenceCreateInfo fence_info {
-            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-            .flags = VK_FENCE_CREATE_SIGNALED_BIT,
-        };
-        VkFence* p_fence = &per_image_stuff_array[im_idx].command_buffer_pending_fence;
-        result = vk_dev_procs.CreateFence(device_, &fence_info, NULL, p_fence);
         assertVk(result);
     }
 
@@ -1743,38 +1770,32 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
 
 
     u32 swapchain_image_count = p_surface_resources->swapchain_image_count;
-    RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff_array =
-        p_render_resources->per_image_stuff_array;
 
 
     VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
     assertVk(result);
 
-    VkCommandBuffer p_command_buffers[MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT];
+    for (u32 frame_idx = 0; frame_idx < swapchain_image_count; frame_idx++) {
 
-    for (u32 im_idx = 0; im_idx < swapchain_image_count; im_idx++) {
+        const RenderResourcesImpl::PerFrameResources* this_frame_resources =
+            &p_render_resources->frame_resources_array[frame_idx];
 
-        const RenderResourcesImpl::StuffThatIsPerSwapchainImage* per_image_stuff =
-            &per_image_stuff_array[im_idx];
+        vk_dev_procs.DestroyFramebuffer(device_, this_frame_resources->framebuffer, NULL);
 
-        // We shouldn't actually need to destroy the fences, but doing so anyway for simplicity.
-        vk_dev_procs.DestroyFence(device_, per_image_stuff->command_buffer_pending_fence, NULL);
-        vk_dev_procs.DestroySemaphore(device_, per_image_stuff->render_finished_semaphore, NULL);
-        vk_dev_procs.DestroyFramebuffer(device_, per_image_stuff->framebuffer, NULL);
-        p_command_buffers[im_idx] = per_image_stuff->command_buffer;
-
-        vk_dev_procs.DestroyImageView(device_, per_image_stuff->depth_buffer_view, NULL);
+        vk_dev_procs.DestroyImageView(device_, this_frame_resources->render_target_view, NULL);
         vmaDestroyImage(
             vma_allocator_,
-            per_image_stuff->depth_buffer,
-            per_image_stuff->depth_buffer_allocation
+            this_frame_resources->render_target,
+            this_frame_resources->render_target_allocation
+        );
+
+        vk_dev_procs.DestroyImageView(device_, this_frame_resources->depth_buffer_view, NULL);
+        vmaDestroyImage(
+            vma_allocator_,
+            this_frame_resources->depth_buffer,
+            this_frame_resources->depth_buffer_allocation
         );
     }
-
-    // We shouldn't actually need to free the command buffers, but doing so anyway for simplicity.
-    vk_dev_procs.FreeCommandBuffers(
-        device_, p_render_resources->command_pool, swapchain_image_count, p_command_buffers
-    );
 }
 
 
@@ -1809,7 +1830,6 @@ extern Result updateSurfaceResources(
         destroyPerSwapchainImageSurfaceResources(
             p_surface_resources->swapchain_image_count,
             p_surface_resources->swapchain_images,
-            p_surface_resources->swapchain_image_views,
             p_surface_resources->swapchain_image_acquired_semaphores
         );
 
@@ -1822,7 +1842,6 @@ extern Result updateSurfaceResources(
             new_swapchain,
             &p_surface_resources->swapchain_image_count,
             &p_surface_resources->swapchain_images,
-            &p_surface_resources->swapchain_image_views,
             &p_surface_resources->swapchain_image_acquired_semaphores
         );
 
@@ -1840,12 +1859,12 @@ extern Result updateSurfaceResources(
 }
 
 
-extern Result createVoxelRenderer(RenderResources* render_resources_out) {
+extern Result createRenderer(RenderResources* render_resources_out) {
 
     RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)calloc(1, sizeof(RenderResourcesImpl));
     assertErrno(p_render_resources != NULL);
 
-    p_render_resources->per_image_stuff_array = NULL;
+
     p_render_resources->render_pass = simple_render_pass_;
 
 
@@ -1859,6 +1878,42 @@ extern Result createVoxelRenderer(RenderResources* render_resources_out) {
         device_, &command_pool_info, NULL, &p_render_resources->command_pool
     );
     assertVk(result);
+
+
+    VkCommandBuffer p_command_buffers[MAX_FRAMES_IN_FLIGHT] {};
+    {
+        VkCommandBufferAllocateInfo cmd_buf_alloc_info {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = p_render_resources->command_pool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = MAX_FRAMES_IN_FLIGHT,
+        };
+        result = vk_dev_procs.AllocateCommandBuffers(device_, &cmd_buf_alloc_info, p_command_buffers);
+        assertVk(result);
+    }
+
+    for (u32fast frame_idx = 0; frame_idx < MAX_FRAMES_IN_FLIGHT; frame_idx++) {
+
+        p_render_resources->frame_resources_array[frame_idx].command_buffer = p_command_buffers[frame_idx];
+
+        VkFence* p_fence = &p_render_resources->frame_resources_array[frame_idx].command_buffer_pending_fence;
+        {
+            VkFenceCreateInfo fence_info {
+                .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+                .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+            };
+            result = vk_dev_procs.CreateFence(device_, &fence_info, NULL, p_fence);
+            assertVk(result);
+        }
+
+        VkSemaphore* p_semaphore = &p_render_resources->frame_resources_array[frame_idx].render_finished_semaphore;
+        {
+            VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+            result = vk_dev_procs.CreateSemaphore(device_, &semaphore_info, NULL, p_semaphore);
+            assertVk(result);
+        }
+    }
+    p_render_resources->last_used_frame_idx = 0;
 
 
     render_resources_out->impl = p_render_resources;
@@ -1912,11 +1967,10 @@ RenderResult render(
     }
 
 
-    RenderResourcesImpl::StuffThatIsPerSwapchainImage this_image_render_resources =
-        p_render_resources->per_image_stuff_array[acquired_swapchain_image_idx];
+    RenderResourcesImpl::PerFrameResources* this_frame_resources = p_render_resources->getNextFrameResources();
 
 
-    const VkFence command_buffer_pending_fence = this_image_render_resources.command_buffer_pending_fence;
+    const VkFence command_buffer_pending_fence = this_frame_resources->command_buffer_pending_fence;
 
     result = vk_dev_procs.WaitForFences(device_, 1, &command_buffer_pending_fence, VK_TRUE, UINT64_MAX);
     assertVk(result);
@@ -1925,7 +1979,7 @@ RenderResult render(
     assertVk(result);
 
 
-    VkCommandBuffer command_buffer = this_image_render_resources.command_buffer;
+    VkCommandBuffer command_buffer = this_frame_resources->command_buffer;
 
     vk_dev_procs.ResetCommandBuffer(command_buffer, 0);
 
@@ -1955,13 +2009,144 @@ RenderResult render(
             pipeline_layouts_.grid_pipeline_layout,
             p_surface_resources->swapchain_extent,
             window_subregion,
-            this_image_render_resources.framebuffer,
+            this_frame_resources->framebuffer,
             &voxel_pipeline_push_constants,
             camera_info
         );
         alwaysAssert(success);
 
         if (imgui_draw_data != NULL) ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
+
+
+        // transition swapchain image layout to transfer_dst
+        {
+            VkImageMemoryBarrier swapchain_image_barrier {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_NONE,
+                .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .srcQueueFamilyIndex = queue_family_,
+                .dstQueueFamilyIndex = queue_family_,
+                .image = p_surface_resources->swapchain_images[acquired_swapchain_image_idx],
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            };
+            vk_dev_procs.CmdPipelineBarrier(
+                command_buffer,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, // srcStageMask
+                VK_PIPELINE_STAGE_TRANSFER_BIT, // dstStageMask
+                0, // dependencyFlags
+                0, // memoryBarrierCount
+                NULL, // pMemoryBarriers
+                0, // bufferMemoryBarrierCount
+                NULL, // pBufferMemoryBarriers
+                1, // imageMemoryBarrierCount
+                &swapchain_image_barrier // pImageMemoryBarriers
+            );
+        }
+
+        {
+            VkExtent2D swapchain_extent = p_surface_resources->swapchain_extent;
+            VkImageCopy image_copy_regions {
+                .srcSubresource = VkImageSubresourceLayers {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = 0,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+                .srcOffset = VkOffset3D { 0, 0, 0 },
+                .dstSubresource = VkImageSubresourceLayers {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = 0,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+                .dstOffset = VkOffset3D { 0, 0, 0 },
+                .extent = VkExtent3D {
+                    .width = swapchain_extent.width,
+                    .height = swapchain_extent.height,
+                    .depth = 1,
+                },
+            };
+            vk_dev_procs.CmdCopyImage(
+                command_buffer,
+                this_frame_resources->render_target, // srcImage
+                SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT, // srcImageLayout
+                p_surface_resources->swapchain_images[acquired_swapchain_image_idx], // dstImage
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, // dstImageLayout
+                1,
+                &image_copy_regions
+            );
+        }
+
+        // transition swapchain image to present_src
+        {
+            VkImageMemoryBarrier swapchain_image_barrier {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_NONE, // TODO FIXME is this right?
+                .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .srcQueueFamilyIndex = queue_family_,
+                .dstQueueFamilyIndex = queue_family_,
+                .image = p_surface_resources->swapchain_images[acquired_swapchain_image_idx],
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            };
+            vk_dev_procs.CmdPipelineBarrier(
+                command_buffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, // srcStageMask
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // dstStageMask // TODO FIXME is this right?
+                0, // dependencyFlags
+                0, // memoryBarrierCount
+                NULL, // pMemoryBarriers
+                0, // bufferMemoryBarrierCount
+                NULL, // pBufferMemoryBarriers
+                1, // imageMemoryBarrierCount
+                &swapchain_image_barrier // pImageMemoryBarriers
+            );
+        }
+
+        VkImageMemoryBarrier color_image_barrier {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT,
+            .newLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+            .srcQueueFamilyIndex = queue_family_,
+            .dstQueueFamilyIndex = queue_family_,
+            .image = this_frame_resources->render_target,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+        vk_dev_procs.CmdPipelineBarrier(
+            command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, // srcStageMask
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // dstStageMask
+            0, // dependencyFlags
+            0, // memoryBarrierCount
+            NULL, // pMemoryBarriers
+            0, // bufferMemoryBarrierCount
+            NULL, // pBufferMemoryBarriers
+            1, // imageMemoryBarrierCount
+            &color_image_barrier // pImageMemoryBarriers
+        );
     }
     result = vk_dev_procs.EndCommandBuffer(command_buffer);
     assertVk(result);
@@ -1976,7 +2161,7 @@ RenderResult render(
         .commandBufferCount = 1,
         .pCommandBuffers = &command_buffer,
         .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &this_image_render_resources.render_finished_semaphore,
+        .pSignalSemaphores = &this_frame_resources->render_finished_semaphore,
     };
     result = vk_dev_procs.QueueSubmit(queue_, 1, &submit_info, command_buffer_pending_fence);
     assertVk(result);
@@ -1985,7 +2170,7 @@ RenderResult render(
     VkPresentInfoKHR present_info {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &this_image_render_resources.render_finished_semaphore,
+        .pWaitSemaphores = &this_frame_resources->render_finished_semaphore,
         .swapchainCount = 1,
         .pSwapchains = &p_surface_resources->swapchain,
         .pImageIndices = &acquired_swapchain_image_idx,

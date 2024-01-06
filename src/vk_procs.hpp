@@ -28,6 +28,7 @@
     X(BeginCommandBuffer) \
     X(CmdBeginRenderPass) \
     X(CmdBindPipeline) \
+    X(CmdCopyImage) \
     X(CmdDraw) \
     X(CmdEndRenderPass) \
     X(CmdPipelineBarrier) \

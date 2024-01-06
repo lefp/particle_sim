@@ -71,7 +71,7 @@ void destroySurfaceResources(SurfaceResources);
 void attachSurfaceToRenderer(SurfaceResources surface, RenderResources renderer);
 void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources renderer);
 
-Result createVoxelRenderer(RenderResources* render_resources_out);
+Result createRenderer(RenderResources* render_resources_out);
 
 /// If `imgui_draw_data` is non-null, calls `ImGui_ImplVulkan_RenderDrawData`.
 RenderResult render(
