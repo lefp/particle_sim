@@ -1773,13 +1773,10 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
     p_surface_resources->attached_render_resources = NULL;
 
 
-    u32 swapchain_image_count = p_surface_resources->swapchain_image_count;
-
-
     VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
     assertVk(result);
 
-    for (u32 frame_idx = 0; frame_idx < swapchain_image_count; frame_idx++) {
+    for (u32 frame_idx = 0; frame_idx < MAX_FRAMES_IN_FLIGHT; frame_idx++) {
 
         const RenderResourcesImpl::PerFrameResources* this_frame_resources =
             &p_render_resources->frame_resources_array[frame_idx];
