@@ -27,10 +27,11 @@ struct CameraInfo {
     alignas(16) vec3 camera_right_direction_unit;
     alignas(16) vec3 camera_up_direction_unit;
     alignas(16) vec3 eye_pos;
-    alignas(16) vec2 viewport_size;
-    alignas(8)  vec2 frustum_near_side_size;
-    alignas(8)  float frustum_near_side_distance;
-    alignas(4)  float frustum_far_side_distance;
+    alignas(16) vec2 viewport_offset_in_window;
+    alignas( 8) vec2 viewport_size_in_window;
+    alignas( 8) vec2 frustum_near_side_size;
+    alignas( 8) float frustum_near_side_distance;
+    alignas( 4) float frustum_far_side_distance;
 };
 
 enum class [[nodiscard]] Result {

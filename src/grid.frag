@@ -7,7 +7,8 @@ layout(push_constant, std140) uniform PushConstants {
     vec3 camera_right_direction_unit_;
     vec3 camera_up_direction_unit_;
     vec3 eye_pos_;
-    vec2 viewport_size_;
+    vec2 viewport_offset_in_window_;
+    vec2 viewport_size_in_window_;
     vec2 frustum_near_side_size_;
     float frustum_near_side_distance_;
     float frustum_far_side_distance_;
@@ -21,8 +22,10 @@ void main(void) {
 
     vec2 f = gl_FragCoord.xy;
     // gl_FragCoord is in pixels, starting at bottom left of the window.
+
     // Normalize to [-1, 1].
-    f /= viewport_size_; // [0, 1]
+    f -= viewport_offset_in_window_;
+    f /= viewport_size_in_window_; // [0, 1]
     f = 2.0*f - 1.0; // [-1, 1]
     f.y = -f.y; // screen y-axis is down, world y-axis is up
 
