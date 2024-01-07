@@ -29,6 +29,9 @@ Solutions:
     c. Have a framebuffer for each swapchain image. Don't include a depth buffer in the framebuffer; instead,
        pass the depth buffer via descriptor or something.
        This would probably require extra logic from the fragment shader side?
+    d. Hey dumbass: dynamic rendering would solve this problem entirely. You wouldn't need framebuffers at all.
+       And you can probably easily dynamically add a second set of color attachments to render to for
+       screen-recording.
 
 Something to keep in mind when evaluating solutions: how will you handle video recording?
 Some ideas:
