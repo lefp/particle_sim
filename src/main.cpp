@@ -328,7 +328,10 @@ int main(int argc, char** argv) {
         }
 
         if (imgui_overlay_visible_) {
-            ImGui::Begin("Camera", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Begin(
+                "Camera", NULL,
+                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing
+            );
 
             f32 user_pos_input[3] { camera_pos_.x, camera_pos_.y, camera_pos_.z };
             if (ImGui::DragFloat3("Position", user_pos_input, 0.1f, 0.0, 0.0, "%.1f")) {
