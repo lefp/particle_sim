@@ -79,6 +79,9 @@ f64 frame_start_time_seconds_ = 0;
 bool cursor_visible_ = false;
 
 bool left_alt_is_pressed_ = false;
+bool left_ctrl_o_is_pressed_ = false;
+
+bool imgui_overlay_visible_ = false;
 
 //
 // ===========================================================================================================
@@ -259,10 +262,6 @@ int main(int argc, char** argv) {
     gfx::attachSurfaceToRenderer(gfx_surface, gfx_renderer);
 
 
-    checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
-    u32fast frame_counter = 0;
-
-
     ImGuiContext* imgui_context = ImGui::CreateContext();
     alwaysAssert(imgui_context != NULL);
 
@@ -274,6 +273,10 @@ int main(int argc, char** argv) {
 
     success = gfx::initImGuiVulkanBackend();
     alwaysAssert(success);
+
+
+    checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
+    u32fast frame_counter = 0;
 
 
     while (true) {
@@ -290,9 +293,14 @@ int main(int argc, char** argv) {
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) goto LABEL_EXIT_MAIN_LOOP;
 
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
 
         bool left_alt_was_pressed = left_alt_is_pressed_;
         left_alt_is_pressed_ = glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS;
+        abortIfGlfwError();
 
         if (!left_alt_was_pressed and left_alt_is_pressed_) {
 
@@ -306,6 +314,33 @@ int main(int argc, char** argv) {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
             }
+        }
+
+
+        bool left_ctrl_o_was_pressed = left_ctrl_o_is_pressed_;
+        left_ctrl_o_is_pressed_ =
+            glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS and
+            glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS;
+        abortIfGlfwError();
+
+        if (!left_ctrl_o_was_pressed and left_ctrl_o_is_pressed_) {
+            imgui_overlay_visible_ = !imgui_overlay_visible_;
+        }
+
+        if (imgui_overlay_visible_) {
+            ImGui::Begin("Camera", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+
+            f32 user_pos_input[3] { camera_pos_.x, camera_pos_.y, camera_pos_.z };
+            if (ImGui::DragFloat3("Position", user_pos_input, 0.1f, 0.0, 0.0, "%.1f")) {
+                camera_pos_.x = user_pos_input[0];
+                camera_pos_.y = user_pos_input[1];
+                camera_pos_.z = user_pos_input[2];
+            };
+
+            ImGui::SliderAngle("Rotation X", &camera_angles_.x, 0.0, 360.0);
+            ImGui::SliderAngle("Rotation Y", &camera_angles_.y, -90.0, 90.0);
+
+            ImGui::End();
         }
 
 
@@ -355,16 +390,17 @@ int main(int argc, char** argv) {
             camera_horizontal_right_direction_unit
         );
 
-        int w_key_state = glfwGetKey(window, GLFW_KEY_W);
-        int s_key_state = glfwGetKey(window, GLFW_KEY_S);
-        int a_key_state = glfwGetKey(window, GLFW_KEY_A);
-        int d_key_state = glfwGetKey(window, GLFW_KEY_D);
-        int space_key_state = glfwGetKey(window, GLFW_KEY_SPACE);
-        int lshift_key_state = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
-        abortIfGlfwError();
-
         vec3 camera_vel = vec3(0);
         if (!cursor_visible_) {
+
+            int w_key_state = glfwGetKey(window, GLFW_KEY_W);
+            int s_key_state = glfwGetKey(window, GLFW_KEY_S);
+            int a_key_state = glfwGetKey(window, GLFW_KEY_A);
+            int d_key_state = glfwGetKey(window, GLFW_KEY_D);
+            int space_key_state = glfwGetKey(window, GLFW_KEY_SPACE);
+            int lshift_key_state = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
+            abortIfGlfwError();
+
             if (w_key_state == GLFW_PRESS) camera_vel += camera_horizontal_direction_unit;
             if (s_key_state == GLFW_PRESS) camera_vel -= camera_horizontal_direction_unit;
             if (d_key_state == GLFW_PRESS) camera_vel += camera_horizontal_right_direction_unit;
@@ -408,20 +444,6 @@ int main(int argc, char** argv) {
 
             camera_angles_ = new_cam_angles;
         }
-
-        ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-
-        ImGui::SetNextWindowSize({ 200, 100 });
-        ImGui::Begin("your mom");
-        f32 asdf[3];
-        if (ImGui::InputFloat3("pos", asdf, "%.2f")) {
-            camera_pos_.x = asdf[0];
-            camera_pos_.y = asdf[1];
-            camera_pos_.z = asdf[2];
-        };
-        ImGui::End();
 
 
         mat4 world_to_screen_transform = glm::identity<mat4>();
