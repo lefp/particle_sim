@@ -7,6 +7,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <loguru/loguru.hpp>
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 #include <glm/gtx/rotate_vector.hpp>
@@ -463,16 +464,11 @@ int main(int argc, char** argv) {
                 (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE // zFar
             );
 
-            // In GLM normalized device coordinates, by default:
-            //     1. The Y axis points upward.
-            //     2. The Z axis has range [-1, 1] and points out of the screen.
-            // In Vulkan normalized device coordinates, by default:
-            //     1. The Y axis points downward.
-            //     2. The Z axis has range [0, 1] and points into the screen.
+            // By default:
+            //     In GLM clip coordinates: the Y axis points upward.
+            //     In Vulkan normalized device coordinates: the Y axis points downward.
             mat4 glm_to_vulkan = glm::identity<mat4>();
             glm_to_vulkan[1][1] = -1.0f; // mirror y axis
-            glm_to_vulkan[2][2] = -0.5f; // mirror and halve z axis: [1, -1] -> [-0.5, 0.5]
-            glm_to_vulkan[3][2] = 0.5f; // shift z axis forward: [-0.5, 0.5] -> [0, 1]
 
             world_to_screen_transform = world_to_camera_transform * world_to_screen_transform;
             world_to_screen_transform = camera_to_clip_transform * world_to_screen_transform;

@@ -77,8 +77,7 @@ void main(void) {
     float frag_depth;
     if (pos_is_on_a_gridline) {
         frag_color = vec4(0.5, 0.5, 0.5, 1.0);
-        // TODO FIXME this '1.0 - ' is a workaround, need to find the root cause for it being backwards
-        frag_depth = 1.0 - (projected_pos.z / projected_pos.w);
+        frag_depth = projected_pos.z / projected_pos.w;
     }
     else {
         frag_color = vec4(0.0, 0.0, 0.0, 0.0);
