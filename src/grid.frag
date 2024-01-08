@@ -71,6 +71,7 @@ void main(void) {
         pos_on_xz_plane.y,
         1.0
     );
+    // TODO FIXME this is a hack, because I didn't feel like figuring out how to compute .w myself.
     vec4 projected_pos = world_to_screen_transform_ * pos_in_world;
 
     vec4 frag_color;
