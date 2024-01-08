@@ -3,6 +3,7 @@
 layout(location = 0) out vec4 fragment_color_out_;
 
 layout(push_constant, std140) uniform PushConstants {
+    mat4 world_to_screen_transform_;
     vec3 camera_direction_unit_;
     vec3 camera_right_direction_unit_;
     vec3 camera_up_direction_unit_;
@@ -64,11 +65,20 @@ void main(void) {
         (frustum_far_side_distance_ - frustum_near_side_distance_)
         * (ray_travel_distance_to_near_plane / frustum_near_side_distance_);
 
+    vec4 pos_in_world = vec4(
+        pos_on_xz_plane.x,
+        0.0,
+        pos_on_xz_plane.y,
+        1.0
+    );
+    vec4 projected_pos = world_to_screen_transform_ * pos_in_world;
+
     vec4 frag_color;
     float frag_depth;
     if (pos_is_on_a_gridline) {
         frag_color = vec4(0.5, 0.5, 0.5, 1.0);
-        frag_depth = pos_depth / far_plane_depth;
+        // TODO FIXME this '1.0 - ' is a workaround, need to find the root cause for it being backwards
+        frag_depth = 1.0 - (projected_pos.z / projected_pos.w);
     }
     else {
         frag_color = vec4(0.0, 0.0, 0.0, 0.0);

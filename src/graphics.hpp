@@ -23,6 +23,7 @@ struct RenderResources {
 };
 
 struct CameraInfo {
+    alignas(16) mat4 world_to_screen_transform;
     alignas(16) vec3 camera_direction_unit;
     alignas(16) vec3 camera_right_direction_unit;
     alignas(16) vec3 camera_up_direction_unit;

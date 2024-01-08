@@ -480,6 +480,7 @@ int main(int argc, char** argv) {
         }
 
         gfx::CameraInfo camera_info {
+            .world_to_screen_transform = world_to_screen_transform,
             .camera_direction_unit = camera_direction_unit,
             .camera_right_direction_unit = camera_horizontal_right_direction_unit,
             .camera_up_direction_unit = camera_y_axis_unit,
