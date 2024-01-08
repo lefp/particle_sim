@@ -77,7 +77,7 @@ void main(void) {
     vec4 frag_color;
     float frag_depth;
     if (pos_is_on_a_gridline) {
-        frag_color = vec4(0.5, 0.5, 0.5, 1.0);
+        frag_color = vec4(0.2, 0.2, 0.2, 0.5);
         frag_depth = projected_pos.z / projected_pos.w;
     }
     else {

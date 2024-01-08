@@ -933,15 +933,15 @@ static VkPipeline createGridPipeline(
     };
 
 
-    // TODO If the grid is not the first thing we draw after clearing, I think we need to enable blending,
-    // because otherwise drawing non-gridline fragments using alpha=0 will destroy whatever was previously
-    // drawn in that fragment.
+    // VK_BLEND_OP_ADD :
+    //    alpha: a_new = a_src * srcAlphaBlendFactor + a_dst * dstAlphaBlendFactor
+    //    color: C_new = C_src * srcColorBlendFactor + C_dst * dstColorBlendFactor
     const VkPipelineColorBlendAttachmentState color_blend_attachment_info {
-        .blendEnable = VK_FALSE,
-        .srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
-        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .blendEnable = VK_TRUE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .colorBlendOp = VK_BLEND_OP_ADD,
-        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
         .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
         .alphaBlendOp = VK_BLEND_OP_ADD,
         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
@@ -1332,16 +1332,6 @@ static bool recordCommandBuffer(
     vk_dev_procs.CmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
 
 
-    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, grid_pipeline);
-
-    vk_dev_procs.CmdPushConstants(
-        command_buffer, grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-        sizeof(*grid_pipeline_push_constants), grid_pipeline_push_constants
-    );
-
-    vk_dev_procs.CmdDraw(command_buffer, 6, 1, 0, 0);
-
-
     vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_pipeline);
 
     vk_dev_procs.CmdPushConstants(
@@ -1350,6 +1340,16 @@ static bool recordCommandBuffer(
     );
 
     vk_dev_procs.CmdDraw(command_buffer, 36, 1, 0, 0);
+
+
+    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, grid_pipeline);
+
+    vk_dev_procs.CmdPushConstants(
+        command_buffer, grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+        sizeof(*grid_pipeline_push_constants), grid_pipeline_push_constants
+    );
+
+    vk_dev_procs.CmdDraw(command_buffer, 6, 1, 0, 0);
 
 
     if (imgui_draw_data != NULL) ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
