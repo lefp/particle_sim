@@ -17,7 +17,7 @@ layout(push_constant, std140) uniform PushConstants {
 
 // TODO can make this a push constant or specialization constant
 const float grid_interval = 1; // unit: meters
-const float gridline_radius = 0.02; // unit: meters. Thickness of gridlines in world coordinates.
+const float gridline_radius = 0.01; // unit: meters. Thickness of gridlines in world coordinates.
 
 void main(void) {
 
