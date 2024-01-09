@@ -59,6 +59,7 @@ const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE { VIEW_FRUSTUM_NEAR_SIDE_SIZE_X, VIEW_FRU
 vec3 camera_pos_ { 0, 0, 0 };
 
 /// Spherical coordinates.
+// TODO do it from Z- instead of from X+, for consistency?
 /// .x = rotation in XZ plane. Range [0, 2 pi). 0 = along x-axis, 0.5 pi = along negative z-axis
 /// .y = angle from XZ plane. Range [-0.5 pi, 0.5 pi]. 0.5 pi = along y-axis.
 vec2 camera_angles_ { 0, 0 };
