@@ -22,6 +22,7 @@ struct RenderResources {
     void* impl;
 };
 
+// TODO FIXME: this struct is too big, we're only guaranteed 128 bytes for push constants
 struct CameraInfo {
     alignas(16) mat4 world_to_screen_transform;
     alignas(16) vec3 camera_direction_unit;
