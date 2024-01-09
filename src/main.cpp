@@ -76,7 +76,7 @@ f64 frame_start_time_seconds_ = 0;
 bool cursor_visible_ = false;
 
 bool left_alt_is_pressed_ = false;
-bool left_ctrl_o_is_pressed_ = false;
+bool left_ctrl_g_is_pressed_ = false;
 
 bool imgui_overlay_visible_ = false;
 
@@ -314,21 +314,18 @@ int main(int argc, char** argv) {
         }
 
 
-        bool left_ctrl_o_was_pressed = left_ctrl_o_is_pressed_;
-        left_ctrl_o_is_pressed_ =
+        bool left_ctrl_o_was_pressed = left_ctrl_g_is_pressed_;
+        left_ctrl_g_is_pressed_ =
             glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS and
-            glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS;
+            glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS;
         abortIfGlfwError();
 
-        if (!left_ctrl_o_was_pressed and left_ctrl_o_is_pressed_) {
+        if (!left_ctrl_o_was_pressed and left_ctrl_g_is_pressed_) {
             imgui_overlay_visible_ = !imgui_overlay_visible_;
         }
 
         if (imgui_overlay_visible_) {
-            ImGui::Begin(
-                "Camera", NULL,
-                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing
-            );
+            ImGui::Begin("Camera", NULL, ImGuiWindowFlags_AlwaysAutoResize);
 
             f32 user_pos_input[3] { camera_pos_.x, camera_pos_.y, camera_pos_.z };
             if (ImGui::DragFloat3("Position", user_pos_input, 0.1f, 0.0, 0.0, "%.1f")) {
