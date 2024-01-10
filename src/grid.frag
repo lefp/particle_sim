@@ -49,6 +49,12 @@ void main(void) {
 
     vec2 pos_on_xz_plane = eye_pos_.xz + lambda*ray_direction_unit.xz;
 
+    vec2 pos_on_xz_plane_derivative = fwidth(pos_on_xz_plane / grid_interval);
+    vec2 grid = abs(fract(pos_on_xz_plane / grid_interval - 0.5) - 0.5) / pos_on_xz_plane_derivative;
+    float line = min(grid.x, grid.y);
+    float minz = min(pos_on_xz_plane_derivative.y, 1);
+    float minx = min(pos_on_xz_plane_derivative.x, 1);
+
 
     float pos_depth = lambda - ray_travel_distance_to_near_plane;
 
@@ -76,12 +82,14 @@ void main(void) {
 
     vec4 frag_color;
     float frag_depth;
+    frag_color = vec4(0.2, 0.2, 0.2, 1.0 - min(line, 1.0));
+    if (pos_depth < 0) frag_color = vec4(0.0,0.0,0.0,0.0);
     if (pos_is_on_a_gridline) {
-        frag_color = vec4(0.2, 0.2, 0.2, 0.5);
+        // frag_color = vec4(0.2, 0.2, 0.2, 0.5);
         frag_depth = projected_pos.z / projected_pos.w;
     }
     else {
-        frag_color = vec4(0.0, 0.0, 0.0, 0.0);
+        // frag_color = vec4(0.0, 0.0, 0.0, 0.0);
         frag_depth = 1.1; // > 1 so it doesn't overwrite anything
     }
 
