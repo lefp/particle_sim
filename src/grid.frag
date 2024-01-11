@@ -4,6 +4,7 @@ layout(location = 0) out vec4 fragment_color_out_;
 
 layout(push_constant, std140) uniform PushConstants {
     mat4 world_to_screen_transform_;
+    mat4 world_to_screen_transform_inverse_;
     vec3 camera_direction_unit_;
     vec3 camera_right_direction_unit_;
     vec3 camera_up_direction_unit_;
@@ -22,77 +23,39 @@ const float gridline_radius = 0.01; // unit: meters. Thickness of gridlines in w
 void main(void) {
 
     vec2 f = gl_FragCoord.xy;
-    // gl_FragCoord is in pixels, starting at bottom left of the window.
 
+    // gl_FragCoord is in pixels, starting at the top left of the window, including pixels outside the viewport.
     // Normalize to [-1, 1].
     f -= viewport_offset_in_window_;
     f /= viewport_size_in_window_; // [0, 1]
     f = 2.0*f - 1.0; // [-1, 1]
-    f.y = -f.y; // screen y-axis is down, world y-axis is up
+    // The y-axis flip is done by the transform.
 
-    // Direction of this ray.
-    vec3 eye_to_near_plane_vector =
-        camera_direction_unit_ * frustum_near_side_distance_ +
-        camera_right_direction_unit_ * f.x * 0.5*frustum_near_side_size_.x +
-        camera_up_direction_unit_ * f.y * 0.5*frustum_near_side_size_.y;
+    vec4 pn = world_to_screen_transform_inverse_ * vec4(f.x, f.y, 0.0, 1.0);
+    vec4 pf = world_to_screen_transform_inverse_ * vec4(f.x, f.y, 1.0, 1.0);
+    vec3 point_on_near_plane = pn.xyz / pn.w;
+    vec3 point_on_far_plane = pf.xyz / pf.w;
 
-    float ray_travel_distance_to_near_plane = length(eye_to_near_plane_vector);
-    vec3 ray_direction_unit = eye_to_near_plane_vector / ray_travel_distance_to_near_plane;
+    float lambda = -point_on_near_plane.y / (point_on_far_plane.y - point_on_near_plane.y);
+    vec3 point_on_xz_plane = point_on_near_plane + lambda * (point_on_far_plane - point_on_near_plane);
 
-    // Find intersection with XZ-plane, as follows:
-    // Solve
-    //     (eye_pos_ + lambda*v).y = 0.
-    // Then (eye_pos_ + lambda*v) is the intersection point.
-    float v_y = ray_direction_unit.y;
-    if (abs(v_y) < 1e-5) v_y = 1; // don't divide by zero
-    float lambda = -eye_pos_.y / v_y;
+    // compute depth --------------------------------------------------------------------------------------
 
-    vec2 pos_on_xz_plane = eye_pos_.xz + lambda*ray_direction_unit.xz;
+    vec4 projected_back_into_clip_space = world_to_screen_transform_ * vec4(point_on_xz_plane, 1.0);
+    float frag_depth = projected_back_into_clip_space.z / projected_back_into_clip_space.w;
 
-    vec2 pos_on_xz_plane_derivative = fwidth(pos_on_xz_plane / grid_interval);
-    vec2 grid = abs(fract(pos_on_xz_plane / grid_interval - 0.5) - 0.5) / pos_on_xz_plane_derivative;
+    gl_FragDepth = frag_depth;
+
+    // compute color -----------------------------------------------------------------------------------------
+
+    vec2 pos_on_xz_plane_derivative = fwidth(point_on_xz_plane.xz / grid_interval);
+    vec2 grid = abs(fract(point_on_xz_plane.xz / grid_interval - 0.5) - 0.5) / pos_on_xz_plane_derivative;
     float line = min(grid.x, grid.y);
     float minz = min(pos_on_xz_plane_derivative.y, 1);
     float minx = min(pos_on_xz_plane_derivative.x, 1);
 
-
-    float pos_depth = lambda - ray_travel_distance_to_near_plane;
-
-
-    vec2 pos_mod_grid_interval = mod(pos_on_xz_plane, vec2(grid_interval));
-    bool pos_is_on_a_gridline =
-        pos_depth >= 0 && (
-            any(lessThan(pos_mod_grid_interval, vec2(gridline_radius))) ||
-            any(lessThan(vec2(grid_interval) - pos_mod_grid_interval, vec2(gridline_radius)))
-        );
-
-
-    float far_plane_depth =
-        (frustum_far_side_distance_ - frustum_near_side_distance_)
-        * (ray_travel_distance_to_near_plane / frustum_near_side_distance_);
-
-    vec4 pos_in_world = vec4(
-        pos_on_xz_plane.x,
-        0.0,
-        pos_on_xz_plane.y,
-        1.0
-    );
-    // TODO FIXME this is a hack, because I didn't feel like figuring out how to compute .w myself.
-    vec4 projected_pos = world_to_screen_transform_ * pos_in_world;
-
-    vec4 frag_color;
-    float frag_depth;
-    frag_color = vec4(0.2, 0.2, 0.2, 1.0 - min(line, 1.0));
-    if (pos_depth < 0) frag_color = vec4(0.0,0.0,0.0,0.0);
-    if (pos_is_on_a_gridline) {
-        // frag_color = vec4(0.2, 0.2, 0.2, 0.5);
-        frag_depth = projected_pos.z / projected_pos.w;
-    }
-    else {
-        // frag_color = vec4(0.0, 0.0, 0.0, 0.0);
-        frag_depth = 1.1; // > 1 so it doesn't overwrite anything
-    }
+    vec4 frag_color = vec4(0.2, 0.2, 0.2, 1.0 - min(line, 1.0));
+    if (lambda < 0.0) frag_color = vec4(0.0, 0.0, 0.0, 0.0);
 
     fragment_color_out_ = frag_color;
-    gl_FragDepth = frag_depth;
 }
