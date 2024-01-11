@@ -472,15 +472,8 @@ int main(int argc, char** argv) {
         gfx::CameraInfo camera_info {
             .world_to_screen_transform = world_to_screen_transform,
             .world_to_screen_transform_inverse = glm::inverse(world_to_screen_transform),
-            .camera_direction_unit = camera_direction_unit,
-            .camera_right_direction_unit = camera_horizontal_right_direction_unit,
-            .camera_up_direction_unit = camera_y_axis_unit,
-            .eye_pos = camera_pos_,
             .viewport_offset_in_window = vec2(window_draw_region_.offset.x, window_draw_region_.offset.y),
             .viewport_size_in_window = vec2(window_draw_region_.extent.width, window_draw_region_.extent.height),
-            .frustum_near_side_size = VIEW_FRUSTUM_NEAR_SIDE_SIZE,
-            .frustum_near_side_distance = (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
-            .frustum_far_side_distance = (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE,
         };
 
         ImGui::Render();

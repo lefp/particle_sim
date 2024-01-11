@@ -5,15 +5,8 @@ layout(location = 0) out vec4 fragment_color_out_;
 layout(push_constant, std140) uniform PushConstants {
     mat4 world_to_screen_transform_;
     mat4 world_to_screen_transform_inverse_;
-    vec3 camera_direction_unit_;
-    vec3 camera_right_direction_unit_;
-    vec3 camera_up_direction_unit_;
-    vec3 eye_pos_;
     vec2 viewport_offset_in_window_;
     vec2 viewport_size_in_window_;
-    vec2 frustum_near_side_size_;
-    float frustum_near_side_distance_;
-    float frustum_far_side_distance_;
 };
 
 // TODO can make this a push constant or specialization constant
