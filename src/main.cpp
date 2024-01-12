@@ -468,13 +468,8 @@ int main(int argc, char** argv) {
             world_to_screen_transform = camera_to_clip_transform * world_to_screen_transform;
             world_to_screen_transform = glm_to_vulkan * world_to_screen_transform;
         }
+        mat4 world_to_screen_transform_inverse = glm::inverse(world_to_screen_transform);
 
-        gfx::CameraInfo camera_info {
-            .world_to_screen_transform = world_to_screen_transform,
-            .world_to_screen_transform_inverse = glm::inverse(world_to_screen_transform),
-            .viewport_offset_in_window = vec2(window_draw_region_.offset.x, window_draw_region_.offset.y),
-            .viewport_size_in_window = vec2(window_draw_region_.extent.width, window_draw_region_.extent.height),
-        };
 
         ImGui::Render();
         ImDrawData* imgui_draw_data = ImGui::GetDrawData();
@@ -483,7 +478,7 @@ int main(int argc, char** argv) {
             gfx_surface,
             window_draw_region_,
             &world_to_screen_transform,
-            &camera_info,
+            &world_to_screen_transform_inverse,
             imgui_draw_data
         );
 

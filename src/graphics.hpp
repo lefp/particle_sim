@@ -22,14 +22,6 @@ struct RenderResources {
     void* impl;
 };
 
-// TODO FIXME: this struct is too big, we're only guaranteed 128 bytes for push constants
-struct CameraInfo {
-    alignas(16) mat4 world_to_screen_transform;
-    alignas(16) mat4 world_to_screen_transform_inverse;
-    alignas(16) vec2 viewport_offset_in_window;
-    alignas( 8) vec2 viewport_size_in_window;
-};
-
 enum class [[nodiscard]] Result {
     success,
     error_window_size_zero,
@@ -75,7 +67,7 @@ RenderResult render(
     SurfaceResources surface,
     VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
-    const CameraInfo* camera_info,
+    const mat4* world_to_screen_transform_inverse,
     ImDrawData* imgui_draw_data
 );
 

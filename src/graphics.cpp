@@ -103,6 +103,12 @@ static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_MAILBOX_KHR;
 
 static VmaAllocator vma_allocator_ = NULL;
 
+static VkDescriptorSet camera_transform_descriptor_set_ = VK_NULL_HANDLE;
+
+static VkBuffer uniform_buffer_ = VK_NULL_HANDLE;
+static VmaAllocation uniform_buffer_allocation_ = VMA_NULL;
+static VmaAllocationInfo uniform_buffer_allocation_info_ {};
+
 //
 // ===========================================================================================================
 //
@@ -133,11 +139,15 @@ struct PhysicalDeviceTypePriorities {
     static_assert(5 == PHYSICAL_DEVICE_TYPE_COUNT);
 };
 
-struct VoxelPipelineVertexShaderPushConstants {
-    mat4 transform;
+struct GridPipelineFragmentShaderPushConstants {
+    alignas(16) mat4 world_to_screen_transform_inverse;
+    alignas(16) vec2 viewport_offset_in_window;
+    alignas( 8) vec2 viewport_size_in_window;
 };
 
-using GridPipelineFragmentShaderPushConstants = CameraInfo;
+struct UniformBuffer {
+    alignas(16) mat4 world_to_screen_transform;
+};
 
 struct RenderResourcesImpl {
     struct PerFrameResources {
@@ -651,6 +661,7 @@ static VkPipeline createVoxelPipeline(
     VkDevice device,
     VkRenderPass render_pass,
     u32 subpass,
+    VkDescriptorSetLayout camera_transform_descriptor_set_layout,
     VkPipelineLayout* pipeline_layout_out
 ) {
 
@@ -778,19 +789,13 @@ static VkPipeline createVoxelPipeline(
     };
 
 
-    constexpr u32 push_constant_range_count = 1;
-    VkPushConstantRange push_constant_ranges[push_constant_range_count] {
-        VkPushConstantRange {
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-            .offset = 0,
-            .size = sizeof(VoxelPipelineVertexShaderPushConstants),
-        },
-    };
+    constexpr u32 push_constant_range_count = 0;
+    VkPushConstantRange* push_constant_ranges = NULL;
 
     const VkPipelineLayoutCreateInfo pipeline_layout_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0,
-        .pSetLayouts = NULL,
+        .setLayoutCount = 1,
+        .pSetLayouts = &camera_transform_descriptor_set_layout,
         .pushConstantRangeCount = push_constant_range_count,
         .pPushConstantRanges = push_constant_ranges,
     };
@@ -840,6 +845,7 @@ static VkPipeline createGridPipeline(
     VkDevice device,
     VkRenderPass render_pass,
     u32 subpass,
+    VkDescriptorSetLayout camera_transform_descriptor_set_layout,
     VkPipelineLayout* pipeline_layout_out
 ) {
 
@@ -981,8 +987,8 @@ static VkPipeline createGridPipeline(
 
     const VkPipelineLayoutCreateInfo pipeline_layout_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0,
-        .pSetLayouts = NULL,
+        .setLayoutCount = 1,
+        .pSetLayouts = &camera_transform_descriptor_set_layout,
         .pushConstantRangeCount = push_constant_range_count,
         .pPushConstantRanges = push_constant_ranges,
     };
@@ -1290,13 +1296,11 @@ static bool recordCommandBuffer(
     VkCommandBuffer command_buffer,
     VkRenderPass render_pass,
     VkPipeline voxel_pipeline,
-    VkPipelineLayout voxel_pipeline_layout,
     VkPipeline grid_pipeline,
     VkPipelineLayout grid_pipeline_layout,
     VkExtent2D swapchain_extent,
     VkRect2D swapchain_roi,
     VkFramebuffer framebuffer,
-    const VoxelPipelineVertexShaderPushConstants* voxel_pipeline_push_constants,
     const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants,
     ImDrawData* imgui_draw_data
 ) {
@@ -1332,16 +1336,28 @@ static bool recordCommandBuffer(
     vk_dev_procs.CmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
 
 
-    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_pipeline);
-
-    vk_dev_procs.CmdPushConstants(
-        command_buffer, voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-        sizeof(*voxel_pipeline_push_constants), voxel_pipeline_push_constants
+    vk_dev_procs.CmdBindDescriptorSets(
+        command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layouts_.voxel_pipeline_layout,
+        0, // firstSet
+        1, // descriptorSetCount
+        &camera_transform_descriptor_set_,
+        0, // dynamicOffsetCount
+        NULL // pDynamicOffsets
     );
+
+    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_pipeline);
 
     vk_dev_procs.CmdDraw(command_buffer, 36, 1, 0, 0);
 
 
+    vk_dev_procs.CmdBindDescriptorSets(
+        command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layouts_.grid_pipeline_layout,
+        0, // firstSet
+        1, // descriptorSetCount
+        &camera_transform_descriptor_set_,
+        0, // dynamicOffsetCount
+        NULL // pDynamicOffsets
+    );
     vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, grid_pipeline);
 
     vk_dev_procs.CmdPushConstants(
@@ -1453,6 +1469,95 @@ extern void init(const char* app_name, const char* specific_named_device_request
     assertVk(result);
 
 
+    VkDescriptorPoolSize descriptor_pool_size {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+    };
+    VkDescriptorPoolCreateInfo descriptor_pool_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .maxSets = 1,
+        .poolSizeCount = 1,
+        .pPoolSizes = &descriptor_pool_size,
+    };
+
+    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+    result = vk_dev_procs.CreateDescriptorPool(device_, &descriptor_pool_info, NULL, &descriptor_pool);
+    assertVk(result);
+
+    VkDescriptorSetLayoutBinding descriptor_set_layout_binding {
+        .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        .pImmutableSamplers = NULL,
+    };
+    VkDescriptorSetLayoutCreateInfo descriptor_set_layout_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindings = &descriptor_set_layout_binding,
+    };
+
+    VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+    result = vk_dev_procs.CreateDescriptorSetLayout(
+        device_, &descriptor_set_layout_info, NULL, &descriptor_set_layout
+    );
+    assertVk(result);
+
+    VkDescriptorSetAllocateInfo descriptor_set_alloc_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &descriptor_set_layout,
+    };
+
+    result = vk_dev_procs.AllocateDescriptorSets(
+        device_, &descriptor_set_alloc_info, &camera_transform_descriptor_set_
+    );
+    assertVk(result);
+
+    VkBufferCreateInfo uniform_buffer_info {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = sizeof(UniformBuffer),
+        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 1,
+        .pQueueFamilyIndices = &queue_family_,
+    };
+    VmaAllocationCreateInfo uniform_buffer_alloc_info {
+        // TODO are we guaranteed to have a memory type supporting both HOST_VISIBLE and USAGE_UNIFORM_BUFFER?
+        .usage = VMA_MEMORY_USAGE_AUTO,
+        .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+    };
+    result = vmaCreateBuffer(
+        vma_allocator_, &uniform_buffer_info, &uniform_buffer_alloc_info,
+        &uniform_buffer_, &uniform_buffer_allocation_,
+        &uniform_buffer_allocation_info_
+    );
+    assertVk(result);
+
+    VkDescriptorBufferInfo descriptor_buffer_info {
+        .buffer = uniform_buffer_,
+        .offset = 0,
+        .range = sizeof(UniformBuffer),
+    };
+    VkWriteDescriptorSet descriptor_write {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = camera_transform_descriptor_set_,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .pImageInfo = 0,
+        .pBufferInfo = &descriptor_buffer_info,
+        .pTexelBufferView = 0,
+    };
+    vk_dev_procs.UpdateDescriptorSets(
+         device_,
+         1, &descriptor_write,
+         0, NULL
+     );
+
+
     VkRenderPass render_pass = createSimpleRenderPass(device_);
     alwaysAssert(render_pass != VK_NULL_HANDLE);
     simple_render_pass_ = render_pass;
@@ -1463,17 +1568,20 @@ extern void init(const char* app_name, const char* specific_named_device_request
         VkPipeline pipeline;
 
         pipeline = createVoxelPipeline(
-            device_, render_pass, the_only_subpass_, &pipeline_layouts_.voxel_pipeline_layout
+            device_, render_pass, the_only_subpass_, descriptor_set_layout,
+            &pipeline_layouts_.voxel_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.voxel_pipeline = pipeline;
 
         pipeline = createGridPipeline(
-            device_, render_pass, the_only_subpass_, &pipeline_layouts_.grid_pipeline_layout
+            device_, render_pass, the_only_subpass_, descriptor_set_layout,
+            &pipeline_layouts_.grid_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.grid_pipeline = pipeline;
     }
+
 
     initialized_ = true;
 }
@@ -1934,7 +2042,7 @@ RenderResult render(
     SurfaceResources surface,
     VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
-    const CameraInfo* camera_info,
+    const mat4* world_to_screen_transform_inverse,
     ImDrawData* imgui_draw_data
 ) {
 
@@ -1988,14 +2096,45 @@ RenderResult render(
     assertVk(result);
 
 
+    // OPTIMIZE keep persistently mapped?
+    void* ptr_to_mapped_uniform_buffer = NULL;
+    result = vk_dev_procs.MapMemory(
+        device_,
+        uniform_buffer_allocation_info_.deviceMemory,
+        uniform_buffer_allocation_info_.offset,
+        uniform_buffer_allocation_info_.size,
+        0, // flags
+        &ptr_to_mapped_uniform_buffer
+    );
+    assertVk(result);
+
+    UniformBuffer uniform_data {
+        // OPTIMIZE copying 64 bytes here, is that a lot?
+        .world_to_screen_transform = *world_to_screen_transform
+    };
+    *(UniformBuffer*)ptr_to_mapped_uniform_buffer = uniform_data;
+
+    VkMappedMemoryRange range_to_flush {
+        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+        .memory = uniform_buffer_allocation_info_.deviceMemory,
+        .offset = uniform_buffer_allocation_info_.offset,
+        .size = uniform_buffer_allocation_info_.size,
+    };
+    result = vk_dev_procs.FlushMappedMemoryRanges(device_, 1, &range_to_flush);
+    assertVk(result);
+
+    vk_dev_procs.UnmapMemory(device_, uniform_buffer_allocation_info_.deviceMemory);
+
+
     VkCommandBuffer command_buffer = this_frame_resources->command_buffer;
 
     vk_dev_procs.ResetCommandBuffer(command_buffer, 0);
 
 
-    VoxelPipelineVertexShaderPushConstants voxel_pipeline_push_constants {
-        // OPTIMIZE: you're copying 64 bytes here (mat4)
-        .transform = *world_to_screen_transform
+    GridPipelineFragmentShaderPushConstants grid_pipeline_frag_shader_push_constants {
+        .world_to_screen_transform_inverse = *world_to_screen_transform_inverse, // OPTIMIZE this is a 64-byte copy, is that a lot?
+        .viewport_offset_in_window = vec2(window_subregion.offset.x, window_subregion.offset.y),
+        .viewport_size_in_window = vec2(window_subregion.extent.width, window_subregion.extent.height),
     };
 
 
@@ -2013,14 +2152,12 @@ RenderResult render(
             command_buffer,
             p_render_resources->render_pass,
             pipelines_.voxel_pipeline,
-            pipeline_layouts_.voxel_pipeline_layout,
             pipelines_.grid_pipeline,
             pipeline_layouts_.grid_pipeline_layout,
             p_surface_resources->swapchain_extent,
             window_subregion,
             this_frame_resources->framebuffer,
-            &voxel_pipeline_push_constants,
-            camera_info,
+            &grid_pipeline_frag_shader_push_constants,
             imgui_draw_data
         );
         alwaysAssert(success);

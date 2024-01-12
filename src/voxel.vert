@@ -2,7 +2,7 @@
 
 layout(location = 0) out vec4 fragment_color_;
 
-layout(push_constant, std140) uniform PushConstants {
+layout(binding = 0, std140) uniform Uniforms {
     mat4 world_to_screen_transform_;
 };
 

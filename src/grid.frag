@@ -2,8 +2,10 @@
 
 layout(location = 0) out vec4 fragment_color_out_;
 
-layout(push_constant, std140) uniform PushConstants {
+layout(binding = 0, std140) uniform Uniforms {
     mat4 world_to_screen_transform_;
+};
+layout(push_constant, std140) uniform PushConstants {
     mat4 world_to_screen_transform_inverse_;
     vec2 viewport_offset_in_window_;
     vec2 viewport_size_in_window_;

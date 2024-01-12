@@ -25,8 +25,10 @@
 #define FOR_EACH_DEVICE_PROC(X) \
     X(AcquireNextImageKHR) \
     X(AllocateCommandBuffers) \
+    X(AllocateDescriptorSets) \
     X(BeginCommandBuffer) \
     X(CmdBeginRenderPass) \
+    X(CmdBindDescriptorSets) \
     X(CmdBindPipeline) \
     X(CmdCopyImage) \
     X(CmdDraw) \
@@ -37,6 +39,7 @@
     X(CmdSetViewport) \
     X(CreateCommandPool) \
     X(CreateDescriptorPool) \
+    X(CreateDescriptorSetLayout) \
     X(CreateFence) \
     X(CreateFramebuffer) \
     X(CreateGraphicsPipelines) \
@@ -53,16 +56,20 @@
     X(DestroyShaderModule) \
     X(DestroySwapchainKHR) \
     X(EndCommandBuffer) \
+    X(FlushMappedMemoryRanges) \
     X(FreeCommandBuffers) \
     X(GetDeviceQueue) \
     X(GetFenceStatus) \
     X(GetSwapchainImagesKHR) \
+    X(MapMemory) \
     X(QueuePresentKHR) \
     X(QueueSubmit) \
     X(QueueWaitIdle) \
     X(ResetCommandBuffer) \
     X(ResetCommandPool) \
     X(ResetFences) \
+    X(UnmapMemory) \
+    X(UpdateDescriptorSets) \
     X(WaitForFences)
 
 //
