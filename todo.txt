@@ -1,7 +1,7 @@
 - [x] Camera controls (WASD, mouse, shift, space, etc)
-- [ ] Draw grid (maybe in XY, XZ, YZ planes; or just XZ plane)
+- [x] Draw grid (maybe in XY, XZ, YZ planes; or just XZ plane)
     - [x] Use depth to get objects drawn in the right order
-    - [ ] Anti-alias
+    - [x] Anti-alias
 - [ ] Fix this bug: when you focus on another window (Super+h) and then focus back on the game without
       clicking on it (Super+l), it behaves as if the glfw mouse mode is HIDDEN instead of RAW (i.e. the mouse
       cursor can leave the screen when you're trying to move the camera around).
