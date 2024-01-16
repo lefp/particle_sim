@@ -2,50 +2,18 @@
 - [x] Draw grid (maybe in XY, XZ, YZ planes; or just XZ plane)
     - [x] Use depth to get objects drawn in the right order
     - [x] Anti-alias
+      - [ ] Better anti-alias (to fix curvy Moire patterns)
 - [ ] Fix this bug: when you focus on another window (Super+h) and then focus back on the game without
       clicking on it (Super+l), it behaves as if the glfw mouse mode is HIDDEN instead of RAW (i.e. the mouse
       cursor can leave the screen when you're trying to move the camera around).
-- [ ] Place and remove blocks
-- [ ] Draw outlines on cubes
+- [ ] Place and remove cubes
+    - [x] Render multiple cubes
+	- [ ] Raycast onto grid
+- [ ] Highlight cube you're currently looking at
+	- [ ] Draw outlines on cubes
 - [ ] Simple terrain generation
 - [ ] Fog and volumetric lighting
 - [ ] Fire physics
-
-
-# current work
-- [x] Remove every instance of `MAX_EXPECTED_SWAPCHAIN_IMAGE_COUNT`
-For SurfaceResourcesImpl::
-    VkImage* swapchain_images
-    VkImageView* swapchain_image_views
-    VkSemaphore* swapchain_image_acquired_semaphores
-    - [x] malloc them in attachSurfaceToRenderer
-    - [x] free them in detachSurfaceFromRenderer
-    - [x] do whatever you need to in updateSurfaceResources
-For RenderResourcesImpl:
-    - [x] Replace the PerSwapchainImageStuff thing with PerFrameStuff
-- [x] Modify the RenderResourcesImpl modification logic in <attach/detach>SurfaceToRenderer
-
-
-New things to deal with in RenderResourcesImpl:
-- [x] last_used_frame_idx
-    - [x] Initialize in createRenderResources
-    - [x] Update when rendering
-    - [x] Do we ever need to reset to 0? Maybe when detaching or attaching a surface?
-          No, pretty there shouldn't be any difference between the two sets of resources.
-- [x] render_target
-    - [x] initialize on attach
-    - [x] destroy on detach
-- [x] render_target_view
-    - [x] initialize on attach
-    - [x] destroy on detach
-- [x] render_target_allocation
-    - [x] initialize on attach
-    - [x] destroy on detach
-
-In `render()`:
-    - [x] transition swapchain image to LAYOUT_PRESENT_SRC_KHR
-    - [x] copy color image to swapchain image
-    - [x] transition color image to COLOR_ATTACHMENT_OPTIMAL
 
 
 Consider (not very important):
