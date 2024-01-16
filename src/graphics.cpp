@@ -2164,13 +2164,29 @@ RenderResult render(
     assertVk(result);
 
 
+    VkMappedMemoryRange uniform_buffer_mapped_memory_range {
+        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+        .memory = this_frame_resources->uniform_buffer_allocation_info.deviceMemory,
+        .offset = this_frame_resources->uniform_buffer_allocation_info.offset,
+        .size = this_frame_resources->uniform_buffer_allocation_info.size,
+    };
+    VkMappedMemoryRange voxels_buffer_mapped_memory_range {
+        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+        .memory = this_frame_resources->voxels_buffer_allocation_info.deviceMemory,
+        .offset = this_frame_resources->voxels_buffer_allocation_info.offset,
+        .size = glm::ceilMultiple(
+            voxel_count * sizeof(VoxelCoord3D),
+            physical_device_properties_.limits.nonCoherentAtomSize
+        ),
+    };
+
     // OPTIMIZE keep persistently mapped?
     void* ptr_to_mapped_uniform_buffer = NULL;
     result = vk_dev_procs.MapMemory(
         device_,
-        this_frame_resources->uniform_buffer_allocation_info.deviceMemory,
-        this_frame_resources->uniform_buffer_allocation_info.offset,
-        this_frame_resources->uniform_buffer_allocation_info.size,
+        uniform_buffer_mapped_memory_range.memory,
+        uniform_buffer_mapped_memory_range.offset,
+        uniform_buffer_mapped_memory_range.size,
         0, // flags
         &ptr_to_mapped_uniform_buffer
     );
@@ -2185,12 +2201,9 @@ RenderResult render(
     void* ptr_to_mapped_voxels_buffer = NULL;
     result = vk_dev_procs.MapMemory(
         device_,
-        this_frame_resources->voxels_buffer_allocation_info.deviceMemory,
-        this_frame_resources->voxels_buffer_allocation_info.offset,
-        glm::ceilMultiple(
-            voxel_count * sizeof(VoxelCoord3D),
-            physical_device_properties_.limits.nonCoherentAtomSize
-        ),
+        voxels_buffer_mapped_memory_range.memory,
+        voxels_buffer_mapped_memory_range.offset,
+        voxels_buffer_mapped_memory_range.size,
         0, // flags
         &ptr_to_mapped_voxels_buffer
     );
@@ -2199,21 +2212,8 @@ RenderResult render(
 
     constexpr u32 ranges_to_flush_count = 2;
     VkMappedMemoryRange ranges_to_flush[ranges_to_flush_count] {
-        {
-            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-            .memory = this_frame_resources->uniform_buffer_allocation_info.deviceMemory,
-            .offset = this_frame_resources->uniform_buffer_allocation_info.offset,
-            .size = this_frame_resources->uniform_buffer_allocation_info.size,
-        },
-        {
-            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-            .memory = this_frame_resources->voxels_buffer_allocation_info.deviceMemory,
-            .offset = this_frame_resources->voxels_buffer_allocation_info.offset,
-            .size = glm::ceilMultiple(
-                voxel_count * sizeof(VoxelCoord3D),
-                physical_device_properties_.limits.nonCoherentAtomSize
-            ),
-        },
+        uniform_buffer_mapped_memory_range,
+        voxels_buffer_mapped_memory_range,
     };
     result = vk_dev_procs.FlushMappedMemoryRanges(device_, ranges_to_flush_count, ranges_to_flush);
     assertVk(result);
