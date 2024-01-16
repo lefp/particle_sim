@@ -474,12 +474,17 @@ int main(int argc, char** argv) {
         ImGui::Render();
         ImDrawData* imgui_draw_data = ImGui::GetDrawData();
 
+        constexpr u32 voxel_count = 2;
+        const gfx::VoxelCoord3D voxels[voxel_count] { {0, 0, 0}, {2, 2, 2} };
+
         gfx::RenderResult render_result = gfx::render(
             gfx_surface,
             window_draw_region_,
             &world_to_screen_transform,
             &world_to_screen_transform_inverse,
-            imgui_draw_data
+            imgui_draw_data,
+            voxel_count,
+            voxels
         );
 
         switch (render_result) {

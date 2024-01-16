@@ -1,5 +1,7 @@
 #version 450
 
+layout(location = 0) in ivec3 voxel_coord_;
+
 layout(location = 0) out vec4 fragment_color_;
 
 layout(binding = 0, std140) uniform Uniforms {
@@ -43,7 +45,7 @@ const uint TRIANGLES_VERTEX_INDICES[36] = {
 void main(void) {
 
     const uint cube_vertex_idx = TRIANGLES_VERTEX_INDICES[gl_VertexIndex];
-    vec4 vertex_pos = vec4(CUBE_VERTICES[cube_vertex_idx], 1.0);
+    vec4 vertex_pos = vec4(CUBE_VERTICES[cube_vertex_idx] * CUBE_RADIUS + vec3(voxel_coord_), 1.0);
 
     fragment_color_ = vec4((vertex_pos.xyz + CUBE_RADIUS) / (2*CUBE_RADIUS), 1.0);
 

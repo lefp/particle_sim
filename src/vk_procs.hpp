@@ -30,6 +30,7 @@
     X(CmdBeginRenderPass) \
     X(CmdBindDescriptorSets) \
     X(CmdBindPipeline) \
+    X(CmdBindVertexBuffers) \
     X(CmdCopyImage) \
     X(CmdDraw) \
     X(CmdEndRenderPass) \

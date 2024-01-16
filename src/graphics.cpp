@@ -80,7 +80,7 @@ static bool initialized_ = false;
 
 static VkInstance instance_ = VK_NULL_HANDLE;
 static VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
-static VkPhysicalDeviceProperties physical_device_properties_;
+static VkPhysicalDeviceProperties physical_device_properties_ {};
 static u32 queue_family_ = INVALID_QUEUE_FAMILY_IDX;
 static VkDevice device_ = VK_NULL_HANDLE;
 static VkQueue queue_ = VK_NULL_HANDLE;
@@ -103,11 +103,7 @@ static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_MAILBOX_KHR;
 
 static VmaAllocator vma_allocator_ = NULL;
 
-static VkDescriptorSet camera_transform_descriptor_set_ = VK_NULL_HANDLE;
-
-static VkBuffer uniform_buffer_ = VK_NULL_HANDLE;
-static VmaAllocation uniform_buffer_allocation_ = VMA_NULL;
-static VmaAllocationInfo uniform_buffer_allocation_info_ {};
+static VkDescriptorSetLayout uniform_descriptor_set_layout_ = VK_NULL_HANDLE;
 
 //
 // ===========================================================================================================
@@ -152,6 +148,11 @@ struct UniformBuffer {
 struct RenderResourcesImpl {
     struct PerFrameResources {
 
+        // OPTIMIZE:
+        // Some of these resources are accessed at least once per frame.
+        // Others are only accessed when attaching/detaching from a surface.
+        // Maybe separate these into two arrays.
+
         // Lifetime: same as the lifetime of this RenderResourcesImpl.
 
         VkCommandBuffer command_buffer;
@@ -160,16 +161,21 @@ struct RenderResourcesImpl {
         // just to be sure that it wasn't left signalled?
         VkSemaphore render_finished_semaphore;
 
+        VkBuffer uniform_buffer;
+        VmaAllocation uniform_buffer_allocation;
+        VmaAllocationInfo uniform_buffer_allocation_info;
+
+        VkBuffer voxels_buffer;
+        VmaAllocation voxels_buffer_allocation;
+        VmaAllocationInfo voxels_buffer_allocation_info;
+
+        VkDescriptorSet descriptor_set;
+
         // Lifetime: as long as this RenderResourcesImpl is attached to a SurfaceImpl.
         // In theory, we only need to destroy them when we attach to a surface of different size than these
         // resources; but we can destroy them for simplicity.
 
         VkFramebuffer framebuffer;
-
-        // OPTIMIZE:
-        // The above resources are accessed at least once per frame.
-        // The below resources are only accessed when attaching/detaching from a surface.
-        // Maybe store them in a separate array.
 
         VkImage render_target;
         VkImageView render_target_view;
@@ -182,6 +188,10 @@ struct RenderResourcesImpl {
 
     VkRenderPass render_pass;
     VkCommandPool command_pool;
+
+    VkBuffer voxels_staging_buffer;
+    VmaAllocation voxels_staging_buffer_allocation;
+    VmaAllocationInfo voxels_staging_buffer_allocation_info;
 
     u32 last_used_frame_idx;
     PerFrameResources frame_resources_array[MAX_FRAMES_IN_FLIGHT];
@@ -690,12 +700,23 @@ static VkPipeline createVoxelPipeline(
     };
 
 
+    VkVertexInputBindingDescription vertex_binding_description {
+        .binding = 0,
+        .stride = sizeof(VoxelCoord3D),
+        .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE,
+    };
+    VkVertexInputAttributeDescription vertex_attribute_description {
+        .location = 0,
+        .binding = 0,
+        .format = VK_FORMAT_R32G32B32_SINT,
+        .offset = 0,
+    };
     const VkPipelineVertexInputStateCreateInfo vertex_input_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 0,
-        .pVertexBindingDescriptions = NULL,
-        .vertexAttributeDescriptionCount = 0,
-        .pVertexAttributeDescriptions = NULL,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &vertex_binding_description,
+        .vertexAttributeDescriptionCount = 1,
+        .pVertexAttributeDescriptions = &vertex_attribute_description,
     };
 
 
@@ -1293,17 +1314,15 @@ static bool createFramebuffersForSwapchain(
 /// Does not call `BeginCommandBuffer` and `EndCommandBuffer`; you are responsible for doing that.
 /// Returns `true` if successful.
 static bool recordCommandBuffer(
-    VkCommandBuffer command_buffer,
+    const RenderResourcesImpl::PerFrameResources* p_frame_resources,
+    u32 voxel_count,
     VkRenderPass render_pass,
-    VkPipeline voxel_pipeline,
-    VkPipeline grid_pipeline,
-    VkPipelineLayout grid_pipeline_layout,
     VkExtent2D swapchain_extent,
     VkRect2D swapchain_roi,
-    VkFramebuffer framebuffer,
     const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants,
     ImDrawData* imgui_draw_data
 ) {
+    VkCommandBuffer command_buffer = p_frame_resources->command_buffer;
 
     // TODO replace magic number with some named constant (it's the number of render pass attachments with
     // loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
@@ -1315,7 +1334,7 @@ static bool recordCommandBuffer(
     VkRenderPassBeginInfo render_pass_begin_info {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass = render_pass,
-        .framebuffer = framebuffer,
+        .framebuffer = p_frame_resources->framebuffer,
         .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
         .clearValueCount = clear_value_count,
         .pClearValues = clear_values,
@@ -1340,28 +1359,33 @@ static bool recordCommandBuffer(
         command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layouts_.voxel_pipeline_layout,
         0, // firstSet
         1, // descriptorSetCount
-        &camera_transform_descriptor_set_,
+        &p_frame_resources->descriptor_set,
         0, // dynamicOffsetCount
         NULL // pDynamicOffsets
     );
 
-    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, voxel_pipeline);
+    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.voxel_pipeline);
 
-    vk_dev_procs.CmdDraw(command_buffer, 36, 1, 0, 0);
+    VkDeviceSize offset_in_vertex_buf = 0;
+    vk_dev_procs.CmdBindVertexBuffers(
+        command_buffer, 0, 1, &p_frame_resources->voxels_buffer, &offset_in_vertex_buf
+    );
+
+    vk_dev_procs.CmdDraw(command_buffer, 36, voxel_count, 0, 0);
 
 
     vk_dev_procs.CmdBindDescriptorSets(
         command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layouts_.grid_pipeline_layout,
         0, // firstSet
         1, // descriptorSetCount
-        &camera_transform_descriptor_set_,
+        &p_frame_resources->descriptor_set,
         0, // dynamicOffsetCount
         NULL // pDynamicOffsets
     );
-    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, grid_pipeline);
+    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.grid_pipeline);
 
     vk_dev_procs.CmdPushConstants(
-        command_buffer, grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+        command_buffer, pipeline_layouts_.grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
         sizeof(*grid_pipeline_push_constants), grid_pipeline_push_constants
     );
 
@@ -1469,20 +1493,10 @@ extern void init(const char* app_name, const char* specific_named_device_request
     assertVk(result);
 
 
-    VkDescriptorPoolSize descriptor_pool_size {
-        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1,
-    };
-    VkDescriptorPoolCreateInfo descriptor_pool_info {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .maxSets = 1,
-        .poolSizeCount = 1,
-        .pPoolSizes = &descriptor_pool_size,
-    };
+    VkRenderPass render_pass = createSimpleRenderPass(device_);
+    alwaysAssert(render_pass != VK_NULL_HANDLE);
+    simple_render_pass_ = render_pass;
 
-    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
-    result = vk_dev_procs.CreateDescriptorPool(device_, &descriptor_pool_info, NULL, &descriptor_pool);
-    assertVk(result);
 
     VkDescriptorSetLayoutBinding descriptor_set_layout_binding {
         .binding = 0,
@@ -1496,71 +1510,10 @@ extern void init(const char* app_name, const char* specific_named_device_request
         .bindingCount = 1,
         .pBindings = &descriptor_set_layout_binding,
     };
-
-    VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
     result = vk_dev_procs.CreateDescriptorSetLayout(
-        device_, &descriptor_set_layout_info, NULL, &descriptor_set_layout
+        device_, &descriptor_set_layout_info, NULL, &uniform_descriptor_set_layout_
     );
     assertVk(result);
-
-    VkDescriptorSetAllocateInfo descriptor_set_alloc_info {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = descriptor_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &descriptor_set_layout,
-    };
-
-    result = vk_dev_procs.AllocateDescriptorSets(
-        device_, &descriptor_set_alloc_info, &camera_transform_descriptor_set_
-    );
-    assertVk(result);
-
-    VkBufferCreateInfo uniform_buffer_info {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = sizeof(UniformBuffer),
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .queueFamilyIndexCount = 1,
-        .pQueueFamilyIndices = &queue_family_,
-    };
-    VmaAllocationCreateInfo uniform_buffer_alloc_info {
-        // TODO are we guaranteed to have a memory type supporting both HOST_VISIBLE and USAGE_UNIFORM_BUFFER?
-        .usage = VMA_MEMORY_USAGE_AUTO,
-        .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-    };
-    result = vmaCreateBuffer(
-        vma_allocator_, &uniform_buffer_info, &uniform_buffer_alloc_info,
-        &uniform_buffer_, &uniform_buffer_allocation_,
-        &uniform_buffer_allocation_info_
-    );
-    assertVk(result);
-
-    VkDescriptorBufferInfo descriptor_buffer_info {
-        .buffer = uniform_buffer_,
-        .offset = 0,
-        .range = sizeof(UniformBuffer),
-    };
-    VkWriteDescriptorSet descriptor_write {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = camera_transform_descriptor_set_,
-        .dstBinding = 0,
-        .dstArrayElement = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .pImageInfo = 0,
-        .pBufferInfo = &descriptor_buffer_info,
-        .pTexelBufferView = 0,
-    };
-    vk_dev_procs.UpdateDescriptorSets(
-         device_,
-         1, &descriptor_write,
-         0, NULL
-     );
-
-
-    VkRenderPass render_pass = createSimpleRenderPass(device_);
-    alwaysAssert(render_pass != VK_NULL_HANDLE);
-    simple_render_pass_ = render_pass;
 
 
     the_only_subpass_ = 0;
@@ -1568,14 +1521,14 @@ extern void init(const char* app_name, const char* specific_named_device_request
         VkPipeline pipeline;
 
         pipeline = createVoxelPipeline(
-            device_, render_pass, the_only_subpass_, descriptor_set_layout,
+            device_, render_pass, the_only_subpass_, uniform_descriptor_set_layout_,
             &pipeline_layouts_.voxel_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.voxel_pipeline = pipeline;
 
         pipeline = createGridPipeline(
-            device_, render_pass, the_only_subpass_, descriptor_set_layout,
+            device_, render_pass, the_only_subpass_, uniform_descriptor_set_layout_,
             &pipeline_layouts_.grid_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
@@ -1978,11 +1931,44 @@ extern Result updateSurfaceResources(
 
 extern Result createRenderer(RenderResources* render_resources_out) {
 
+    VkResult result;
+
     RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)calloc(1, sizeof(RenderResourcesImpl));
     assertErrno(p_render_resources != NULL);
 
 
     p_render_resources->render_pass = simple_render_pass_;
+
+
+    VkDescriptorPoolSize descriptor_pool_size {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = MAX_FRAMES_IN_FLIGHT,
+    };
+    VkDescriptorPoolCreateInfo descriptor_pool_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .maxSets = MAX_FRAMES_IN_FLIGHT,
+        .poolSizeCount = 1,
+        .pPoolSizes = &descriptor_pool_size,
+    };
+
+    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+    result = vk_dev_procs.CreateDescriptorPool(device_, &descriptor_pool_info, NULL, &descriptor_pool);
+    assertVk(result);
+
+    VkDescriptorSetLayout descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT];
+    for (u32fast i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        descriptor_set_layouts[i] = uniform_descriptor_set_layout_;
+    VkDescriptorSetAllocateInfo descriptor_set_alloc_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = descriptor_pool,
+        .descriptorSetCount = MAX_FRAMES_IN_FLIGHT,
+        .pSetLayouts = descriptor_set_layouts,
+    };
+
+    VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT] {};
+    result = vk_dev_procs.AllocateDescriptorSets(device_, &descriptor_set_alloc_info, descriptor_sets);
+    assertVk(result);
+    // NOTE: these descriptor sets need to be copied into the per-frame structs in this procedure
 
 
     const VkCommandPoolCreateInfo command_pool_info {
@@ -1991,13 +1977,12 @@ extern Result createRenderer(RenderResources* render_resources_out) {
         .queueFamilyIndex = queue_family_,
     };
 
-    VkResult result = vk_dev_procs.CreateCommandPool(
+    result = vk_dev_procs.CreateCommandPool(
         device_, &command_pool_info, NULL, &p_render_resources->command_pool
     );
     assertVk(result);
 
-
-    VkCommandBuffer p_command_buffers[MAX_FRAMES_IN_FLIGHT] {};
+    VkCommandBuffer command_buffers[MAX_FRAMES_IN_FLIGHT] {};
     {
         VkCommandBufferAllocateInfo cmd_buf_alloc_info {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -2005,13 +1990,19 @@ extern Result createRenderer(RenderResources* render_resources_out) {
             .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             .commandBufferCount = MAX_FRAMES_IN_FLIGHT,
         };
-        result = vk_dev_procs.AllocateCommandBuffers(device_, &cmd_buf_alloc_info, p_command_buffers);
+        result = vk_dev_procs.AllocateCommandBuffers(device_, &cmd_buf_alloc_info, command_buffers);
         assertVk(result);
     }
+    // NOTE: these command buffers need to be copied into the per-frame structs in this procedure
+
 
     for (u32fast frame_idx = 0; frame_idx < MAX_FRAMES_IN_FLIGHT; frame_idx++) {
 
-        p_render_resources->frame_resources_array[frame_idx].command_buffer = p_command_buffers[frame_idx];
+        RenderResourcesImpl::PerFrameResources* this_frame_resources =
+            &p_render_resources->frame_resources_array[frame_idx];
+
+        this_frame_resources->command_buffer = command_buffers[frame_idx];
+        this_frame_resources->descriptor_set = descriptor_sets[frame_idx];
 
         VkFence* p_fence = &p_render_resources->frame_resources_array[frame_idx].command_buffer_pending_fence;
         {
@@ -2029,7 +2020,82 @@ extern Result createRenderer(RenderResources* render_resources_out) {
             result = vk_dev_procs.CreateSemaphore(device_, &semaphore_info, NULL, p_semaphore);
             assertVk(result);
         }
+
+        VkBuffer* p_uniform_buffer = &this_frame_resources->uniform_buffer;
+        VmaAllocation* p_uniform_buffer_allocation = &this_frame_resources->uniform_buffer_allocation;
+        VmaAllocationInfo* p_uniform_buffer_allocation_info = &this_frame_resources->uniform_buffer_allocation_info;
+        {
+            // TODO are we guaranteed to have a memory type supporting both HOST_VISIBLE and USAGE_UNIFORM_BUFFER?
+            VkBufferCreateInfo uniform_buffer_info {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = sizeof(UniformBuffer),
+                .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                .queueFamilyIndexCount = 1,
+                .pQueueFamilyIndices = &queue_family_,
+            };
+            VmaAllocationCreateInfo uniform_buffer_alloc_info {
+                .usage = VMA_MEMORY_USAGE_AUTO,
+                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+            };
+            result = vmaCreateBuffer(
+                vma_allocator_, &uniform_buffer_info, &uniform_buffer_alloc_info,
+                p_uniform_buffer, p_uniform_buffer_allocation, p_uniform_buffer_allocation_info
+            );
+            assertVk(result);
+        }
+
+        VkBuffer* p_voxels_buffer = &this_frame_resources->voxels_buffer;
+        VmaAllocation* p_voxels_buffer_allocation = &this_frame_resources->voxels_buffer_allocation;
+        VmaAllocationInfo* p_voxels_buffer_allocation_info = &this_frame_resources->voxels_buffer_allocation_info;
+        {
+            // TODO are we guaranteed to have a memory type supporting both HOST_VISIBLE and USAGE_VERTEX_BUFFER?
+            VkBufferCreateInfo voxels_buffer_info {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = MAX_VOXEL_COUNT * sizeof(VoxelCoord3D),
+                .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                .queueFamilyIndexCount = 1,
+                .pQueueFamilyIndices = &queue_family_,
+            };
+            VmaAllocationCreateInfo voxels_buffer_alloc_info {
+                .usage = VMA_MEMORY_USAGE_AUTO,
+                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+            };
+            result = vmaCreateBuffer(
+                vma_allocator_, &voxels_buffer_info, &voxels_buffer_alloc_info,
+                p_voxels_buffer, p_voxels_buffer_allocation, p_voxels_buffer_allocation_info
+            );
+            assertVk(result);
+        }
     }
+
+    VkWriteDescriptorSet descriptor_writes[MAX_FRAMES_IN_FLIGHT] {};
+    for (u32fast frame_idx = 0; frame_idx < MAX_FRAMES_IN_FLIGHT; frame_idx++) {
+
+        VkDescriptorBufferInfo descriptor_buffer_info {
+            .buffer = p_render_resources->frame_resources_array[frame_idx].uniform_buffer,
+            .offset = 0,
+            .range = sizeof(UniformBuffer),
+        };
+        descriptor_writes[frame_idx] = VkWriteDescriptorSet {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = p_render_resources->frame_resources_array[frame_idx].descriptor_set,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pImageInfo = NULL,
+            .pBufferInfo = &descriptor_buffer_info,
+            .pTexelBufferView = NULL,
+        };
+    }
+    vk_dev_procs.UpdateDescriptorSets(
+         device_,
+         MAX_FRAMES_IN_FLIGHT, descriptor_writes,
+         0, NULL
+    );
+
     p_render_resources->last_used_frame_idx = 0;
 
 
@@ -2043,7 +2109,9 @@ RenderResult render(
     VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
     const mat4* world_to_screen_transform_inverse,
-    ImDrawData* imgui_draw_data
+    ImDrawData* imgui_draw_data,
+    u32 voxel_count,
+    const VoxelCoord3D* p_voxels
 ) {
 
     VkResult result;
@@ -2100,9 +2168,9 @@ RenderResult render(
     void* ptr_to_mapped_uniform_buffer = NULL;
     result = vk_dev_procs.MapMemory(
         device_,
-        uniform_buffer_allocation_info_.deviceMemory,
-        uniform_buffer_allocation_info_.offset,
-        uniform_buffer_allocation_info_.size,
+        this_frame_resources->uniform_buffer_allocation_info.deviceMemory,
+        this_frame_resources->uniform_buffer_allocation_info.offset,
+        this_frame_resources->uniform_buffer_allocation_info.size,
         0, // flags
         &ptr_to_mapped_uniform_buffer
     );
@@ -2114,16 +2182,44 @@ RenderResult render(
     };
     *(UniformBuffer*)ptr_to_mapped_uniform_buffer = uniform_data;
 
-    VkMappedMemoryRange range_to_flush {
-        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-        .memory = uniform_buffer_allocation_info_.deviceMemory,
-        .offset = uniform_buffer_allocation_info_.offset,
-        .size = uniform_buffer_allocation_info_.size,
+    void* ptr_to_mapped_voxels_buffer = NULL;
+    result = vk_dev_procs.MapMemory(
+        device_,
+        this_frame_resources->voxels_buffer_allocation_info.deviceMemory,
+        this_frame_resources->voxels_buffer_allocation_info.offset,
+        glm::ceilMultiple(
+            voxel_count * sizeof(VoxelCoord3D),
+            physical_device_properties_.limits.nonCoherentAtomSize
+        ),
+        0, // flags
+        &ptr_to_mapped_voxels_buffer
+    );
+
+    memcpy(ptr_to_mapped_voxels_buffer, p_voxels, voxel_count * sizeof(VoxelCoord3D));
+
+    constexpr u32 ranges_to_flush_count = 2;
+    VkMappedMemoryRange ranges_to_flush[ranges_to_flush_count] {
+        {
+            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+            .memory = this_frame_resources->uniform_buffer_allocation_info.deviceMemory,
+            .offset = this_frame_resources->uniform_buffer_allocation_info.offset,
+            .size = this_frame_resources->uniform_buffer_allocation_info.size,
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+            .memory = this_frame_resources->voxels_buffer_allocation_info.deviceMemory,
+            .offset = this_frame_resources->voxels_buffer_allocation_info.offset,
+            .size = glm::ceilMultiple(
+                voxel_count * sizeof(VoxelCoord3D),
+                physical_device_properties_.limits.nonCoherentAtomSize
+            ),
+        },
     };
-    result = vk_dev_procs.FlushMappedMemoryRanges(device_, 1, &range_to_flush);
+    result = vk_dev_procs.FlushMappedMemoryRanges(device_, ranges_to_flush_count, ranges_to_flush);
     assertVk(result);
 
-    vk_dev_procs.UnmapMemory(device_, uniform_buffer_allocation_info_.deviceMemory);
+    vk_dev_procs.UnmapMemory(device_, this_frame_resources->uniform_buffer_allocation_info.deviceMemory);
+    vk_dev_procs.UnmapMemory(device_, this_frame_resources->voxels_buffer_allocation_info.deviceMemory);
 
 
     VkCommandBuffer command_buffer = this_frame_resources->command_buffer;
@@ -2149,14 +2245,11 @@ RenderResult render(
         // Maybe have a function pointer in the renderer or something to the appropriate Render function. Idk,
         // this is getting kinda weird. Maybe we should just ditch the whole generic crap.
         bool success = recordCommandBuffer(
-            command_buffer,
+            this_frame_resources,
+            voxel_count,
             p_render_resources->render_pass,
-            pipelines_.voxel_pipeline,
-            pipelines_.grid_pipeline,
-            pipeline_layouts_.grid_pipeline_layout,
             p_surface_resources->swapchain_extent,
             window_subregion,
-            this_frame_resources->framebuffer,
             &grid_pipeline_frag_shader_push_constants,
             imgui_draw_data
         );

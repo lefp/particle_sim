@@ -4,6 +4,7 @@
 // #include <vulkan/vulkan.h>
 // #include <glm/glm.hpp>
 // #include <imgui/imgui.h>
+// #include "types.hpp"
 
 namespace graphics {
 
@@ -14,6 +15,14 @@ using glm::mat4;
 //
 // ===========================================================================================================
 //
+
+const u32 MAX_VOXEL_COUNT = 1'000'000;
+
+//
+// ===========================================================================================================
+//
+
+using VoxelCoord3D = glm::ivec3;
 
 struct SurfaceResources {
     void* impl;
@@ -32,7 +41,6 @@ enum class [[nodiscard]] RenderResult {
     error_surface_resources_out_of_date,
     success_surface_resources_out_of_date,
 };
-
 
 //
 // ===========================================================================================================
@@ -68,9 +76,12 @@ RenderResult render(
     VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
     const mat4* world_to_screen_transform_inverse,
-    ImDrawData* imgui_draw_data
+    ImDrawData* imgui_draw_data,
+    u32 voxel_count,
+    const VoxelCoord3D* p_voxels
 );
 
+void setVoxels(u32 voxel_count, const VoxelCoord3D* p_voxels);
 
 /// `init()` must have been called before this; otherwise returns VK_NULL_HANDLE.
 VkInstance getVkInstance(void);
