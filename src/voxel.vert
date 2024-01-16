@@ -45,10 +45,11 @@ const uint TRIANGLES_VERTEX_INDICES[36] = {
 void main(void) {
 
     const uint cube_vertex_idx = TRIANGLES_VERTEX_INDICES[gl_VertexIndex];
-    vec4 vertex_pos = vec4(CUBE_VERTICES[cube_vertex_idx] * CUBE_RADIUS + vec3(voxel_coord_), 1.0);
+    vec4 vertex_pos = vec4(CUBE_VERTICES[cube_vertex_idx], 1.0);
 
     fragment_color_ = vec4((vertex_pos.xyz + CUBE_RADIUS) / (2*CUBE_RADIUS), 1.0);
 
+    vertex_pos.xyz = vertex_pos.xyz * CUBE_RADIUS + vec3(voxel_coord_);
     vertex_pos = world_to_screen_transform_ * vertex_pos;
     gl_Position = vertex_pos;
 }
