@@ -49,7 +49,7 @@ void main(void) {
 
     fragment_color_ = vec4((vertex_pos.xyz + CUBE_RADIUS) / (2*CUBE_RADIUS), 1.0);
 
-    vertex_pos.xyz = vertex_pos.xyz * CUBE_RADIUS + vec3(voxel_coord_);
+    vertex_pos.xyz = vertex_pos.xyz + vec3(voxel_coord_);
     vertex_pos = world_to_screen_transform_ * vertex_pos;
     gl_Position = vertex_pos;
 }
