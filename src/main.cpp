@@ -52,6 +52,10 @@ const float VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y = (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANC
 const float VIEW_FRUSTUM_NEAR_SIDE_SIZE_X = VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y * (f32)ASPECT_RATIO_X_OVER_Y;
 const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE { VIEW_FRUSTUM_NEAR_SIDE_SIZE_X, VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y };
 
+const float VOXEL_RADIUS = 0.5; // unit: meters
+
+const u32fast INVALID_VOXEL_IDX = UINT32_MAX;
+
 //
 // Global variables ==========================================================================================
 //
@@ -80,6 +84,9 @@ bool left_alt_is_pressed_ = false;
 bool left_ctrl_g_is_pressed_ = false;
 
 bool imgui_overlay_visible_ = false;
+
+u32fast voxel_count_ = 2;
+gfx::VoxelCoord3D voxels_[] { {0.0, 0.0, 0.0}, {2.0, 2.0, 2.0} };
 
 //
 // ===========================================================================================================
@@ -187,6 +194,82 @@ static VkRect2D centeredSubregion_16x9(u32 image_width, u32 image_height) {
         .offset = offset,
         .extent = extent,
     };
+}
+
+
+struct AxisAlignedBox {
+    f32 x_min;
+    f32 y_min;
+    f32 z_min;
+    f32 x_max;
+    f32 y_max;
+    f32 z_max;
+};
+// TODO OPTIMIZE
+/// Returns a number <= 0 if there is no collision.
+/// TODO FIXME:
+/// 1. Doesn't handle the case where the ray is parallel to an axis.
+/// 2. Don't know if it handles the case where the ray origin is inside the box.
+static f32 rayBoxInteriorCollisionTime(vec3 ray_origin, vec3 ray_direction, const AxisAlignedBox* box) {
+
+    f32 t_x0 = (box->x_min - ray_origin.x) / ray_direction.x;
+    f32 t_y0 = (box->y_min - ray_origin.y) / ray_direction.y;
+    f32 t_z0 = (box->z_min - ray_origin.z) / ray_direction.z;
+
+    f32 t_x1 = (box->x_max - ray_origin.x) / ray_direction.x;
+    f32 t_y1 = (box->y_max - ray_origin.y) / ray_direction.y;
+    f32 t_z1 = (box->z_max - ray_origin.z) / ray_direction.z;
+
+
+    f32 t_min_x = glm::min(t_x0, t_x1);
+    f32 t_max_x = glm::max(t_x0, t_x1);
+
+    f32 t_min_y = glm::min(t_y0, t_y1);
+    f32 t_max_y = glm::max(t_y0, t_y1);
+
+    f32 t_min_z = glm::min(t_z0, t_z1);
+    f32 t_max_z = glm::max(t_z0, t_z1);
+
+
+    f32 t_entry = glm::max(t_min_x, t_min_y, t_min_z);
+    f32 t_exit  = glm::min(t_max_x, t_max_y, t_max_z);
+    f32 time_spent_in_box = t_exit - t_entry;
+    bool box_entered = time_spent_in_box > 0.0f;
+    return (f32)box_entered * t_entry;
+}
+
+
+/// Returns the index of the earliest collision, or INVALID_VOXEL_IDX if there are no collisions.
+static u32fast rayCast(
+    vec3 ray_origin,
+    vec3 ray_direction,
+    u32fast voxel_count,
+    const gfx::VoxelCoord3D* p_voxels
+) {
+
+    u32fast earliest_collision_idx = INVALID_VOXEL_IDX;
+    f32 earliest_collision_time = INFINITY;
+
+    for (u32fast voxel_idx = 0; voxel_idx < voxel_count; voxel_idx++) {
+
+        gfx::VoxelCoord3D voxel_coord = p_voxels[voxel_idx];
+        AxisAlignedBox box {
+            .x_min = (f32)voxel_coord.x - VOXEL_RADIUS,
+            .y_min = (f32)voxel_coord.y - VOXEL_RADIUS,
+            .z_min = (f32)voxel_coord.z - VOXEL_RADIUS,
+            .x_max = (f32)voxel_coord.x + VOXEL_RADIUS,
+            .y_max = (f32)voxel_coord.y + VOXEL_RADIUS,
+            .z_max = (f32)voxel_coord.z + VOXEL_RADIUS,
+        };
+
+        f32 t = rayBoxInteriorCollisionTime(ray_origin, ray_direction, &box);
+        if (0.0f < t and t < earliest_collision_time) {
+            earliest_collision_time = t;
+            earliest_collision_idx = voxel_idx;
+        }
+    }
+
+    return earliest_collision_idx;
 }
 
 
@@ -444,6 +527,22 @@ int main(int argc, char** argv) {
         }
 
 
+        u32fast voxel_being_look_at_idx = rayCast(
+            camera_pos_ + camera_direction_unit * (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
+            camera_direction_unit,
+            voxel_count_,
+            voxels_
+        );
+        if (voxel_being_look_at_idx != INVALID_VOXEL_IDX) {
+            LOG_F(
+                INFO,
+                "!!! looking at voxel with index %" PRIuFAST32 " !!!",
+                voxel_being_look_at_idx
+            );
+            fflush(stdout);
+        }
+
+
         mat4 world_to_screen_transform = glm::identity<mat4>();
         {
             mat4 world_to_camera_transform = glm::lookAt(
@@ -474,17 +573,14 @@ int main(int argc, char** argv) {
         ImGui::Render();
         ImDrawData* imgui_draw_data = ImGui::GetDrawData();
 
-        constexpr u32 voxel_count = 2;
-        const gfx::VoxelCoord3D voxels[voxel_count] { {0, 0, 0}, {2, 2, 2} };
-
         gfx::RenderResult render_result = gfx::render(
             gfx_surface,
             window_draw_region_,
             &world_to_screen_transform,
             &world_to_screen_transform_inverse,
             imgui_draw_data,
-            voxel_count,
-            voxels
+            (u32)voxel_count_,
+            voxels_
         );
 
         switch (render_result) {

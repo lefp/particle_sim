@@ -8,6 +8,7 @@ layout(binding = 0, std140) uniform Uniforms {
     mat4 world_to_screen_transform_;
 };
 
+// TODO FIXME make this a specialization constant
 const float CUBE_RADIUS = 0.5;
 
 const vec3 CUBE_VERTICES[8] = {
