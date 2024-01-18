@@ -91,11 +91,13 @@ static u32 the_only_subpass_ = INVALID_SUBPASS_IDX;
 static struct {
     VkPipeline voxel_pipeline = VK_NULL_HANDLE;
     VkPipeline grid_pipeline = VK_NULL_HANDLE;
+    VkPipeline line_pipeline = VK_NULL_HANDLE;
 } pipelines_;
 
 static struct {
     VkPipelineLayout voxel_pipeline_layout = VK_NULL_HANDLE;
     VkPipelineLayout grid_pipeline_layout = VK_NULL_HANDLE;
+    VkPipelineLayout line_pipeline_layout = VK_NULL_HANDLE;
 } pipeline_layouts_;
 
 // TODO FIXME use a FIFO fallback if this present mode is not supported
@@ -168,6 +170,10 @@ struct RenderResourcesImpl {
         VkBuffer voxels_buffer;
         VmaAllocation voxels_buffer_allocation;
         VmaAllocationInfo voxels_buffer_allocation_info;
+
+        VkBuffer lines_buffer;
+        VmaAllocation lines_buffer_allocation;
+        VmaAllocationInfo lines_buffer_allocation_info;
 
         VkDescriptorSet descriptor_set;
 
@@ -1055,6 +1061,215 @@ static VkPipeline createGridPipeline(
 }
 
 
+static VkPipeline createLinePipeline(
+    VkDevice device,
+    VkRenderPass render_pass,
+    u32 subpass,
+    VkDescriptorSetLayout camera_transform_descriptor_set_layout,
+    VkPipelineLayout* pipeline_layout_out
+) {
+
+    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/line.vert.spv", device);
+    alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
+    defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
+
+    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/line.frag.spv", device);
+    alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
+    defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
+
+    constexpr u32 shader_stage_info_count = 2;
+    const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_VERTEX_BIT,
+            .module = vertex_shader_module,
+            .pName = "main",
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .module = fragment_shader_module,
+            .pName = "main",
+        },
+    };
+
+
+    VkVertexInputBindingDescription vertex_binding_description {
+        .binding = 0,
+        .stride = sizeof(LineSegment),
+        .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE,
+    };
+
+    constexpr u32 vertex_attribute_description_count = 2;
+    VkVertexInputAttributeDescription vertex_attribute_descriptions[vertex_attribute_description_count] {
+        {
+            .location = 0,
+            .binding = 0,
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = offsetof(LineSegment, start),
+        },
+        {
+            .location = 1,
+            .binding = 0,
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = offsetof(LineSegment, end),
+        },
+    };
+
+    const VkPipelineVertexInputStateCreateInfo vertex_input_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &vertex_binding_description,
+        .vertexAttributeDescriptionCount = vertex_attribute_description_count,
+        .pVertexAttributeDescriptions = vertex_attribute_descriptions,
+    };
+
+
+    const VkPipelineInputAssemblyStateCreateInfo input_assembly_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = VK_FALSE,
+    };
+
+
+    const VkPipelineViewportStateCreateInfo viewport_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .pViewports = NULL, // using dynamic viewport
+        .scissorCount = 1,
+        .pScissors = NULL, // using dynamic scissor
+    };
+
+
+    const VkPipelineRasterizationStateCreateInfo rasterization_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = VK_FALSE,
+        .rasterizerDiscardEnable = VK_FALSE,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = VK_CULL_MODE_NONE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .depthBiasEnable = VK_FALSE,
+        .depthBiasConstantFactor = 0.0,
+        .depthBiasClamp = 0.0,
+        .depthBiasSlopeFactor = 0.0,
+        .lineWidth = 1.0,
+    };
+
+
+    const VkPipelineMultisampleStateCreateInfo multisample_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable = VK_FALSE,
+        .minSampleShading = 0.0,
+        .pSampleMask = NULL,
+        .alphaToCoverageEnable = VK_FALSE,
+        .alphaToOneEnable = VK_FALSE,
+    };
+
+
+    const VkPipelineDepthStencilStateCreateInfo depth_stencil_state_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        // if line is in the same plane as another object, we want the line to be visible
+        .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable = VK_FALSE,
+        .front = {},
+        .back = {},
+        .minDepthBounds = 0.0,
+        .maxDepthBounds = 1.0,
+    };
+
+
+    // TODO Maybe enable blending, and configure it such that `dstColor = 1.0 - srcColor` (and dstAlpha = 1).
+    // This way, the lines are colored such that they are visible regardless of the background color.
+    const VkPipelineColorBlendAttachmentState color_blend_attachment_info {
+        .blendEnable = VK_FALSE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .colorBlendOp = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp = VK_BLEND_OP_ADD,
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+
+    const VkPipelineColorBlendStateCreateInfo color_blend_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .logicOp = VK_LOGIC_OP_CLEAR,
+        .attachmentCount = 1,
+        .pAttachments = &color_blend_attachment_info,
+        .blendConstants = {0.0, 0.0, 0.0, 0.0},
+    };
+
+
+    constexpr u32 dynamic_state_count = 2;
+    const VkDynamicState dynamic_states[dynamic_state_count] {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
+
+    const VkPipelineDynamicStateCreateInfo dynamic_state_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = dynamic_state_count,
+        .pDynamicStates = dynamic_states,
+    };
+
+
+    constexpr u32 push_constant_range_count = 0;
+    VkPushConstantRange* push_constant_ranges = NULL;
+
+    const VkPipelineLayoutCreateInfo pipeline_layout_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &camera_transform_descriptor_set_layout,
+        .pushConstantRangeCount = push_constant_range_count,
+        .pPushConstantRanges = push_constant_ranges,
+    };
+
+    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+    VkResult result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
+    assertVk(result);
+    *pipeline_layout_out = pipeline_layout;
+
+
+    const VkGraphicsPipelineCreateInfo pipeline_info {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = shader_stage_info_count,
+        .pStages = shader_stage_infos,
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly_info,
+        .pTessellationState = NULL,
+        .pViewportState = &viewport_info,
+        .pRasterizationState = &rasterization_info,
+        .pMultisampleState = &multisample_info,
+        .pDepthStencilState = &depth_stencil_state_info,
+        .pColorBlendState = &color_blend_info,
+        .pDynamicState = &dynamic_state_info,
+        .layout = pipeline_layout,
+        .renderPass = render_pass,
+        .subpass = subpass,
+        .basePipelineHandle = VK_NULL_HANDLE,
+        .basePipelineIndex = -1,
+    };
+
+    VkPipeline graphics_pipeline = VK_NULL_HANDLE;
+    result = vk_dev_procs.CreateGraphicsPipelines(
+        device,
+        VK_NULL_HANDLE, // pipelineCache
+        1, // createInfoCount
+        &pipeline_info,
+        NULL, // allocationCallbacks
+        &graphics_pipeline
+    );
+    assertVk(result);
+
+    return graphics_pipeline;
+}
+
+
 /// Doesn't verify surface support. You must do so before calling this.
 /// `fallback_extent` is used if the surface doesn't report a specific extent via Vulkan surface properties.
 ///     If you want resizing to work on all platforms, you should probably get the window's current dimensions
@@ -1316,6 +1531,7 @@ static bool createFramebuffersForSwapchain(
 static bool recordCommandBuffer(
     const RenderResourcesImpl::PerFrameResources* p_frame_resources,
     u32 voxel_count,
+    u32 line_segment_count,
     VkRenderPass render_pass,
     VkExtent2D swapchain_extent,
     VkRect2D swapchain_roi,
@@ -1366,12 +1582,31 @@ static bool recordCommandBuffer(
 
     vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.voxel_pipeline);
 
-    VkDeviceSize offset_in_vertex_buf = 0;
+    VkDeviceSize offset_in_voxels_vertex_buf = 0;
     vk_dev_procs.CmdBindVertexBuffers(
-        command_buffer, 0, 1, &p_frame_resources->voxels_buffer, &offset_in_vertex_buf
+        command_buffer, 0, 1, &p_frame_resources->voxels_buffer, &offset_in_voxels_vertex_buf
     );
 
     vk_dev_procs.CmdDraw(command_buffer, 36, voxel_count, 0, 0);
+
+
+    vk_dev_procs.CmdBindDescriptorSets(
+        command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layouts_.line_pipeline_layout,
+        0, // firstSet
+        1, // descriptorSetCount
+        &p_frame_resources->descriptor_set,
+        0, // dynamicOffsetCount
+        NULL // pDynamicOffsets
+    );
+
+    vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.line_pipeline);
+
+    VkDeviceSize offset_in_lines_vertex_buf = 0;
+    vk_dev_procs.CmdBindVertexBuffers(
+        command_buffer, 0, 1, &p_frame_resources->lines_buffer, &offset_in_lines_vertex_buf
+    );
+
+    vk_dev_procs.CmdDraw(command_buffer, 6, line_segment_count, 0, 0);
 
 
     vk_dev_procs.CmdBindDescriptorSets(
@@ -1533,6 +1768,13 @@ extern void init(const char* app_name, const char* specific_named_device_request
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.grid_pipeline = pipeline;
+
+        pipeline = createLinePipeline(
+            device_, render_pass, the_only_subpass_, uniform_descriptor_set_layout_,
+            &pipeline_layouts_.line_pipeline_layout
+        );
+        alwaysAssert(pipeline != VK_NULL_HANDLE);
+        pipelines_.line_pipeline = pipeline;
     }
 
 
@@ -2068,6 +2310,30 @@ extern Result createRenderer(RenderResources* render_resources_out) {
             );
             assertVk(result);
         }
+
+        VkBuffer* p_lines_buffer = &this_frame_resources->lines_buffer;
+        VmaAllocation* p_lines_buffer_allocation = &this_frame_resources->lines_buffer_allocation;
+        VmaAllocationInfo* p_lines_buffer_allocation_info = &this_frame_resources->lines_buffer_allocation_info;
+        {
+            // TODO are we guaranteed to have a memory type supporting both HOST_VISIBLE and USAGE_VERTEX_BUFFER?
+            VkBufferCreateInfo lines_buffer_info {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = MAX_LINE_SEGMENT_COUNT * sizeof(LineSegment),
+                .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                .queueFamilyIndexCount = 1,
+                .pQueueFamilyIndices = &queue_family_,
+            };
+            VmaAllocationCreateInfo lines_buffer_alloc_info {
+                .usage = VMA_MEMORY_USAGE_AUTO,
+                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+            };
+            result = vmaCreateBuffer(
+                vma_allocator_, &lines_buffer_info, &lines_buffer_alloc_info,
+                p_lines_buffer, p_lines_buffer_allocation, p_lines_buffer_allocation_info
+            );
+            assertVk(result);
+        }
     }
 
     VkWriteDescriptorSet descriptor_writes[MAX_FRAMES_IN_FLIGHT] {};
@@ -2111,7 +2377,9 @@ RenderResult render(
     const mat4* world_to_screen_transform_inverse,
     ImDrawData* imgui_draw_data,
     u32 voxel_count,
-    const VoxelCoord3D* p_voxels
+    const VoxelCoord3D* p_voxels,
+    u32 line_segment_count,
+    const LineSegment* p_line_segments
 ) {
 
     VkResult result;
@@ -2164,62 +2432,88 @@ RenderResult render(
     assertVk(result);
 
 
-    VkMappedMemoryRange uniform_buffer_mapped_memory_range {
-        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-        .memory = this_frame_resources->uniform_buffer_allocation_info.deviceMemory,
-        .offset = this_frame_resources->uniform_buffer_allocation_info.offset,
-        .size = this_frame_resources->uniform_buffer_allocation_info.size,
-    };
-    VkMappedMemoryRange voxels_buffer_mapped_memory_range {
-        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-        .memory = this_frame_resources->voxels_buffer_allocation_info.deviceMemory,
-        .offset = this_frame_resources->voxels_buffer_allocation_info.offset,
-        .size = glm::ceilMultiple(
-            voxel_count * sizeof(VoxelCoord3D),
-            physical_device_properties_.limits.nonCoherentAtomSize
-        ),
-    };
+    // upload data
+    {
+        VkMappedMemoryRange uniform_buffer_mapped_memory_range {
+            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+            .memory = this_frame_resources->uniform_buffer_allocation_info.deviceMemory,
+            .offset = this_frame_resources->uniform_buffer_allocation_info.offset,
+            .size = this_frame_resources->uniform_buffer_allocation_info.size,
+        };
+        VkMappedMemoryRange voxels_buffer_mapped_memory_range {
+            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+            .memory = this_frame_resources->voxels_buffer_allocation_info.deviceMemory,
+            .offset = this_frame_resources->voxels_buffer_allocation_info.offset,
+            .size = glm::ceilMultiple(
+                voxel_count * sizeof(VoxelCoord3D),
+                physical_device_properties_.limits.nonCoherentAtomSize
+            ),
+        };
+        VkMappedMemoryRange lines_buffer_mapped_memory_range {
+            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+            .memory = this_frame_resources->lines_buffer_allocation_info.deviceMemory,
+            .offset = this_frame_resources->lines_buffer_allocation_info.offset,
+            .size = glm::ceilMultiple(
+                line_segment_count * sizeof(LineSegment),
+                physical_device_properties_.limits.nonCoherentAtomSize
+            ),
+        };
 
-    // OPTIMIZE keep persistently mapped?
-    void* ptr_to_mapped_uniform_buffer = NULL;
-    result = vk_dev_procs.MapMemory(
-        device_,
-        uniform_buffer_mapped_memory_range.memory,
-        uniform_buffer_mapped_memory_range.offset,
-        uniform_buffer_mapped_memory_range.size,
-        0, // flags
-        &ptr_to_mapped_uniform_buffer
-    );
-    assertVk(result);
+        // OPTIMIZE keep persistently mapped?
+        void* ptr_to_mapped_uniform_buffer = NULL;
+        result = vk_dev_procs.MapMemory(
+            device_,
+            uniform_buffer_mapped_memory_range.memory,
+            uniform_buffer_mapped_memory_range.offset,
+            uniform_buffer_mapped_memory_range.size,
+            0, // flags
+            &ptr_to_mapped_uniform_buffer
+        );
+        assertVk(result);
 
-    UniformBuffer uniform_data {
-        // OPTIMIZE copying 64 bytes here, is that a lot?
-        .world_to_screen_transform = *world_to_screen_transform
-    };
-    *(UniformBuffer*)ptr_to_mapped_uniform_buffer = uniform_data;
+        void* ptr_to_mapped_voxels_buffer = NULL;
+        result = vk_dev_procs.MapMemory(
+            device_,
+            voxels_buffer_mapped_memory_range.memory,
+            voxels_buffer_mapped_memory_range.offset,
+            voxels_buffer_mapped_memory_range.size,
+            0, // flags
+            &ptr_to_mapped_voxels_buffer
+        );
 
-    void* ptr_to_mapped_voxels_buffer = NULL;
-    result = vk_dev_procs.MapMemory(
-        device_,
-        voxels_buffer_mapped_memory_range.memory,
-        voxels_buffer_mapped_memory_range.offset,
-        voxels_buffer_mapped_memory_range.size,
-        0, // flags
-        &ptr_to_mapped_voxels_buffer
-    );
+        void* ptr_to_mapped_lines_buffer = NULL;
+        result = vk_dev_procs.MapMemory(
+            device_,
+            lines_buffer_mapped_memory_range.memory,
+            lines_buffer_mapped_memory_range.offset,
+            lines_buffer_mapped_memory_range.size,
+            0, // flags
+            &ptr_to_mapped_lines_buffer
+        );
 
-    memcpy(ptr_to_mapped_voxels_buffer, p_voxels, voxel_count * sizeof(VoxelCoord3D));
+        UniformBuffer uniform_data {
+            // OPTIMIZE copying 64 bytes here, is that a lot?
+            .world_to_screen_transform = *world_to_screen_transform
+        };
+        *(UniformBuffer*)ptr_to_mapped_uniform_buffer = uniform_data;
 
-    constexpr u32 ranges_to_flush_count = 2;
-    VkMappedMemoryRange ranges_to_flush[ranges_to_flush_count] {
-        uniform_buffer_mapped_memory_range,
-        voxels_buffer_mapped_memory_range,
-    };
-    result = vk_dev_procs.FlushMappedMemoryRanges(device_, ranges_to_flush_count, ranges_to_flush);
-    assertVk(result);
+        memcpy(ptr_to_mapped_voxels_buffer, p_voxels, voxel_count * sizeof(VoxelCoord3D));
 
-    vk_dev_procs.UnmapMemory(device_, this_frame_resources->uniform_buffer_allocation_info.deviceMemory);
-    vk_dev_procs.UnmapMemory(device_, this_frame_resources->voxels_buffer_allocation_info.deviceMemory);
+        memcpy(ptr_to_mapped_lines_buffer, p_line_segments, line_segment_count * sizeof(LineSegment));
+
+        constexpr u32 ranges_to_flush_count = 3;
+        VkMappedMemoryRange ranges_to_flush[ranges_to_flush_count] {
+            uniform_buffer_mapped_memory_range,
+            voxels_buffer_mapped_memory_range,
+            lines_buffer_mapped_memory_range,
+        };
+        result = vk_dev_procs.FlushMappedMemoryRanges(device_, ranges_to_flush_count, ranges_to_flush);
+        assertVk(result);
+
+        vk_dev_procs.UnmapMemory(device_, this_frame_resources->uniform_buffer_allocation_info.deviceMemory);
+        vk_dev_procs.UnmapMemory(device_, this_frame_resources->voxels_buffer_allocation_info.deviceMemory);
+        vk_dev_procs.UnmapMemory(device_, this_frame_resources->lines_buffer_allocation_info.deviceMemory);
+    }
 
 
     VkCommandBuffer command_buffer = this_frame_resources->command_buffer;
@@ -2247,6 +2541,7 @@ RenderResult render(
         bool success = recordCommandBuffer(
             this_frame_resources,
             voxel_count,
+            line_segment_count,
             p_render_resources->render_pass,
             p_surface_resources->swapchain_extent,
             window_subregion,
