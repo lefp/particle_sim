@@ -409,6 +409,19 @@ int main(int argc, char** argv) {
         }
 
         if (imgui_overlay_visible_) {
+
+            // Crosshair.
+            // TODO Should we do this in our own renderer?
+            ImGui::GetBackgroundDrawList()->AddCircleFilled(
+                ImVec2 {
+                    (f32)window_draw_region_.offset.x + (f32)window_draw_region_.extent.width / 2.0f,
+                    (f32)window_draw_region_.offset.y + (f32)window_draw_region_.extent.height / 2.0f,
+                },
+                2.0f, // radius
+                IM_COL32(128, 128, 128, 255), // color
+                0 // num_segments
+            );
+
             ImGui::Begin("Camera", NULL, ImGuiWindowFlags_AlwaysAutoResize);
 
             f32 user_pos_input[3] { camera_pos_.x, camera_pos_.y, camera_pos_.z };
