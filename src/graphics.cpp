@@ -1417,53 +1417,6 @@ static Result createSwapchain(
 }
 
 
-/*
-/// Returns whether it succeeded.
-static bool createImageViewsForSwapchain(
-    VkDevice device,
-    u32fast image_count,
-    const VkImage* swapchain_images,
-    VkImageView* image_views_out
-) {
-
-    for (u32fast im_idx = 0; im_idx < image_count; im_idx++) {
-
-        const VkImage image = swapchain_images[im_idx];
-        VkImageView* p_image_view = &image_views_out[im_idx];
-
-        const VkComponentMapping component_mapping {
-            .r = VK_COMPONENT_SWIZZLE_R,
-            .g = VK_COMPONENT_SWIZZLE_G,
-            .b = VK_COMPONENT_SWIZZLE_B,
-            .a = VK_COMPONENT_SWIZZLE_A
-        };
-
-        const VkImageSubresourceRange subresource_range = {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-        };
-
-        const VkImageViewCreateInfo image_view_info {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = image,
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = SWAPCHAIN_FORMAT,
-            .components = component_mapping,
-            .subresourceRange = subresource_range,
-        };
-
-        VkResult result = vk_dev_procs.CreateImageView(device, &image_view_info, NULL, p_image_view);
-        assertVk(result);
-    }
-
-    return true;
-}
-*/
-
-
 static void createPerSwapchainImageSurfaceResources(
     VkSwapchainKHR swapchain,
     u32* image_count_out,
