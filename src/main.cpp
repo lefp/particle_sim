@@ -28,6 +28,7 @@ using glm::vec4;
 using glm::dvec2;
 using glm::ivec2;
 using glm::ivec3;
+using glm::u8vec4;
 
 //
 // Global constants ==========================================================================================
@@ -88,8 +89,8 @@ bool imgui_overlay_visible_ = false;
 
 u32fast voxel_count_ = 2;
 gfx::Voxel voxels_[] {
-    { .coord = ivec3 {0.0, 0.0, 0.0} },
-    { .coord = ivec3 {2.0, 2.0, 2.0} },
+    { .coord = ivec3 {0.0, 0.0, 0.0}, .color = u8vec4 { 255, 0, 0, 255 } },
+    { .coord = ivec3 {2.0, 2.0, 2.0}, .color = u8vec4 { 0, 255, 0, 255 } },
 };
 
 //

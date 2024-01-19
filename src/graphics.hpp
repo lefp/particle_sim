@@ -11,6 +11,7 @@ namespace graphics {
 using glm::vec2;
 using glm::vec3;
 using glm::ivec3;
+using glm::u8vec4;
 using glm::mat4;
 
 //
@@ -26,9 +27,7 @@ const u32 MAX_OUTLINED_VOXEL_COUNT = 1'000'000;
 
 struct Voxel {
     ivec3 coord;
-    // TODO We definitely need no more than u16 for material index; even u8 would probably suffice. Convert
-    // this to u8 or u16 if/when we need to make room for more data here.
-    u32 material_index;
+    u8vec4 color;
 };
 static_assert(alignof(Voxel) == 4);
 static_assert(sizeof(Voxel) == 4 * 4);

@@ -711,18 +711,29 @@ static VkPipeline createVoxelPipeline(
         .stride = sizeof(Voxel),
         .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE,
     };
-    VkVertexInputAttributeDescription vertex_attribute_description {
-        .location = 0,
-        .binding = 0,
-        .format = VK_FORMAT_R32G32B32_SINT,
-        .offset = 0,
+
+    constexpr u32 vertex_attribute_description_count = 2;
+    VkVertexInputAttributeDescription vertex_attribute_descriptions[vertex_attribute_description_count] {
+        {
+            .location = 0,
+            .binding = 0,
+            .format = VK_FORMAT_R32G32B32_SINT,
+            .offset = offsetof(Voxel, coord),
+        },
+        {
+            .location = 1,
+            .binding = 0,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .offset = offsetof(Voxel, color),
+        },
     };
+
     const VkPipelineVertexInputStateCreateInfo vertex_input_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = 1,
         .pVertexBindingDescriptions = &vertex_binding_description,
-        .vertexAttributeDescriptionCount = 1,
-        .pVertexAttributeDescriptions = &vertex_attribute_description,
+        .vertexAttributeDescriptionCount = vertex_attribute_description_count,
+        .pVertexAttributeDescriptions = vertex_attribute_descriptions,
     };
 
 
