@@ -206,6 +206,7 @@ struct AxisAlignedBox {
     f32 z_max;
 };
 // TODO OPTIMIZE
+// src: https://tavianator.com/2022/ray_box_boundary.html
 /// Returns a number <= 0 if there is no collision.
 /// TODO FIXME:
 /// 1. Doesn't handle the case where the ray is parallel to an axis.

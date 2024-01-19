@@ -15,6 +15,7 @@ layout(push_constant, std140) uniform PushConstants {
 const float grid_interval = 1; // unit: meters
 const float gridline_radius = 0.01; // unit: meters. Thickness of gridlines in world coordinates.
 
+// Based on https://asliceofrendering.com/scene%20helper/2020/01/05/InfiniteGrid/
 void main(void) {
 
     vec2 f = gl_FragCoord.xy;
