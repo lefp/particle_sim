@@ -30,9 +30,11 @@
     X(CmdBeginRenderPass) \
     X(CmdBindDescriptorSets) \
     X(CmdBindPipeline) \
+    X(CmdBindIndexBuffer) \
     X(CmdBindVertexBuffers) \
     X(CmdCopyImage) \
     X(CmdDraw) \
+    X(CmdDrawIndexed) \
     X(CmdEndRenderPass) \
     X(CmdPipelineBarrier) \
     X(CmdPushConstants) \

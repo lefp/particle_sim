@@ -17,20 +17,13 @@ using glm::mat4;
 //
 
 const u32 MAX_VOXEL_COUNT = 1'000'000;
-const u32 MAX_LINE_SEGMENT_COUNT = 1'000'000;
+const u32 MAX_OUTLINED_VOXEL_COUNT = 1'000'000;
 
 //
 // ===========================================================================================================
 //
 
 using VoxelCoord3D = glm::ivec3;
-
-struct LineSegment {
-    vec3 start;
-    vec3 end;
-};
-static_assert(alignof(LineSegment) == 4);
-static_assert(sizeof(LineSegment) == 4*6);
 
 struct SurfaceResources {
     void* impl;
@@ -87,8 +80,8 @@ RenderResult render(
     ImDrawData* imgui_draw_data,
     u32 voxel_count,
     const VoxelCoord3D* p_voxels,
-    u32 line_segment_count,
-    const LineSegment* p_line_segments
+    u32 outlined_voxel_index_count,
+    const u32* p_outlined_voxel_indices
 );
 
 void setVoxels(u32 voxel_count, const VoxelCoord3D* p_voxels);

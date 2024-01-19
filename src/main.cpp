@@ -548,38 +548,9 @@ int main(int argc, char** argv) {
             voxels_
         );
 
-        // TODO FIXME this is temporary, find a better way to do this (maybe via geometry shader?)
-        u32fast line_count = 0;
-        gfx::LineSegment lines[12];
-        if (voxel_being_look_at_idx != INVALID_VOXEL_IDX) {
-
-            line_count = 12;
-
-            gfx::VoxelCoord3D voxel_coord_int = voxels_[voxel_being_look_at_idx];
-            vec3 voxel_coord = vec3((f32)voxel_coord_int.x, (f32)voxel_coord_int.y, (f32)voxel_coord_int.z);
-
-            vec3 a = voxel_coord + vec3(-VOXEL_RADIUS,  VOXEL_RADIUS,  VOXEL_RADIUS);
-            vec3 b = voxel_coord + vec3(-VOXEL_RADIUS, -VOXEL_RADIUS,  VOXEL_RADIUS);
-            vec3 c = voxel_coord + vec3( VOXEL_RADIUS, -VOXEL_RADIUS,  VOXEL_RADIUS);
-            vec3 d = voxel_coord + vec3( VOXEL_RADIUS,  VOXEL_RADIUS,  VOXEL_RADIUS);
-            vec3 e = voxel_coord + vec3(-VOXEL_RADIUS,  VOXEL_RADIUS, -VOXEL_RADIUS);
-            vec3 f = voxel_coord + vec3(-VOXEL_RADIUS, -VOXEL_RADIUS, -VOXEL_RADIUS);
-            vec3 g = voxel_coord + vec3( VOXEL_RADIUS, -VOXEL_RADIUS, -VOXEL_RADIUS);
-            vec3 h = voxel_coord + vec3( VOXEL_RADIUS,  VOXEL_RADIUS, -VOXEL_RADIUS);
-
-            lines[0] = gfx::LineSegment { .start = a, .end = b };
-            lines[1] = gfx::LineSegment { .start = b, .end = c };
-            lines[2] = gfx::LineSegment { .start = c, .end = d };
-            lines[3] = gfx::LineSegment { .start = d, .end = a };
-            lines[4] = gfx::LineSegment { .start = e, .end = f };
-            lines[5] = gfx::LineSegment { .start = f, .end = g };
-            lines[6] = gfx::LineSegment { .start = g, .end = h };
-            lines[7] = gfx::LineSegment { .start = h, .end = e };
-            lines[8] = gfx::LineSegment { .start = e, .end = a };
-            lines[9] = gfx::LineSegment { .start = h, .end = d };
-            lines[10] = gfx::LineSegment { .start = f, .end = b };
-            lines[11] = gfx::LineSegment { .start = g, .end = c };
-        }
+        u32 outlined_voxel_index_count = 0;
+        u32 outlined_voxel_index = (u32)voxel_being_look_at_idx;
+        if (outlined_voxel_index != INVALID_VOXEL_IDX) outlined_voxel_index_count = 1;
 
 
         mat4 world_to_screen_transform = glm::identity<mat4>();
@@ -620,8 +591,8 @@ int main(int argc, char** argv) {
             imgui_draw_data,
             (u32)voxel_count_,
             voxels_,
-            (u32)line_count,
-            lines
+            (u32)outlined_voxel_index_count,
+            &outlined_voxel_index
         );
 
         switch (render_result) {
