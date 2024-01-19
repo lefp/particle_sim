@@ -694,11 +694,12 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
 }
 
 
-static VkPipeline createVoxelPipeline(
+static void createVoxelPipeline(
     VkDevice device,
     VkRenderPass render_pass,
     u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
+    VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
 ) {
 
@@ -891,26 +892,24 @@ static VkPipeline createVoxelPipeline(
         .basePipelineIndex = -1,
     };
 
-    VkPipeline graphics_pipeline = VK_NULL_HANDLE;
     result = vk_dev_procs.CreateGraphicsPipelines(
         device,
         VK_NULL_HANDLE, // pipelineCache
         1, // createInfoCount
         &pipeline_info,
         NULL, // allocationCallbacks
-        &graphics_pipeline
+        pipeline_out
     );
     assertVk(result);
-
-    return graphics_pipeline;
 }
 
 
-static VkPipeline createGridPipeline(
+static void createGridPipeline(
     VkDevice device,
     VkRenderPass render_pass,
     u32 subpass,
     VkDescriptorSetLayout camera_transform_descriptor_set_layout,
+    VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
 ) {
 
@@ -1090,26 +1089,24 @@ static VkPipeline createGridPipeline(
         .basePipelineIndex = -1,
     };
 
-    VkPipeline graphics_pipeline = VK_NULL_HANDLE;
     result = vk_dev_procs.CreateGraphicsPipelines(
         device,
         VK_NULL_HANDLE, // pipelineCache
         1, // createInfoCount
         &pipeline_info,
         NULL, // allocationCallbacks
-        &graphics_pipeline
+        pipeline_out
     );
     assertVk(result);
-
-    return graphics_pipeline;
 }
 
 
-static VkPipeline createCubeOutlinePipeline(
+static void createCubeOutlinePipeline(
     VkDevice device,
     VkRenderPass render_pass,
     u32 subpass,
     VkDescriptorSetLayout camera_transform_descriptor_set_layout,
+    VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
 ) {
 
@@ -1291,18 +1288,15 @@ static VkPipeline createCubeOutlinePipeline(
         .basePipelineIndex = -1,
     };
 
-    VkPipeline graphics_pipeline = VK_NULL_HANDLE;
     result = vk_dev_procs.CreateGraphicsPipelines(
         device,
         VK_NULL_HANDLE, // pipelineCache
         1, // createInfoCount
         &pipeline_info,
         NULL, // allocationCallbacks
-        &graphics_pipeline
+        pipeline_out
     );
     assertVk(result);
-
-    return graphics_pipeline;
 }
 
 
@@ -1802,28 +1796,20 @@ extern void init(const char* app_name, const char* specific_named_device_request
 
     the_only_subpass_ = 0;
     {
-        VkPipeline pipeline;
-
-        pipeline = createVoxelPipeline(
+        createVoxelPipeline(
             device_, render_pass, the_only_subpass_, descriptor_set_layout_,
-            &pipelines_.voxel_pipeline_layout
+            &pipelines_.voxel_pipeline, &pipelines_.voxel_pipeline_layout
         );
-        alwaysAssert(pipeline != VK_NULL_HANDLE);
-        pipelines_.voxel_pipeline = pipeline;
 
-        pipeline = createGridPipeline(
+        createGridPipeline(
             device_, render_pass, the_only_subpass_, descriptor_set_layout_,
-            &pipelines_.grid_pipeline_layout
+            &pipelines_.grid_pipeline, &pipelines_.grid_pipeline_layout
         );
-        alwaysAssert(pipeline != VK_NULL_HANDLE);
-        pipelines_.grid_pipeline = pipeline;
 
-        pipeline = createCubeOutlinePipeline(
+        createCubeOutlinePipeline(
             device_, render_pass, the_only_subpass_, descriptor_set_layout_,
-            &pipelines_.cube_outline_pipeline_layout
+            &pipelines_.cube_outline_pipeline, &pipelines_.cube_outline_pipeline_layout
         );
-        alwaysAssert(pipeline != VK_NULL_HANDLE);
-        pipelines_.cube_outline_pipeline = pipeline;
     }
 
 
