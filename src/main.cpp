@@ -27,6 +27,7 @@ using glm::vec3;
 using glm::vec4;
 using glm::dvec2;
 using glm::ivec2;
+using glm::ivec3;
 
 //
 // Global constants ==========================================================================================
@@ -86,7 +87,10 @@ bool left_ctrl_g_is_pressed_ = false;
 bool imgui_overlay_visible_ = false;
 
 u32fast voxel_count_ = 2;
-gfx::VoxelCoord3D voxels_[] { {0.0, 0.0, 0.0}, {2.0, 2.0, 2.0} };
+gfx::Voxel voxels_[] {
+    { .coord = ivec3 {0.0, 0.0, 0.0} },
+    { .coord = ivec3 {2.0, 2.0, 2.0} },
+};
 
 //
 // ===========================================================================================================
@@ -245,7 +249,7 @@ static u32fast rayCast(
     vec3 ray_origin,
     vec3 ray_direction,
     u32fast voxel_count,
-    const gfx::VoxelCoord3D* p_voxels
+    const gfx::Voxel* p_voxels
 ) {
 
     u32fast earliest_collision_idx = INVALID_VOXEL_IDX;
@@ -253,7 +257,7 @@ static u32fast rayCast(
 
     for (u32fast voxel_idx = 0; voxel_idx < voxel_count; voxel_idx++) {
 
-        gfx::VoxelCoord3D voxel_coord = p_voxels[voxel_idx];
+        ivec3 voxel_coord = p_voxels[voxel_idx].coord;
         AxisAlignedBox box {
             .x_min = (f32)voxel_coord.x - VOXEL_RADIUS,
             .y_min = (f32)voxel_coord.y - VOXEL_RADIUS,

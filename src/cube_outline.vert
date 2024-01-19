@@ -1,9 +1,17 @@
 #version 450
 
-layout(location = 0) in ivec3 voxel_coord_;
+layout(location = 0) in uint voxel_idx_;
 
 layout(binding = 0, std140) uniform Uniforms {
     mat4 world_to_screen_transform_;
+};
+
+struct Voxel {
+    ivec3 coord;
+    uint material_idx;
+};
+layout(binding = 1, std430) buffer Voxels {
+    Voxel voxels_[];
 };
 
 
@@ -59,11 +67,15 @@ const vec2 BASE_RECTANGLE_VERTICES[6] = {
 
 void main(void) {
 
+    const Voxel voxel = voxels_[voxel_idx_];
+    const vec3 voxel_coord = vec3(voxel.coord);
+
     const vec2 base_vertex = BASE_RECTANGLE_VERTICES[gl_VertexIndex % 6];
 
     const LineSegmentIndexed line = LINES[gl_VertexIndex % 12];
-    vec4 start_point_world = vec4(voxel_coord_ + CUBE_VERTICES[line.start], 1.0);
-    vec4 end_point_world = vec4(voxel_coord_ + CUBE_VERTICES[line.end], 1.0);
+
+    vec4 start_point_world = vec4(voxel_coord + CUBE_VERTICES[line.start], 1.0);
+    vec4 end_point_world = vec4(voxel_coord + CUBE_VERTICES[line.end], 1.0);
 
     vec4 start_point_screen = world_to_screen_transform_ * start_point_world;
     vec4 end_point_screen = world_to_screen_transform_ * end_point_world;
