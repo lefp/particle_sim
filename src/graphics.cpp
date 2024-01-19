@@ -908,7 +908,7 @@ static void createGridPipeline(
     VkDevice device,
     VkRenderPass render_pass,
     u32 subpass,
-    VkDescriptorSetLayout camera_transform_descriptor_set_layout,
+    VkDescriptorSetLayout descriptor_set_layout,
     VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
 ) {
@@ -1058,7 +1058,7 @@ static void createGridPipeline(
     const VkPipelineLayoutCreateInfo pipeline_layout_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
-        .pSetLayouts = &camera_transform_descriptor_set_layout,
+        .pSetLayouts = &descriptor_set_layout,
         .pushConstantRangeCount = push_constant_range_count,
         .pPushConstantRanges = push_constant_ranges,
     };
@@ -1105,7 +1105,7 @@ static void createCubeOutlinePipeline(
     VkDevice device,
     VkRenderPass render_pass,
     u32 subpass,
-    VkDescriptorSetLayout camera_transform_descriptor_set_layout,
+    VkDescriptorSetLayout descriptor_set_layout,
     VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
 ) {
@@ -1257,7 +1257,7 @@ static void createCubeOutlinePipeline(
     const VkPipelineLayoutCreateInfo pipeline_layout_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
-        .pSetLayouts = &camera_transform_descriptor_set_layout,
+        .pSetLayouts = &descriptor_set_layout,
         .pushConstantRangeCount = push_constant_range_count,
         .pPushConstantRanges = push_constant_ranges,
     };
