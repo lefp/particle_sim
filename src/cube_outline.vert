@@ -23,12 +23,12 @@ const float LINE_RADIUS = 0.01;
 const vec3 CUBE_VERTICES[8] = {
     { -CUBE_RADIUS, -CUBE_RADIUS,  CUBE_RADIUS },
     {  CUBE_RADIUS, -CUBE_RADIUS,  CUBE_RADIUS },
-    { -CUBE_RADIUS,  CUBE_RADIUS,  CUBE_RADIUS },
     {  CUBE_RADIUS,  CUBE_RADIUS,  CUBE_RADIUS },
+    { -CUBE_RADIUS,  CUBE_RADIUS,  CUBE_RADIUS },
     { -CUBE_RADIUS, -CUBE_RADIUS, -CUBE_RADIUS },
     {  CUBE_RADIUS, -CUBE_RADIUS, -CUBE_RADIUS },
-    { -CUBE_RADIUS,  CUBE_RADIUS, -CUBE_RADIUS },
     {  CUBE_RADIUS,  CUBE_RADIUS, -CUBE_RADIUS },
+    { -CUBE_RADIUS,  CUBE_RADIUS, -CUBE_RADIUS },
 };
 
 struct LineSegmentIndexed {
@@ -72,7 +72,7 @@ void main(void) {
 
     const vec2 base_vertex = BASE_RECTANGLE_VERTICES[gl_VertexIndex % 6];
 
-    const LineSegmentIndexed line = LINES[gl_VertexIndex % 12];
+    const LineSegmentIndexed line = LINES[gl_VertexIndex / 6];
 
     vec4 start_point_world = vec4(voxel_coord + CUBE_VERTICES[line.start], 1.0);
     vec4 end_point_world = vec4(voxel_coord + CUBE_VERTICES[line.end], 1.0);
