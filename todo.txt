@@ -8,9 +8,15 @@
       cursor can leave the screen when you're trying to move the camera around).
 - [ ] Place and remove cubes
     - [x] Render multiple cubes
-	- [ ] Raycast onto grid
-- [ ] Highlight cube you're currently looking at
-	- [ ] Draw outlines on cubes
+    - [x] Raycast onto cubes
+    - [ ] Raycast onto grid
+- [x] Highlight cube you're currently looking at
+    - [x] Draw outlines on cubes
+		- [ ] Anti-alias
+- [ ] Select multiple cubes (e.g. right-click, or click+drag), modify all of their properties at the same time
+- [ ] Shader hot-reloading
+- [ ] Stress-test ray-cube interesction on 100k - 1M cubes, and optimize as needed.
+
 - [ ] Simple terrain generation
 - [ ] Fog and volumetric lighting
 - [ ] Fire physics

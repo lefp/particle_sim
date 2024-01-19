@@ -83,6 +83,9 @@ void main(void) {
     vec2 vec_along_length = end_point_screen.xy - start_point_screen.xy;
     vec2 vec_along_radius = normalize(vec2(vec_along_length.y, -vec_along_length.x)) * LINE_RADIUS;
 
+    // TODO FIXME: You're doing this in normalized viewport coords, but not taking into account the fact that
+    // the viewport is wider than it is tall. So when looking at a cube head-on, the outlines are thicker on
+    // the sides than they are on the top and bottom.
     vec2 vertex_pos_2d = start_point_screen.xy;
     vertex_pos_2d += vec_along_length * base_vertex.y;
     vertex_pos_2d += vec_along_radius * base_vertex.x;
