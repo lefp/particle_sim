@@ -72,6 +72,23 @@ const u32fast MAX_FRAMES_IN_FLIGHT = 2;
 
 const u32fast PHYSICAL_DEVICE_TYPE_COUNT = 5; // number of VK_PHYSICAL_DEVICE_TYPE_xxx variants
 
+const struct {
+    const char* voxel_pipeline_vertex_shader_src = "src/voxel.vert";
+    const char* voxel_pipeline_fragment_shader_src = "src/voxel.frag";
+    const char* voxel_pipeline_vertex_shader_spirv = "build/voxel.vert.spv";
+    const char* voxel_pipeline_fragment_shader_spirv = "build/voxel.frag.spv";
+
+    const char* grid_pipeline_vertex_shader_src = "src/grid.vert";
+    const char* grid_pipeline_fragment_shader_src = "src/grid.frag";
+    const char* grid_pipeline_vertex_shader_spirv = "build/grid.vert.spv";
+    const char* grid_pipeline_fragment_shader_spirv = "build/grid.frag.spv";
+
+    const char* cube_outline_pipeline_vertex_shader_src = "src/cube_outline.vert";
+    const char* cube_outline_pipeline_fragment_shader_src = "src/cube_outline.frag";
+    const char* cube_outline_pipeline_vertex_shader_spirv = "build/cube_outline.vert.spv";
+    const char* cube_outline_pipeline_fragment_shader_spirv = "build/cube_outline.frag.spv";
+} SHADER_SRC_FILES;
+
 //
 // Global variables ==========================================================================================
 //
@@ -90,15 +107,14 @@ static u32 the_only_subpass_ = INVALID_SUBPASS_IDX;
 
 static struct {
     VkPipeline voxel_pipeline = VK_NULL_HANDLE;
-    VkPipeline grid_pipeline = VK_NULL_HANDLE;
-    VkPipeline cube_outline_pipeline = VK_NULL_HANDLE;
-} pipelines_;
-
-static struct {
     VkPipelineLayout voxel_pipeline_layout = VK_NULL_HANDLE;
+
+    VkPipeline grid_pipeline = VK_NULL_HANDLE;
     VkPipelineLayout grid_pipeline_layout = VK_NULL_HANDLE;
+
+    VkPipeline cube_outline_pipeline = VK_NULL_HANDLE;
     VkPipelineLayout cube_outline_pipeline_layout = VK_NULL_HANDLE;
-} pipeline_layouts_;
+} pipelines_;
 
 // TODO FIXME use a FIFO fallback if this present mode is not supported
 static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_MAILBOX_KHR;
@@ -114,6 +130,11 @@ static VkDescriptorSetLayout descriptor_set_layout_ = VK_NULL_HANDLE;
 struct QueueFamilyRequirements {
     VkQueueFlags required_queue_flags;
     bool require_presentation_support;
+};
+
+struct PipelineInfo {
+    VkPipeline pipeline;
+    VkPipelineLayout pipeline_layout;
 };
 
 /// Initialize as follows:
@@ -681,11 +702,17 @@ static VkPipeline createVoxelPipeline(
     VkPipelineLayout* pipeline_layout_out
 ) {
 
-    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/voxel.vert.spv", device);
+    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile(
+        SHADER_SRC_FILES.voxel_pipeline_vertex_shader_spirv,
+        device
+    );
     alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
     defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
 
-    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/voxel.frag.spv", device);
+    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile(
+        SHADER_SRC_FILES.voxel_pipeline_fragment_shader_spirv,
+        device
+    );
     alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
     defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
 
@@ -887,11 +914,17 @@ static VkPipeline createGridPipeline(
     VkPipelineLayout* pipeline_layout_out
 ) {
 
-    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/grid.vert.spv", device);
+    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile(
+        SHADER_SRC_FILES.grid_pipeline_vertex_shader_spirv,
+        device
+    );
     alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
     defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
 
-    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/grid.frag.spv", device);
+    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile(
+        SHADER_SRC_FILES.grid_pipeline_fragment_shader_spirv,
+        device
+    );
     alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
     defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
 
@@ -1080,11 +1113,17 @@ static VkPipeline createCubeOutlinePipeline(
     VkPipelineLayout* pipeline_layout_out
 ) {
 
-    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile("build/cube_outline.vert.spv", device);
+    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile(
+        SHADER_SRC_FILES.cube_outline_pipeline_vertex_shader_spirv,
+        device
+    );
     alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
     defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
 
-    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile("build/cube_outline.frag.spv", device);
+    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile(
+        SHADER_SRC_FILES.cube_outline_pipeline_fragment_shader_spirv,
+        device
+    );
     alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
     defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
 
@@ -1570,7 +1609,7 @@ static bool recordCommandBuffer(
 
     {
         vk_dev_procs.CmdBindDescriptorSets(
-            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layouts_.voxel_pipeline_layout,
+            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.voxel_pipeline_layout,
             0, // firstSet
             1, // descriptorSetCount
             &p_frame_resources->descriptor_set,
@@ -1589,7 +1628,7 @@ static bool recordCommandBuffer(
     }
     {
         vk_dev_procs.CmdBindDescriptorSets(
-            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layouts_.cube_outline_pipeline_layout,
+            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.cube_outline_pipeline_layout,
             0, // firstSet
             1, // descriptorSetCount
             &p_frame_resources->descriptor_set,
@@ -1608,7 +1647,7 @@ static bool recordCommandBuffer(
     }
     {
         vk_dev_procs.CmdBindDescriptorSets(
-            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layouts_.grid_pipeline_layout,
+            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.grid_pipeline_layout,
             0, // firstSet
             1, // descriptorSetCount
             &p_frame_resources->descriptor_set,
@@ -1618,7 +1657,7 @@ static bool recordCommandBuffer(
         vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.grid_pipeline);
 
         vk_dev_procs.CmdPushConstants(
-            command_buffer, pipeline_layouts_.grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+            command_buffer, pipelines_.grid_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
             sizeof(*grid_pipeline_push_constants), grid_pipeline_push_constants
         );
 
@@ -1767,21 +1806,21 @@ extern void init(const char* app_name, const char* specific_named_device_request
 
         pipeline = createVoxelPipeline(
             device_, render_pass, the_only_subpass_, descriptor_set_layout_,
-            &pipeline_layouts_.voxel_pipeline_layout
+            &pipelines_.voxel_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.voxel_pipeline = pipeline;
 
         pipeline = createGridPipeline(
             device_, render_pass, the_only_subpass_, descriptor_set_layout_,
-            &pipeline_layouts_.grid_pipeline_layout
+            &pipelines_.grid_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.grid_pipeline = pipeline;
 
         pipeline = createCubeOutlinePipeline(
             device_, render_pass, the_only_subpass_, descriptor_set_layout_,
-            &pipeline_layouts_.cube_outline_pipeline_layout
+            &pipelines_.cube_outline_pipeline_layout
         );
         alwaysAssert(pipeline != VK_NULL_HANDLE);
         pipelines_.cube_outline_pipeline = pipeline;
