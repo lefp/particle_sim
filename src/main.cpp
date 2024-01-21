@@ -84,6 +84,7 @@ bool cursor_visible_ = false;
 
 bool left_alt_is_pressed_ = false;
 bool left_ctrl_g_is_pressed_ = false;
+bool left_ctrl_r_is_pressed_ = false;
 
 bool imgui_overlay_visible_ = false;
 
@@ -383,6 +384,24 @@ int main(int argc, char** argv) {
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+
+
+        bool left_ctrl_r_was_pressed = left_ctrl_r_is_pressed_;
+        left_ctrl_r_is_pressed_ =
+            glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS and
+            glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
+        abortIfGlfwError();
+
+        if (!left_ctrl_r_was_pressed and left_ctrl_r_is_pressed_) {
+
+            LOG_F(INFO, "Reloading shaders due to keybind pressed.");
+
+            f64 time_start = glfwGetTime();
+            gfx::reloadAllShaders(gfx_renderer);
+            f64 time_end = glfwGetTime();
+
+            LOG_F(INFO, "Shaders reloaded (%.0lf ms).", (time_end - time_start) * 1000.);
+        }
 
 
         bool left_alt_was_pressed = left_alt_is_pressed_;

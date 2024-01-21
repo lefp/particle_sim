@@ -91,6 +91,8 @@ RenderResult render(
     const u32* p_outlined_voxel_indices
 );
 
+void reloadAllShaders(RenderResources renderer);
+
 /// `init()` must have been called before this; otherwise returns VK_NULL_HANDLE.
 VkInstance getVkInstance(void);
 

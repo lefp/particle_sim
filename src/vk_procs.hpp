@@ -1,14 +1,16 @@
 #ifndef _VK_PROCS_HPP
 #define _VK_PROCS_HPP
 
-#include <vulkan/vulkan.h>
-#include <loguru/loguru.hpp>
+// #include <vulkan/vulkan.h>
+// #include <loguru/loguru.hpp>
 
 //
 // ===========================================================================================================
 //
 
 /// These are where you define the lists of procedures you want to use.
+
+// TODO FIXME: rename these to FOR_EACH_VK_BASE_PROC, etc, to avoid naming conflicts.
 
 #define FOR_EACH_BASE_PROC(X) \
     X(CreateInstance) \
@@ -55,6 +57,8 @@
     X(DestroyFence) \
     X(DestroyFramebuffer) \
     X(DestroyImageView) \
+    X(DestroyPipeline) \
+    X(DestroyPipelineLayout) \
     X(DestroySemaphore) \
     X(DestroyShaderModule) \
     X(DestroySwapchainKHR) \
@@ -106,6 +110,7 @@ struct VulkanDeviceProcs {
 // ===========================================================================================================
 //
 
+// TODO maybe append an underscore to make it clear these are global
 extern VulkanBaseProcs vk_base_procs;
 extern VulkanInstanceProcs vk_inst_procs;
 extern VulkanDeviceProcs vk_dev_procs;

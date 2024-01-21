@@ -1,6 +1,7 @@
 #include <cerrno>
 #include <cinttypes>
 #include <cstdio>
+#include <dlfcn.h>
 
 // TODO I'd rather not have a dependency on any windowing library in this file. We should be able to
 // completely replace GLFW; we're only using:
@@ -15,14 +16,20 @@
 //    etc
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
+
 #include <loguru/loguru.hpp>
+
 #define VMA_IMPLEMENTATION
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #include <VulkanMemoryAllocator/vk_mem_alloc.h>
+
 #include <imgui/imgui_impl_vulkan.h>
+
+#include <shaderc/shaderc.h>
 
 #include "types.hpp"
 #include "error_util.hpp"
@@ -31,6 +38,7 @@
 #include "defer.hpp"
 #include "math_util.hpp"
 #include "graphics.hpp"
+#include "libshaderc_procs.hpp"
 
 namespace graphics {
 
@@ -94,6 +102,8 @@ const struct {
 //
 
 static bool initialized_ = false;
+
+static shaderc_compiler_t libshaderc_compiler_ = NULL;
 
 static VkInstance instance_ = VK_NULL_HANDLE;
 static VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
@@ -246,6 +256,19 @@ struct SurfaceResourcesImpl {
 
     RenderResourcesImpl* attached_render_resources; // can be NULL if nothing is attached
 };
+
+using PFN_CreatePipeline = void (*) (
+    VkDevice device,
+    u32 vertex_shader_spirv_byte_count,
+    const void* vertex_shader_spirv_bytes,
+    u32 fragment_shader_spirv_byte_count,
+    const void* fragment_shader_spirv_bytes,
+    VkRenderPass render_pass,
+    u32 subpass,
+    VkDescriptorSetLayout descriptor_set_layout,
+    VkPipeline* pipeline_out,
+    VkPipelineLayout* pipeline_layout_out
+);
 
 //
 // ===========================================================================================================
@@ -596,6 +619,7 @@ static void* readEntireFile(const char* fname, size_t* size_out) {
 }
 
 
+/*
 static VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, VkDevice device) {
 
     size_t spirv_size_bytes = 0;
@@ -619,6 +643,93 @@ static VkShaderModule createShaderModuleFromSpirvFile(const char* spirv_fname, V
 
     return shader_module;
 };
+*/
+
+
+/// You own the returned result. You are responsible for calling `shaderc_result_release()` to free it.
+static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
+    const char* shader_src_filename,
+    shaderc_shader_kind shader_type
+) {
+
+    size_t file_size = 0;
+    void* file_contents = readEntireFile(shader_src_filename, &file_size);
+
+    alwaysAssert(file_contents != NULL);
+    defer(free(file_contents));
+
+    shaderc_compilation_result_t compilation_result = libshaderc_procs_.compile_into_spv(
+        libshaderc_compiler_,
+        (const char*)file_contents, // source_text
+        file_size, // source_text_size
+        shader_type, // shader_kind
+        shader_src_filename, // input_file_name
+        "main", // entry_point_name
+        0 // additional_options
+    );
+
+    return compilation_result;
+}
+
+
+/// Caller is responsible for ensuring the pipeline and layout are not in use, e.g. via `vkDeviceWaitIdle`.
+/// If `*pipeline_in_out` is not VK_NULL_HANDLE, destroys the old pipeline.
+/// If `*pipeline_layout_in_out` is not VK_NULL_HANDLE, destroys the old pipeline layout.
+static void hotReloadShadersAndPipeline(
+    const char* vertex_shader_src_filename,
+    const char* fragment_shader_src_filename,
+
+    PFN_CreatePipeline pfn_createPipeline,
+
+    VkRenderPass render_pass,
+    u32 subpass,
+    VkDescriptorSetLayout descriptor_set_layout,
+
+    VkPipeline* pipeline_in_out,
+    VkPipelineLayout* pipeline_layout_in_out
+) {
+    // OPTIMIZE only reload the shaders that have changed
+    // OPTIMIZE don't destroy and create pipeline_layout_in_out; it won't change
+    // OPTIMIZE use pipeline cache
+
+    shaderc_compilation_result_t result_vertex = compileShaderSrcFileToSpirv(
+        vertex_shader_src_filename,
+        shaderc_glsl_vertex_shader
+    );
+    alwaysAssert(result_vertex != NULL);
+    defer(libshaderc_procs_.result_release(result_vertex));
+
+    size_t vertex_spirv_byte_count = libshaderc_procs_.result_get_length(result_vertex);
+    const void* vertex_spirv_bytes = libshaderc_procs_.result_get_bytes(result_vertex);
+
+
+    shaderc_compilation_result_t result_fragment = compileShaderSrcFileToSpirv(
+        fragment_shader_src_filename,
+        shaderc_glsl_fragment_shader
+    );
+    alwaysAssert(result_fragment != NULL);
+    defer(libshaderc_procs_.result_release(result_fragment));
+
+    size_t fragment_spirv_byte_count = libshaderc_procs_.result_get_length(result_fragment);
+    const void* fragment_spirv_bytes = libshaderc_procs_.result_get_bytes(result_fragment);
+
+
+    if (pipeline_in_out != NULL) vk_dev_procs.DestroyPipeline(device_, *pipeline_in_out, NULL);
+    if (pipeline_layout_in_out != NULL) vk_dev_procs.DestroyPipelineLayout(device_, *pipeline_layout_in_out, NULL);
+
+    pfn_createPipeline(
+        device_,
+        (u32)vertex_spirv_byte_count,
+        vertex_spirv_bytes,
+        (u32)fragment_spirv_byte_count,
+        fragment_spirv_bytes,
+        render_pass,
+        subpass,
+        descriptor_set_layout,
+        pipeline_in_out,
+        pipeline_layout_in_out
+    );
+}
 
 
 static VkRenderPass createSimpleRenderPass(VkDevice device) {
@@ -696,6 +807,10 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
 
 static void createVoxelPipeline(
     VkDevice device,
+    u32 vertex_shader_spirv_byte_count,
+    const void* vertex_shader_spirv_bytes,
+    u32 fragment_shader_spirv_byte_count,
+    const void* fragment_shader_spirv_bytes,
     VkRenderPass render_pass,
     u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
@@ -703,18 +818,43 @@ static void createVoxelPipeline(
     VkPipelineLayout* pipeline_layout_out
 ) {
 
-    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile(
-        SHADER_SRC_FILES.voxel_pipeline_vertex_shader_spirv,
-        device
-    );
-    alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
+    VkResult result;
+
+
+    VkShaderModule vertex_shader_module = VK_NULL_HANDLE;
+    {
+        assert(vertex_shader_spirv_byte_count % 4 == 0);
+        assert((uintptr_t)vertex_shader_spirv_bytes % alignof(u32) == 0);
+
+        VkShaderModuleCreateInfo shader_module_info {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = vertex_shader_spirv_byte_count,
+            .pCode = (const u32*)vertex_shader_spirv_bytes,
+        };
+
+        result = vk_dev_procs.CreateShaderModule(
+            device, &shader_module_info, NULL, &vertex_shader_module
+        );
+        assertVk(result);
+    }
     defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
 
-    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile(
-        SHADER_SRC_FILES.voxel_pipeline_fragment_shader_spirv,
-        device
-    );
-    alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
+    VkShaderModule fragment_shader_module = VK_NULL_HANDLE;
+    {
+        assert(fragment_shader_spirv_byte_count % 4 == 0);
+        assert((uintptr_t)fragment_shader_spirv_bytes % alignof(u32) == 0);
+
+        VkShaderModuleCreateInfo shader_module_info {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = fragment_shader_spirv_byte_count,
+            .pCode = (const u32*)fragment_shader_spirv_bytes,
+        };
+
+        result = vk_dev_procs.CreateShaderModule(
+            device, &shader_module_info, NULL, &fragment_shader_module
+        );
+        assertVk(result);
+    }
     defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
 
     constexpr u32 shader_stage_info_count = 2;
@@ -867,7 +1007,7 @@ static void createVoxelPipeline(
     };
 
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    VkResult result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
+    result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
     assertVk(result);
     *pipeline_layout_out = pipeline_layout;
 
@@ -906,6 +1046,10 @@ static void createVoxelPipeline(
 
 static void createGridPipeline(
     VkDevice device,
+    u32 vertex_shader_spirv_byte_count,
+    const void* vertex_shader_spirv_bytes,
+    u32 fragment_shader_spirv_byte_count,
+    const void* fragment_shader_spirv_bytes,
     VkRenderPass render_pass,
     u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
@@ -913,18 +1057,43 @@ static void createGridPipeline(
     VkPipelineLayout* pipeline_layout_out
 ) {
 
-    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile(
-        SHADER_SRC_FILES.grid_pipeline_vertex_shader_spirv,
-        device
-    );
-    alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
+    VkResult result;
+
+
+    VkShaderModule vertex_shader_module = VK_NULL_HANDLE;
+    {
+        assert(vertex_shader_spirv_byte_count % 4 == 0);
+        assert((uintptr_t)vertex_shader_spirv_bytes % alignof(u32) == 0);
+
+        VkShaderModuleCreateInfo shader_module_info {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = vertex_shader_spirv_byte_count,
+            .pCode = (const u32*)vertex_shader_spirv_bytes,
+        };
+
+        result = vk_dev_procs.CreateShaderModule(
+            device, &shader_module_info, NULL, &vertex_shader_module
+        );
+        assertVk(result);
+    }
     defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
 
-    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile(
-        SHADER_SRC_FILES.grid_pipeline_fragment_shader_spirv,
-        device
-    );
-    alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
+    VkShaderModule fragment_shader_module = VK_NULL_HANDLE;
+    {
+        assert(fragment_shader_spirv_byte_count % 4 == 0);
+        assert((uintptr_t)fragment_shader_spirv_bytes % alignof(u32) == 0);
+
+        VkShaderModuleCreateInfo shader_module_info {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = fragment_shader_spirv_byte_count,
+            .pCode = (const u32*)fragment_shader_spirv_bytes,
+        };
+
+        result = vk_dev_procs.CreateShaderModule(
+            device, &shader_module_info, NULL, &fragment_shader_module
+        );
+        assertVk(result);
+    }
     defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
 
     constexpr u32 shader_stage_info_count = 2;
@@ -1064,7 +1233,7 @@ static void createGridPipeline(
     };
 
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    VkResult result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
+    result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
     assertVk(result);
     *pipeline_layout_out = pipeline_layout;
 
@@ -1103,6 +1272,10 @@ static void createGridPipeline(
 
 static void createCubeOutlinePipeline(
     VkDevice device,
+    u32 vertex_shader_spirv_byte_count,
+    const void* vertex_shader_spirv_bytes,
+    u32 fragment_shader_spirv_byte_count,
+    const void* fragment_shader_spirv_bytes,
     VkRenderPass render_pass,
     u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
@@ -1110,18 +1283,43 @@ static void createCubeOutlinePipeline(
     VkPipelineLayout* pipeline_layout_out
 ) {
 
-    VkShaderModule vertex_shader_module = createShaderModuleFromSpirvFile(
-        SHADER_SRC_FILES.cube_outline_pipeline_vertex_shader_spirv,
-        device
-    );
-    alwaysAssert(vertex_shader_module != VK_NULL_HANDLE);
+    VkResult result;
+
+
+    VkShaderModule vertex_shader_module = VK_NULL_HANDLE;
+    {
+        assert(vertex_shader_spirv_byte_count % 4 == 0);
+        assert((uintptr_t)vertex_shader_spirv_bytes % alignof(u32) == 0);
+
+        VkShaderModuleCreateInfo shader_module_info {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = vertex_shader_spirv_byte_count,
+            .pCode = (const u32*)vertex_shader_spirv_bytes,
+        };
+
+        result = vk_dev_procs.CreateShaderModule(
+            device, &shader_module_info, NULL, &vertex_shader_module
+        );
+        assertVk(result);
+    }
     defer(vk_dev_procs.DestroyShaderModule(device, vertex_shader_module, NULL));
 
-    VkShaderModule fragment_shader_module = createShaderModuleFromSpirvFile(
-        SHADER_SRC_FILES.cube_outline_pipeline_fragment_shader_spirv,
-        device
-    );
-    alwaysAssert(fragment_shader_module != VK_NULL_HANDLE);
+    VkShaderModule fragment_shader_module = VK_NULL_HANDLE;
+    {
+        assert(fragment_shader_spirv_byte_count % 4 == 0);
+        assert((uintptr_t)fragment_shader_spirv_bytes % alignof(u32) == 0);
+
+        VkShaderModuleCreateInfo shader_module_info {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = fragment_shader_spirv_byte_count,
+            .pCode = (const u32*)fragment_shader_spirv_bytes,
+        };
+
+        result = vk_dev_procs.CreateShaderModule(
+            device, &shader_module_info, NULL, &fragment_shader_module
+        );
+        assertVk(result);
+    }
     defer(vk_dev_procs.DestroyShaderModule(device, fragment_shader_module, NULL));
 
     constexpr u32 shader_stage_info_count = 2;
@@ -1263,7 +1461,7 @@ static void createCubeOutlinePipeline(
     };
 
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    VkResult result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
+    result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
     assertVk(result);
     *pipeline_layout_out = pipeline_layout;
 
@@ -1749,21 +1947,89 @@ extern void init(const char* app_name, const char* specific_named_device_request
 
     the_only_subpass_ = 0;
     {
+        size_t vertex_shader_spirv_byte_count = 0;
+        void* vertex_shader_spirv_bytes = readEntireFile(
+            SHADER_SRC_FILES.voxel_pipeline_vertex_shader_spirv,
+            &vertex_shader_spirv_byte_count
+        );
+        alwaysAssert(vertex_shader_spirv_bytes != NULL);
+        defer(free(vertex_shader_spirv_bytes));
+
+        size_t fragment_shader_spirv_byte_count = 0;
+        void* fragment_shader_spirv_bytes = readEntireFile(
+            SHADER_SRC_FILES.voxel_pipeline_fragment_shader_spirv,
+            &fragment_shader_spirv_byte_count
+        );
+        alwaysAssert(fragment_shader_spirv_bytes != NULL);
+        defer(free(fragment_shader_spirv_bytes));
+
         createVoxelPipeline(
-            device_, render_pass, the_only_subpass_, descriptor_set_layout_,
+            device_,
+            (u32)vertex_shader_spirv_byte_count, vertex_shader_spirv_bytes,
+            (u32)fragment_shader_spirv_byte_count, fragment_shader_spirv_bytes,
+            render_pass, the_only_subpass_, descriptor_set_layout_,
             &pipelines_.voxel_pipeline, &pipelines_.voxel_pipeline_layout
         );
+    }
+    {
+        size_t vertex_shader_spirv_byte_count = 0;
+        void* vertex_shader_spirv_bytes = readEntireFile(
+            SHADER_SRC_FILES.grid_pipeline_vertex_shader_spirv,
+            &vertex_shader_spirv_byte_count
+        );
+        alwaysAssert(vertex_shader_spirv_bytes != NULL);
+        defer(free(vertex_shader_spirv_bytes));
+
+        size_t fragment_shader_spirv_byte_count = 0;
+        void* fragment_shader_spirv_bytes = readEntireFile(
+            SHADER_SRC_FILES.grid_pipeline_fragment_shader_spirv,
+            &fragment_shader_spirv_byte_count
+        );
+        alwaysAssert(fragment_shader_spirv_bytes != NULL);
+        defer(free(fragment_shader_spirv_bytes));
 
         createGridPipeline(
-            device_, render_pass, the_only_subpass_, descriptor_set_layout_,
+            device_,
+            (u32)vertex_shader_spirv_byte_count, vertex_shader_spirv_bytes,
+            (u32)fragment_shader_spirv_byte_count, fragment_shader_spirv_bytes,
+            render_pass, the_only_subpass_, descriptor_set_layout_,
             &pipelines_.grid_pipeline, &pipelines_.grid_pipeline_layout
         );
+    }
+    {
+        size_t vertex_shader_spirv_byte_count = 0;
+        void* vertex_shader_spirv_bytes = readEntireFile(
+            SHADER_SRC_FILES.cube_outline_pipeline_vertex_shader_spirv,
+            &vertex_shader_spirv_byte_count
+        );
+        alwaysAssert(vertex_shader_spirv_bytes != NULL);
+        defer(free(vertex_shader_spirv_bytes));
+
+        size_t fragment_shader_spirv_byte_count = 0;
+        void* fragment_shader_spirv_bytes = readEntireFile(
+            SHADER_SRC_FILES.cube_outline_pipeline_fragment_shader_spirv,
+            &fragment_shader_spirv_byte_count
+        );
+        alwaysAssert(fragment_shader_spirv_bytes != NULL);
+        defer(free(fragment_shader_spirv_bytes));
 
         createCubeOutlinePipeline(
-            device_, render_pass, the_only_subpass_, descriptor_set_layout_,
+            device_, 
+            (u32)vertex_shader_spirv_byte_count, vertex_shader_spirv_bytes,
+            (u32)fragment_shader_spirv_byte_count, fragment_shader_spirv_bytes,
+            render_pass, the_only_subpass_, descriptor_set_layout_,
             &pipelines_.cube_outline_pipeline, &pipelines_.cube_outline_pipeline_layout
         );
     }
+
+
+    bool success = libshaderc_procs_.init();
+    // TODO Maybe we should just log an error message, disable the hot-reloading feature, and continue
+    // running. This isn't fatal, after all.
+    alwaysAssert(success);
+
+    libshaderc_compiler_ = libshaderc_procs_.compiler_initialize();
+    alwaysAssert(libshaderc_compiler_ != NULL);
 
 
     initialized_ = true;
@@ -2392,6 +2658,48 @@ extern Result createRenderer(RenderResources* render_resources_out) {
 
     render_resources_out->impl = p_render_resources;
     return Result::success;
+}
+
+
+// OPTIMIZE Create a version of this that only reloads the specific shader requested, or determines which
+// shaders have changed and reloads those.
+void reloadAllShaders(RenderResources renderer) {
+
+    const RenderResourcesImpl* p_render_resources = (const RenderResourcesImpl*)renderer.impl;
+    assert(p_render_resources != NULL);
+
+    vk_dev_procs.QueueWaitIdle(queue_); // so old pipelines can be destroyed
+
+    hotReloadShadersAndPipeline(
+        SHADER_SRC_FILES.voxel_pipeline_vertex_shader_src,
+        SHADER_SRC_FILES.voxel_pipeline_fragment_shader_src,
+        createVoxelPipeline,
+        p_render_resources->render_pass,
+        the_only_subpass_,
+        descriptor_set_layout_,
+        &pipelines_.voxel_pipeline,
+        &pipelines_.voxel_pipeline_layout
+    );
+    hotReloadShadersAndPipeline(
+        SHADER_SRC_FILES.grid_pipeline_vertex_shader_src,
+        SHADER_SRC_FILES.grid_pipeline_fragment_shader_src,
+        createGridPipeline,
+        p_render_resources->render_pass,
+        the_only_subpass_,
+        descriptor_set_layout_,
+        &pipelines_.grid_pipeline,
+        &pipelines_.grid_pipeline_layout
+    );
+    hotReloadShadersAndPipeline(
+        SHADER_SRC_FILES.cube_outline_pipeline_vertex_shader_src,
+        SHADER_SRC_FILES.cube_outline_pipeline_fragment_shader_src,
+        createCubeOutlinePipeline,
+        p_render_resources->render_pass,
+        the_only_subpass_,
+        descriptor_set_layout_,
+        &pipelines_.cube_outline_pipeline,
+        &pipelines_.cube_outline_pipeline_layout
+    );
 }
 
 
