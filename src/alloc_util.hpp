@@ -72,7 +72,7 @@ struct ArrayList {
     }
 
     void reserve(u32 count) {
-        if (count == 0) return;
+        if (count <= this->capacity) return;
         this->ptr = reallocArray(this->ptr, count, T);
         this->capacity = count;
     }
@@ -102,6 +102,10 @@ struct ArrayList {
 
         this->ptr[sz] = val;
         this->size++;
+    }
+
+    void resetSize() {
+        this->size = 0;
     }
 };
 
