@@ -65,7 +65,7 @@ struct ArrayList {
         T* p = this->ptr;
         if (p == NULL) return;
 
-        free(p);
+        std::free(p);
         this->ptr = NULL;
         this->size = 0;
         this->capacity = 0;
@@ -86,7 +86,7 @@ struct ArrayList {
 
     T* pushUninitialized(void) {
 
-        const size_t old_size = this->size;
+        const u32 old_size = this->size;
 
         if (old_size == this->capacity) this->reserveAdditional(math::max(1, old_size / 2));
 
@@ -96,7 +96,7 @@ struct ArrayList {
 
     void push(const T& val) {
 
-        const size_t sz = this->size;
+        const u32 sz = this->size;
 
         if (sz == this->capacity) this->reserveAdditional(math::max(1, sz / 2));
 

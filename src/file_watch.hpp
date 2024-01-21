@@ -13,7 +13,7 @@ using FileID = u32;
 
 struct FileWatchlist;
 
-FileWatchlist createWatchList(void);
+FileWatchlist createWatchlist(void);
 void destroyWatchlist(FileWatchlist watchlist);
 
 FileID addFileToModificationWatchlist(FileWatchlist watchlist, const char* filepath);

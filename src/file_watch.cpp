@@ -89,8 +89,8 @@ void poll(FileWatchlist watchlist, u32* event_count_out, const FileID** events_o
 
 
         u32 event_count = 0;
-        ssize_t buffer_pos = 0;
-        while (buffer_pos < bytes_read_count) {
+        size_t buffer_pos = 0;
+        while (buffer_pos < (size_t)bytes_read_count) {
             event_count++;
             inotify_event* p_event = (inotify_event*)&event_buffer[buffer_pos];
             buffer_pos += sizeof(inotify_event) + p_event->len;
@@ -98,7 +98,7 @@ void poll(FileWatchlist watchlist, u32* event_count_out, const FileID** events_o
         watchlist.modified_files.reserveAdditional(event_count);
 
         buffer_pos = 0;
-        while (buffer_pos < bytes_read_count) {
+        while (buffer_pos < (size_t)bytes_read_count) {
             inotify_event* p_event = (inotify_event*)&event_buffer[buffer_pos];
             watchlist.modified_files.push((FileID)p_event->wd);
             buffer_pos += sizeof(inotify_event) + p_event->len;
