@@ -39,6 +39,7 @@
 #include "math_util.hpp"
 #include "graphics.hpp"
 #include "libshaderc_procs.hpp"
+#include "file_watch.hpp"
 
 namespace graphics {
 
@@ -90,6 +91,11 @@ struct PipelineHotReloadInfo {
 struct PipelineAndLayout {
     VkPipeline pipeline;
     VkPipelineLayout layout;
+};
+
+struct ShaderSourceFileWatchIds {
+    filewatch::FileID vertex_shader_id;
+    filewatch::FileID fragment_shader_id;
 };
 
 //
@@ -195,6 +201,11 @@ static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_MAILBOX_KHR;
 static VmaAllocator vma_allocator_ = NULL;
 
 static VkDescriptorSetLayout descriptor_set_layout_ = VK_NULL_HANDLE;
+
+
+static bool shader_source_file_watch_enabled_ = false;
+static filewatch::Watchlist shader_source_file_watchlist_ = NULL;
+static ShaderSourceFileWatchIds shader_source_file_watch_ids_[PIPELINE_INDEX_COUNT] {};
 
 //
 // ===========================================================================================================
@@ -765,6 +776,11 @@ static void hotReloadShadersAndPipeline(
     const void* fragment_spirv_bytes = libshaderc_procs_.result_get_bytes(result_fragment);
 
 
+    // TODO FIXME: Don't destroy these before confirming success of pfn_createPipeline.
+    //     If it fails, just return an error or something, while keeping the old pipelines in place,
+    //     so that the developer can fix the malformed shader or whatever without breaking things too much.
+    //     This means we also need to modify the pipeline creation procedures to return an error where
+    //     reasonable, instead of just asserting everywhere.
     if (pipeline_in_out != NULL) vk_dev_procs.DestroyPipeline(device_, *pipeline_in_out, NULL);
     if (pipeline_layout_in_out != NULL) vk_dev_procs.DestroyPipelineLayout(device_, *pipeline_layout_in_out, NULL);
 
@@ -2681,7 +2697,8 @@ void reloadAllShaders(RenderResources renderer) {
     const RenderResourcesImpl* p_render_resources = (const RenderResourcesImpl*)renderer.impl;
     assert(p_render_resources != NULL);
 
-    vk_dev_procs.QueueWaitIdle(queue_); // so old pipelines can be destroyed
+    VkResult result = vk_dev_procs.QueueWaitIdle(queue_); // so old pipelines can be destroyed
+    assertVk(result);
 
     for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
         hotReloadShadersAndPipeline(
@@ -3060,6 +3077,100 @@ RenderResult render(
 
 extern VkInstance getVkInstance(void) {
     return instance_;
+}
+
+
+extern bool setShaderSourceFileModificationTracking(bool enable) {
+
+    if (enable == shader_source_file_watch_enabled_) return true;
+
+    if (enable) {
+
+        shader_source_file_watchlist_ = filewatch::createWatchlist();
+        if (shader_source_file_watchlist_ == NULL) return false;
+
+        for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
+
+            const PipelineHotReloadInfo* p_source_info = &PIPELINE_HOT_RELOAD_INFOS[pipeline_idx];
+
+            filewatch::FileID watch_id;
+            
+            // TODO FIXME check return value for errors
+            watch_id = filewatch::addFileToModificationWatchlist(
+                shader_source_file_watchlist_, p_source_info->vertex_shader_src_filepath
+            );
+            shader_source_file_watch_ids_[pipeline_idx].vertex_shader_id = watch_id;
+
+            // TODO FIXME check return value for errors
+            watch_id = filewatch::addFileToModificationWatchlist(
+                shader_source_file_watchlist_, p_source_info->fragment_shader_src_filepath
+            );
+            shader_source_file_watch_ids_[pipeline_idx].fragment_shader_id = watch_id;
+        }
+
+        shader_source_file_watch_enabled_ = true;
+    }
+    else {
+        filewatch::destroyWatchlist(shader_source_file_watchlist_);
+        shader_source_file_watch_enabled_ = false;
+    }
+
+    return true;
+};
+
+
+// TODO Failure to compile a shader should not be fatal; this should at least return a bool indicating success
+// or failure, without replacing the existing pipeline if compilation fails.
+// TODO FIXME: this "passing around a renderer" shit isn't really working out, it's making things kinda
+// weird. Why should the user pass in a renderer here? We're watching all the shader sources, not just the
+// ones used by this renderer.
+// The reason we're doing this is that pipelines are created for a particular render pass, subpass, and
+// descriptor set layout. But then why are we storing these pipelines in their own global variables instead of
+// in the renderer? They won't be compatible with other renderers.
+// We should probably be storing the pipelines in the renderer. Although the descriptor set layout a pipeline
+// is created with should probably be the same for all versions of the pipeline created in different renderers,
+// so maybe that should be global? ugh. Maybe you need to sit down and try to draw out a dependency graph
+// that includes RenderResources, pipelines, render passes, and descriptor set layouts.
+extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
+
+    assert(initialized_);
+    assert(shader_source_file_watch_enabled_ && "Shader source file tracking is not enabled!");
+
+    const RenderResourcesImpl* p_render_resources = (const RenderResourcesImpl*)renderer.impl;
+    assert(p_render_resources != NULL);
+
+    u32 event_count = 0;
+    const filewatch::FileID* p_events = NULL;
+    filewatch::poll(shader_source_file_watchlist_, &event_count, &p_events);
+
+    if (event_count == 0) return;
+
+    VkResult result = vk_dev_procs.QueueWaitIdle(queue_); // so that hotReload can destroy old pipelines
+    assertVk(result);
+
+    for (u32 event_idx = 0; event_idx < event_count; event_idx++) {
+        for (u32 pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
+
+            filewatch::FileID event_watch_id = p_events[event_idx];
+            ShaderSourceFileWatchIds* this_pipeline_watch_ids = &shader_source_file_watch_ids_[pipeline_idx];
+
+            if (
+                this_pipeline_watch_ids->vertex_shader_id == event_watch_id or
+                this_pipeline_watch_ids->fragment_shader_id == event_watch_id
+            ) {
+                hotReloadShadersAndPipeline(
+                    PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].vertex_shader_src_filepath,
+                    PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].fragment_shader_src_filepath,
+                    PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline,
+                    p_render_resources->render_pass,
+                    the_only_subpass_,
+                    descriptor_set_layout_,
+                    &pipelines_[pipeline_idx].pipeline,
+                    &pipelines_[pipeline_idx].layout
+                );
+            }
+        }
+    }
 }
 
 //

@@ -11,14 +11,16 @@ namespace filewatch {
 
 using FileID = u32;
 
-struct FileWatchlist;
+struct WatchlistImpl;
+using Watchlist = WatchlistImpl*;
 
-FileWatchlist createWatchlist(void);
-void destroyWatchlist(FileWatchlist watchlist);
+/// Returns NULL on failure.
+Watchlist createWatchlist(void);
+void destroyWatchlist(Watchlist watchlist);
 
-FileID addFileToModificationWatchlist(FileWatchlist watchlist, const char* filepath);
+FileID addFileToModificationWatchlist(Watchlist watchlist, const char* filepath);
 
-void poll(FileWatchlist watchlist, u32* event_count_out, const FileID** events_out);
+void poll(Watchlist watchlist, u32* event_count_out, const FileID** events_out);
 
 
 //

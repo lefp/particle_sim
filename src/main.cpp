@@ -295,6 +295,8 @@ int main(int argc, char** argv) {
 
     const char* specific_device_request = getenv("PHYSICAL_DEVICE_NAME"); // can be NULL
     gfx::init(APP_NAME, specific_device_request);
+    success = gfx::setShaderSourceFileModificationTracking(true);
+    alwaysAssert(success); // TODO FIXME: We should be able to handle failure without aborting.
 
 
     gfx::RenderResources gfx_renderer {};
@@ -377,6 +379,8 @@ int main(int argc, char** argv) {
             delta_t_seconds = time - frame_start_time_seconds_;
             frame_start_time_seconds_ = time;
         }
+
+        gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
 
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) goto LABEL_EXIT_MAIN_LOOP;

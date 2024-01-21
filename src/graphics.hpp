@@ -91,10 +91,18 @@ RenderResult render(
     const u32* p_outlined_voxel_indices
 );
 
-void reloadAllShaders(RenderResources renderer);
-
 /// `init()` must have been called before this; otherwise returns VK_NULL_HANDLE.
 VkInstance getVkInstance(void);
+
+
+void reloadAllShaders(RenderResources renderer);
+
+/// Watch shader source files, taking note when they are modified.
+/// Returns false on failure to enable or disable.
+[[nodiscard]] bool setShaderSourceFileModificationTracking(bool enable);
+
+/// Shader source tracking must be enabled before running this.
+void reloadModifiedShaderSourceFiles(RenderResources renderer);
 
 //
 // ===========================================================================================================
