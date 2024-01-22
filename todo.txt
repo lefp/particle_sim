@@ -15,11 +15,13 @@
 		- [ ] Anti-alias
 - [ ] Select multiple cubes (e.g. right-click, or click+drag), modify all of their properties at the same time
 - [x] Shader hot-reloading
-    - [ ] Better logging
+    - [x] Better logging
     - [ ] Error-handling (e.g. failure to compile a shader should not abort the program)
-    - [ ] UI button to disable file-watch based shader auto-reload
+    - [x] UI button to disable file-watch based shader auto-reload
     - [ ] IMPORTANT: clean up all the hot-reloading code, and rethink and unfuck the awful organization.
 - [ ] Stress-test ray-cube interesction on 100k - 1M cubes, and optimize as needed.
+
+- [ ] Enable rasterizer discard on all the pipelines
 
 - [ ] Simple terrain generation
 - [ ] Fog and volumetric lighting

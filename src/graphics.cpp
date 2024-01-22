@@ -2638,8 +2638,54 @@ extern Result createRenderer(RenderResources* render_resources_out) {
 }
 
 
-/*
+static void createShaderModuleFromShaderSourceFile(
+    VkDevice device,
+    const char* shader_src_filepath,
+    shaderc_shader_kind shader_type,
+    VkShaderModule* p_shader_module_out
+) {
+    shaderc_compilation_result_t compile_result = compileShaderSrcFileToSpirv(
+        shader_src_filepath, shader_type
+    );
+    if (compile_result == NULL) {
+        // TODO FIXME return an error instead of aborting. Something like ERROR_UNKNOWN?
+        ABORT_F("compileShaderSrcFileToSpirv returned a null pointer");
+    }
+    defer(libshaderc_procs_.result_release(compile_result));
+
+    shaderc_compilation_status compile_status =
+        libshaderc_procs_.result_get_compilation_status(compile_result);
+    if (compile_status != shaderc_compilation_status_success) {
+        // TODO FIXME log the reason for compilation failure, if possible (i.e. see if you can get
+        // a useful error message from the compiler)
+        // TODO FIXME do something useful
+    }
+
+    size_t spirv_byte_count = libshaderc_procs_.result_get_length(compile_result);
+    const void* p_spirv_bytes = (const void*)libshaderc_procs_.result_get_bytes(compile_result);
+
+    alwaysAssert(spirv_byte_count % sizeof(u32) == 0);
+    alwaysAssert((uintptr_t)p_spirv_bytes % alignof(u32) == 0);
+
+    VkShaderModule shader_module = VK_NULL_HANDLE;
+    VkResult result = createShaderModuleFromSpirv(
+        device, (u32)spirv_byte_count, (const u32*)p_spirv_bytes, &shader_module
+    );
+    assertVk(result); // TODO FIXME handle this properly, returning an error if necessary
+
+    *p_shader_module_out = shader_module;
+}
+
+
 void reloadAllShaders(RenderResources renderer) {
+
+    LOG_F(INFO, "Reloading all shaders");
+
+    timespec start_time {};
+    {
+        int success = timespec_get(&start_time, TIME_UTC);
+        LOG_IF_F(ERROR, !success, "Failed to get shader rebuild start time.");
+    }
 
     const RenderResourcesImpl* p_render_resources = (const RenderResourcesImpl*)renderer.impl;
     assert(p_render_resources != NULL);
@@ -2648,9 +2694,56 @@ void reloadAllShaders(RenderResources renderer) {
     assertVk(result);
 
     for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
+
+        VkShaderModule vertex_shader_module = VK_NULL_HANDLE;
+        createShaderModuleFromShaderSourceFile(
+            device_,
+            PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].vertex_shader_src_filepath,
+            shaderc_glsl_vertex_shader,
+            &vertex_shader_module
+        );
+
+        VkShaderModule fragment_shader_module = VK_NULL_HANDLE;
+        createShaderModuleFromShaderSourceFile(
+            device_,
+            PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].fragment_shader_src_filepath,
+            shaderc_glsl_fragment_shader,
+            &fragment_shader_module
+        );
+
+        shader_modules_[pipeline_idx].vertex_shader_module = vertex_shader_module;
+        shader_modules_[pipeline_idx].fragment_shader_module = fragment_shader_module;
+
+        VkPipeline new_pipeline = VK_NULL_HANDLE;
+        VkPipelineLayout new_pipeline_layout = VK_NULL_HANDLE;
+        rebuildPipeline(
+            shader_modules_[pipeline_idx].vertex_shader_module,
+            shader_modules_[pipeline_idx].fragment_shader_module,
+            PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline,
+            p_render_resources->render_pass,
+            the_only_subpass_,
+            descriptor_set_layout_,
+            &new_pipeline,
+            &new_pipeline_layout
+        );
+        // TODO FIXME check for success here. If failure, don't write the new pipeline and layout out.
+
+        pipelines_[pipeline_idx].pipeline = new_pipeline;
+        pipelines_[pipeline_idx].layout = new_pipeline_layout;
     }
+
+
+    timespec end_time;
+    {
+        int success = timespec_get(&end_time, TIME_UTC);
+        LOG_IF_F(ERROR, !success, "Failed to get shader rebuild end time.");
+    }
+
+    f64 duration_milliseconds =
+        (f64)(end_time.tv_sec - start_time.tv_sec) * 1'000. +
+        (f64)(end_time.tv_nsec - start_time.tv_nsec) / 1'000'000.;
+    LOG_F(INFO, "Shaders reloaded (%.0lf ms).", duration_milliseconds);
 }
-*/
 
 
 RenderResult render(
@@ -3086,7 +3179,7 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
     timespec start_time {};
     {
         int success = timespec_get(&start_time, TIME_UTC);
-        LOG_IF_F(ERROR, !success, "Failed to get time shader rebuild start time.");
+        LOG_IF_F(ERROR, !success, "Failed to get shader rebuild start time.");
     }
 
     bool pipelines_need_rebuilding[PIPELINE_INDEX_COUNT] {};
@@ -3129,35 +3222,9 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
             );
             pipelines_need_rebuilding[pipeline_idx] = true;
 
-            shaderc_compilation_result_t compile_result = compileShaderSrcFileToSpirv(
-                shader_src_filepath, shader_type
-            );
-            if (compile_result == NULL) {
-                // TODO FIXME return an error instead of aborting. Something like ERROR_UNKNOWN?
-                ABORT_F("compileShaderSrcFileToSpirv returned a null pointer");
-            }
-            defer(libshaderc_procs_.result_release(compile_result));
-
-            shaderc_compilation_status compile_status =
-                libshaderc_procs_.result_get_compilation_status(compile_result);
-            if (compile_status != shaderc_compilation_status_success) {
-                // TODO FIXME log the reason for compilation failure, if possible (i.e. see if you can get
-                // a useful error message from the compiler)
-                // TODO FIXME do something useful
-            }
-
-            size_t spirv_byte_count = libshaderc_procs_.result_get_length(compile_result);
-            const void* p_spirv_bytes = (const void*)libshaderc_procs_.result_get_bytes(compile_result);
-
-            alwaysAssert(spirv_byte_count % sizeof(u32) == 0);
-            alwaysAssert((uintptr_t)p_spirv_bytes % alignof(u32) == 0);
-
             VkShaderModule shader_module = VK_NULL_HANDLE;
-            result = createShaderModuleFromSpirv(
-                device_, (u32)spirv_byte_count, (const u32*)p_spirv_bytes, &shader_module
-            );
-            assertVk(result); // TODO FIXME handle this properly, returning an error if necessary
-
+            createShaderModuleFromShaderSourceFile(device_, shader_src_filepath, shader_type, &shader_module);
+            // TODO FIXME don't write out if module creation failed
             *p_shader_module = shader_module;
         }
     }
@@ -3187,7 +3254,7 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
     timespec end_time;
     {
         int success = timespec_get(&end_time, TIME_UTC);
-        LOG_IF_F(ERROR, !success, "Failed to get time shader rebuild end time.");
+        LOG_IF_F(ERROR, !success, "Failed to get shader rebuild end time.");
     }
 
     f64 duration_milliseconds =

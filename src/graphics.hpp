@@ -102,6 +102,9 @@ VkInstance getVkInstance(void);
 /// Shader source tracking must be enabled before running this.
 void reloadModifiedShaderSourceFiles(RenderResources renderer);
 
+/// This can be run without source-file tracking enabled.
+void reloadAllShaders(RenderResources renderer);
+
 //
 // ===========================================================================================================
 //

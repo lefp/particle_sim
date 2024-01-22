@@ -94,6 +94,10 @@ gfx::Voxel voxels_[] {
     { .coord = ivec3 {2.0, 2.0, 2.0}, .color = u8vec4 { 0, 255, 0, 255 } },
 };
 
+bool shader_autoreload_enabled_ = false;
+bool shader_file_tracking_enabled_ = false;
+bool shader_reload_all_button_is_pressed_ = false;
+
 //
 // ===========================================================================================================
 //
@@ -295,8 +299,9 @@ int main(int argc, char** argv) {
 
     const char* specific_device_request = getenv("PHYSICAL_DEVICE_NAME"); // can be NULL
     gfx::init(APP_NAME, specific_device_request);
+
     success = gfx::setShaderSourceFileModificationTracking(true);
-    alwaysAssert(success); // TODO FIXME: We should be able to handle failure without aborting.
+    shader_file_tracking_enabled_ = success;
 
 
     gfx::RenderResources gfx_renderer {};
@@ -380,8 +385,9 @@ int main(int argc, char** argv) {
             frame_start_time_seconds_ = time;
         }
 
-        // TODO FIXME: put this behind a bool `shader_autoreload_enabled_`
-        gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+        if (shader_autoreload_enabled_ and shader_file_tracking_enabled_) {
+            gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+        }
 
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) goto LABEL_EXIT_MAIN_LOOP;
@@ -399,10 +405,13 @@ int main(int argc, char** argv) {
 
         if (!left_ctrl_r_was_pressed and left_ctrl_r_is_pressed_) {
 
-            LOG_F(INFO, "Triggering shader-reload due to keybind pressed.");
+            LOG_F(INFO, "Shader-reload keybind pressed. Triggering reload of modified shaders.");
 
-            // TODO FIXME you're not allowed to call this if file modification tracking is not enabled
-            gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+            if (shader_file_tracking_enabled_) gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+            else {
+                LOG_F(ERROR, "Shader-reload keybind pressed, but shader file tracking is disabled. Doing nothing.");
+                // TODO also make some visual indication of failure via imgui
+            };
         }
 
 
@@ -449,6 +458,7 @@ int main(int argc, char** argv) {
                 0 // num_segments
             );
 
+
             ImGui::Begin("Camera", NULL, ImGuiWindowFlags_AlwaysAutoResize);
 
             f32 user_pos_input[3] { camera_pos_.x, camera_pos_.y, camera_pos_.z };
@@ -462,6 +472,21 @@ int main(int argc, char** argv) {
             ImGui::SliderAngle("Rotation Y", &camera_angles_.y, -90.0, 90.0);
 
             ImGui::End();
+
+
+            ImGui::Begin("Shaders", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+
+            ImGui::Checkbox("Auto-reload", &shader_autoreload_enabled_);
+
+            bool shader_reload_all_button_was_pressed = shader_reload_all_button_is_pressed_;
+            shader_reload_all_button_is_pressed_ = ImGui::Button("Reload all");
+
+            ImGui::End();
+
+            if (!shader_reload_all_button_was_pressed and shader_reload_all_button_is_pressed_) {
+                LOG_F(INFO, "Reload-all-shaders button pressed. Triggering reload.");
+                gfx::reloadAllShaders(gfx_renderer);
+            }
         }
 
 
