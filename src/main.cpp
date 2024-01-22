@@ -302,6 +302,7 @@ int main(int argc, char** argv) {
 
     success = gfx::setShaderSourceFileModificationTracking(true);
     shader_file_tracking_enabled_ = success;
+    LOG_IF_F(ERROR, !success, "Failed to enable shader source file tracking.");
 
 
     gfx::RenderResources gfx_renderer {};
@@ -476,7 +477,12 @@ int main(int argc, char** argv) {
 
             ImGui::Begin("Shaders", NULL, ImGuiWindowFlags_AlwaysAutoResize);
 
-            ImGui::Checkbox("Auto-reload", &shader_autoreload_enabled_);
+            if (shader_file_tracking_enabled_) ImGui::Checkbox("Auto-reload", &shader_autoreload_enabled_);
+            else {
+                ImGui::BeginDisabled();
+                ImGui::Checkbox("Auto-reload (unavailable)", &shader_autoreload_enabled_);
+                ImGui::EndDisabled();
+            }
 
             bool shader_reload_all_button_was_pressed = shader_reload_all_button_is_pressed_;
             shader_reload_all_button_is_pressed_ = ImGui::Button("Reload all");
