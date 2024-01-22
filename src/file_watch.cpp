@@ -66,6 +66,7 @@ FileID addFileToModificationWatchlist(Watchlist watchlist, const char* filepath)
     assert(watchlist->inotify_fd >= 0 && "Watchlist is invalid. Did you forget to initialize it by calling createWatchlist()?");
 
     int watch_descriptor = inotify_add_watch(watchlist->inotify_fd, filepath, IN_MODIFY);
+    // TODO should we be able to handle a failure here?
     // TODO treat specially the case where errno means "filepath is too long"?
     assertErrno(watch_descriptor >= 0);
 

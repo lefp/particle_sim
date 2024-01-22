@@ -694,8 +694,10 @@ static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
 
     size_t file_size = 0;
     void* file_contents = readEntireFile(shader_src_filename, &file_size);
-
-    alwaysAssert(file_contents != NULL); // TODO FIXME handle this error properly
+    if (file_contents == NULL) {
+        LOG_F(ERROR, "Failed to read shader src file `%s`.", shader_src_filename);
+        return NULL;
+    }
     defer(free(file_contents));
 
     shaderc_compilation_result_t compilation_result = libshaderc_procs_.compile_into_spv(
@@ -707,6 +709,7 @@ static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
         "main", // entry_point_name
         0 // additional_options
     );
+    alwaysAssert(compilation_result != NULL);
 
     return compilation_result;
 }
@@ -730,6 +733,7 @@ static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
 };
 
 
+/*
 // TODO FIXME: return some indication of success or error
 static void rebuildPipeline(
     VkShaderModule vertex_shader_module,
@@ -764,6 +768,7 @@ static void rebuildPipeline(
     vk_dev_procs.DestroyPipelineLayout(device_, *pipeline_layout_in_out, NULL);
     *pipeline_layout_in_out = new_pipeline_layout;
 };
+*/
 
 
 /*
@@ -2638,7 +2643,9 @@ extern Result createRenderer(RenderResources* render_resources_out) {
 }
 
 
-static void createShaderModuleFromShaderSourceFile(
+/// Returns whether it succeeded..
+/// On failure, leaves `p_shader_module_out` unmodified.
+[[nodiscard]] static bool createShaderModuleFromShaderSourceFile(
     VkDevice device,
     const char* shader_src_filepath,
     shaderc_shader_kind shader_type,
@@ -2648,17 +2655,23 @@ static void createShaderModuleFromShaderSourceFile(
         shader_src_filepath, shader_type
     );
     if (compile_result == NULL) {
-        // TODO FIXME return an error instead of aborting. Something like ERROR_UNKNOWN?
-        ABORT_F("compileShaderSrcFileToSpirv returned a null pointer");
-    }
+        LOG_F(ERROR, "Failed to compile shader src file `%s` to spirv.", shader_src_filepath);
+        return false;
+    };
     defer(libshaderc_procs_.result_release(compile_result));
 
-    shaderc_compilation_status compile_status =
-        libshaderc_procs_.result_get_compilation_status(compile_result);
+    shaderc_compilation_status compile_status = libshaderc_procs_.result_get_compilation_status(compile_result);
     if (compile_status != shaderc_compilation_status_success) {
-        // TODO FIXME log the reason for compilation failure, if possible (i.e. see if you can get
-        // a useful error message from the compiler)
-        // TODO FIXME do something useful
+
+        u32fast error_count = libshaderc_procs_.result_get_num_errors(compile_result);
+        const char* error_message = libshaderc_procs_.result_get_error_message(compile_result);
+        if (error_message == NULL) error_message = "(NO ERROR MESSAGE PROVIDED)";
+
+        LOG_F(
+             ERROR, "Failed to compile shader `%s`. %" PRIuFAST32 " errors: `%s`.",
+             shader_src_filepath, error_count, error_message
+         );
+        return false;
     }
 
     size_t spirv_byte_count = libshaderc_procs_.result_get_length(compile_result);
@@ -2671,15 +2684,24 @@ static void createShaderModuleFromShaderSourceFile(
     VkResult result = createShaderModuleFromSpirv(
         device, (u32)spirv_byte_count, (const u32*)p_spirv_bytes, &shader_module
     );
-    assertVk(result); // TODO FIXME handle this properly, returning an error if necessary
+    if (result == VK_ERROR_INVALID_SHADER_NV) {
+        LOG_F(
+            ERROR, "Failed to create shader module from spirv for shader `%s`: VK_ERROR_INVALID_SHADER_NV.",
+            shader_src_filepath
+        );
+        return false;
+    }
+    assertVk(result);
 
     *p_shader_module_out = shader_module;
+    return true;
 }
 
 
-void reloadAllShaders(RenderResources renderer) {
+bool reloadAllShaders(RenderResources renderer) {
 
     LOG_F(INFO, "Reloading all shaders");
+
 
     timespec start_time {};
     {
@@ -2687,50 +2709,74 @@ void reloadAllShaders(RenderResources renderer) {
         LOG_IF_F(ERROR, !success, "Failed to get shader rebuild start time.");
     }
 
+
     const RenderResourcesImpl* p_render_resources = (const RenderResourcesImpl*)renderer.impl;
     assert(p_render_resources != NULL);
 
-    VkResult result = vk_dev_procs.QueueWaitIdle(queue_); // so old pipelines can be destroyed
-    assertVk(result);
+
+    GraphicsPipelineShaderModules new_shader_modules[PIPELINE_INDEX_COUNT];
+    memcpy(new_shader_modules, shader_modules_, PIPELINE_INDEX_COUNT * sizeof(GraphicsPipelineShaderModules));
 
     for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
 
+        bool success;
+
         VkShaderModule vertex_shader_module = VK_NULL_HANDLE;
-        createShaderModuleFromShaderSourceFile(
+        success = createShaderModuleFromShaderSourceFile(
             device_,
             PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].vertex_shader_src_filepath,
             shaderc_glsl_vertex_shader,
             &vertex_shader_module
         );
+        if (!success) return false;
+        new_shader_modules[pipeline_idx].vertex_shader_module = vertex_shader_module;
 
         VkShaderModule fragment_shader_module = VK_NULL_HANDLE;
-        createShaderModuleFromShaderSourceFile(
+        success = createShaderModuleFromShaderSourceFile(
             device_,
             PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].fragment_shader_src_filepath,
             shaderc_glsl_fragment_shader,
             &fragment_shader_module
         );
+        if (!success) return false;
+        new_shader_modules[pipeline_idx].fragment_shader_module = fragment_shader_module;
+    }
 
-        shader_modules_[pipeline_idx].vertex_shader_module = vertex_shader_module;
-        shader_modules_[pipeline_idx].fragment_shader_module = fragment_shader_module;
 
-        VkPipeline new_pipeline = VK_NULL_HANDLE;
-        VkPipelineLayout new_pipeline_layout = VK_NULL_HANDLE;
-        rebuildPipeline(
-            shader_modules_[pipeline_idx].vertex_shader_module,
-            shader_modules_[pipeline_idx].fragment_shader_module,
-            PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline,
+    PipelineAndLayout new_pipelines[PIPELINE_INDEX_COUNT];
+    memcpy(new_pipelines, pipelines_, PIPELINE_INDEX_COUNT * sizeof(PipelineAndLayout));
+
+    for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
+
+        PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline(
+            device_,
+            new_shader_modules[pipeline_idx].vertex_shader_module,
+            new_shader_modules[pipeline_idx].fragment_shader_module,
             p_render_resources->render_pass,
             the_only_subpass_,
             descriptor_set_layout_,
-            &new_pipeline,
-            &new_pipeline_layout
+            &new_pipelines[pipeline_idx].pipeline,
+            &new_pipelines[pipeline_idx].layout
         );
-        // TODO FIXME check for success here. If failure, don't write the new pipeline and layout out.
-
-        pipelines_[pipeline_idx].pipeline = new_pipeline;
-        pipelines_[pipeline_idx].layout = new_pipeline_layout;
+        // TODO FIXME check for success here. If failure and not fatal, return false
     }
+
+
+    VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
+    assertVk(result);
+
+    for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
+        vk_dev_procs.DestroyShaderModule(device_, shader_modules_[pipeline_idx].vertex_shader_module, NULL);
+        vk_dev_procs.DestroyShaderModule(device_, shader_modules_[pipeline_idx].fragment_shader_module, NULL);
+    }
+    memcpy(shader_modules_, new_shader_modules, sizeof(shader_modules_));
+
+    for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
+        vk_dev_procs.DestroyPipeline(device_, pipelines_[pipeline_idx].pipeline, NULL);
+        // OPTIMIZE we probably don't need to rebuild the layout
+        vk_dev_procs.DestroyPipelineLayout(device_, pipelines_[pipeline_idx].layout, NULL);
+    }
+    memcpy(pipelines_, new_pipelines, sizeof(pipelines_));
 
 
     timespec end_time;
@@ -2743,6 +2789,9 @@ void reloadAllShaders(RenderResources renderer) {
         (f64)(end_time.tv_sec - start_time.tv_sec) * 1'000. +
         (f64)(end_time.tv_nsec - start_time.tv_nsec) / 1'000'000.;
     LOG_F(INFO, "Shaders reloaded (%.0lf ms).", duration_milliseconds);
+
+
+    return true;
 }
 
 
@@ -3126,13 +3175,11 @@ extern bool setShaderSourceFileModificationTracking(bool enable) {
 
             filewatch::FileID watch_id;
             
-            // TODO FIXME check return value for errors
             watch_id = filewatch::addFileToModificationWatchlist(
                 shader_source_file_watchlist_, p_source_info->vertex_shader_src_filepath
             );
             shader_source_file_watch_ids_[pipeline_idx].vertex_shader_id = watch_id;
 
-            // TODO FIXME check return value for errors
             watch_id = filewatch::addFileToModificationWatchlist(
                 shader_source_file_watchlist_, p_source_info->fragment_shader_src_filepath
             );
@@ -3162,7 +3209,7 @@ extern bool setShaderSourceFileModificationTracking(bool enable) {
 // is created with should probably be the same for all versions of the pipeline created in different renderers,
 // so maybe that should be global? ugh. Maybe you need to sit down and try to draw out a dependency graph
 // that includes RenderResources, pipelines, render passes, and descriptor set layouts.
-extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
+extern bool reloadModifiedShaderSourceFiles(RenderResources renderer) {
 
     assert(initialized_);
     assert(shader_source_file_watch_enabled_ && "Shader source file tracking is not enabled!");
@@ -3174,7 +3221,8 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
     const filewatch::FileID* p_events = NULL;
     filewatch::poll(shader_source_file_watchlist_, &event_count, &p_events);
 
-    if (event_count == 0) return;
+    if (event_count == 0) return true;
+
 
     timespec start_time {};
     {
@@ -3182,10 +3230,11 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
         LOG_IF_F(ERROR, !success, "Failed to get shader rebuild start time.");
     }
 
-    bool pipelines_need_rebuilding[PIPELINE_INDEX_COUNT] {};
 
-    VkResult result = vk_dev_procs.QueueWaitIdle(queue_); // so that hotReload can destroy old pipelines
-    assertVk(result);
+    VkShaderStageFlags modified_shaders[PIPELINE_INDEX_COUNT] {};
+
+    GraphicsPipelineShaderModules new_shader_modules[PIPELINE_INDEX_COUNT];
+    memcpy(new_shader_modules, shader_modules_, PIPELINE_INDEX_COUNT * sizeof(GraphicsPipelineShaderModules));
 
     for (u32fast event_idx = 0; event_idx < event_count; event_idx++) {
         for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
@@ -3200,12 +3249,14 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
             if (this_pipeline_watch_ids->vertex_shader_id == event_watch_id) {
                 shader_src_filepath =  PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].vertex_shader_src_filepath;
                 shader_type = shaderc_glsl_vertex_shader;
-                p_shader_module = &shader_modules_[pipeline_idx].vertex_shader_module;
+                p_shader_module = &new_shader_modules[pipeline_idx].vertex_shader_module;
+                modified_shaders[pipeline_idx] |= VK_SHADER_STAGE_VERTEX_BIT;
             }
             else if (this_pipeline_watch_ids->fragment_shader_id == event_watch_id) {
                 shader_src_filepath =  PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].fragment_shader_src_filepath;
                 shader_type = shaderc_glsl_fragment_shader;
-                p_shader_module = &shader_modules_[pipeline_idx].fragment_shader_module;
+                p_shader_module = &new_shader_modules[pipeline_idx].fragment_shader_module;
+                modified_shaders[pipeline_idx] |= VK_SHADER_STAGE_FRAGMENT_BIT;
             }
             else continue;
 
@@ -3213,35 +3264,58 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
                  INFO, "Shader `%s` (pipeline idx %" PRIuFAST32 ") changed. Will reload.",
                  shader_src_filepath, pipeline_idx
             );
-            pipelines_need_rebuilding[pipeline_idx] = true;
 
-            VkShaderModule shader_module = VK_NULL_HANDLE;
-            createShaderModuleFromShaderSourceFile(device_, shader_src_filepath, shader_type, &shader_module);
-            // TODO FIXME don't write out if module creation failed
-            *p_shader_module = shader_module;
+            bool success = createShaderModuleFromShaderSourceFile(
+                device_, shader_src_filepath, shader_type, p_shader_module
+            );
+            if (!success) return false;
         }
     }
 
+
+    PipelineAndLayout new_pipelines[PIPELINE_INDEX_COUNT];
+    memcpy(new_pipelines, pipelines_, PIPELINE_INDEX_COUNT * sizeof(PipelineAndLayout));
+
     for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
-        if (pipelines_need_rebuilding[pipeline_idx]) {
-            VkPipeline new_pipeline = VK_NULL_HANDLE;
-            VkPipelineLayout new_pipeline_layout = VK_NULL_HANDLE;
-            rebuildPipeline(
-                shader_modules_[pipeline_idx].vertex_shader_module,
-                shader_modules_[pipeline_idx].fragment_shader_module,
-                PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline,
+        if (modified_shaders[pipeline_idx] != 0) {
+            PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline(
+                device_,
+                new_shader_modules[pipeline_idx].vertex_shader_module,
+                new_shader_modules[pipeline_idx].fragment_shader_module,
                 p_render_resources->render_pass,
                 the_only_subpass_,
                 descriptor_set_layout_,
-                &new_pipeline,
-                &new_pipeline_layout
+                &new_pipelines[pipeline_idx].pipeline,
+                &new_pipelines[pipeline_idx].layout
             );
-            // TODO FIXME check for success here. If failure, don't write the new pipeline and layout out.
-
-            pipelines_[pipeline_idx].pipeline = new_pipeline;
-            pipelines_[pipeline_idx].layout = new_pipeline_layout;
+            // TODO FIXME check for success here. If failure, return false (if not fatal).
         }
     }
+
+
+    VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
+    assertVk(result);
+
+    for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
+
+        VkShaderStageFlags this_pipeline_modified_shaders = modified_shaders[pipeline_idx];
+
+        if (this_pipeline_modified_shaders != 0) {
+            vk_dev_procs.DestroyPipeline(device_, pipelines_[pipeline_idx].pipeline, NULL);
+            // OPTIMIZE we probably don't need to rebuild the layout
+            vk_dev_procs.DestroyPipelineLayout(device_, pipelines_[pipeline_idx].layout, NULL);
+
+            if (this_pipeline_modified_shaders & VK_SHADER_STAGE_VERTEX_BIT) vk_dev_procs.DestroyShaderModule(
+                device_, shader_modules_[pipeline_idx].vertex_shader_module, NULL
+            );
+            if (this_pipeline_modified_shaders & VK_SHADER_STAGE_FRAGMENT_BIT) vk_dev_procs.DestroyShaderModule(
+                device_, shader_modules_[pipeline_idx].fragment_shader_module, NULL
+            );
+        }
+    }
+
+    memcpy(shader_modules_, new_shader_modules, sizeof(shader_modules_));
+    memcpy(pipelines_, new_pipelines, sizeof(pipelines_));
 
 
     timespec end_time;
@@ -3254,6 +3328,9 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
         (f64)(end_time.tv_sec - start_time.tv_sec) * 1'000. +
         (f64)(end_time.tv_nsec - start_time.tv_nsec) / 1'000'000.;
     LOG_F(INFO, "Shaders reloaded (%.0lf ms).", duration_milliseconds);
+
+
+    return true;
 }
 
 //

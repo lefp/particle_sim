@@ -100,10 +100,10 @@ VkInstance getVkInstance(void);
 [[nodiscard]] bool setShaderSourceFileModificationTracking(bool enable);
 
 /// Shader source tracking must be enabled before running this.
-void reloadModifiedShaderSourceFiles(RenderResources renderer);
+[[nodiscard]] bool reloadModifiedShaderSourceFiles(RenderResources renderer);
 
 /// This can be run without source-file tracking enabled.
-void reloadAllShaders(RenderResources renderer);
+[[nodiscard]] bool reloadAllShaders(RenderResources renderer);
 
 //
 // ===========================================================================================================

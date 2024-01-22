@@ -12,7 +12,9 @@
     X(compiler_initialize) \
     X(result_get_bytes) \
     X(result_get_compilation_status) \
+    X(result_get_error_message) \
     X(result_get_length) \
+    X(result_get_num_errors) \
     X(result_release)
 
 //

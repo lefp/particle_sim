@@ -387,7 +387,8 @@ int main(int argc, char** argv) {
         }
 
         if (shader_autoreload_enabled_ and shader_file_tracking_enabled_) {
-            gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+            success = gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+            if (!success) {} // TODO FIXME: make some visual indication of this in imgui
         }
 
         glfwPollEvents();
@@ -408,7 +409,10 @@ int main(int argc, char** argv) {
 
             LOG_F(INFO, "Shader-reload keybind pressed. Triggering reload of modified shaders.");
 
-            if (shader_file_tracking_enabled_) gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+            if (shader_file_tracking_enabled_) {
+                success = gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+                if (!success) {} // TODO FIXME: make some visual indication of this in imgui
+            }
             else {
                 LOG_F(ERROR, "Shader-reload keybind pressed, but shader file tracking is disabled. Doing nothing.");
                 // TODO also make some visual indication of failure via imgui
@@ -491,7 +495,8 @@ int main(int argc, char** argv) {
 
             if (!shader_reload_all_button_was_pressed and shader_reload_all_button_is_pressed_) {
                 LOG_F(INFO, "Reload-all-shaders button pressed. Triggering reload.");
-                gfx::reloadAllShaders(gfx_renderer);
+                success = gfx::reloadAllShaders(gfx_renderer);
+                if (!success) {} // TODO FIXME: make some visual indication of this in imgui
             }
         }
 
