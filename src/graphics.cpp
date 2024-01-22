@@ -63,7 +63,7 @@ enum PipelineIndex {
     PIPELINE_INDEX_COUNT,
 };
 
-using FN_CreatePipeline = void (
+using FN_CreatePipeline = bool (
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
@@ -911,7 +911,7 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
 }
 
 
-static void createVoxelPipeline(
+[[nodiscard]] static bool createVoxelPipeline(
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
@@ -1077,7 +1077,6 @@ static void createVoxelPipeline(
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
     result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
     assertVk(result);
-    *pipeline_layout_out = pipeline_layout;
 
 
     const VkGraphicsPipelineCreateInfo pipeline_info {
@@ -1100,19 +1099,34 @@ static void createVoxelPipeline(
         .basePipelineIndex = -1,
     };
 
+    VkPipeline pipeline = VK_NULL_HANDLE;
     result = vk_dev_procs.CreateGraphicsPipelines(
         device,
         VK_NULL_HANDLE, // pipelineCache
         1, // createInfoCount
         &pipeline_info,
         NULL, // allocationCallbacks
-        pipeline_out
+        &pipeline
     );
+    if (result == VK_ERROR_INVALID_SHADER_NV) {
+        LOG_F(
+            ERROR, "Failed to create pipeline for shader modules {%p, %p}.",
+            vertex_shader_module, fragment_shader_module
+        );
+        vk_dev_procs.DestroyPipelineLayout(device, pipeline_layout, NULL);
+        return false;
+    }
     assertVk(result);
+
+
+    *pipeline_layout_out = pipeline_layout;
+    *pipeline_out = pipeline;
+
+    return true;
 }
 
 
-static void createGridPipeline(
+[[nodiscard]] static bool createGridPipeline(
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
@@ -1265,7 +1279,6 @@ static void createGridPipeline(
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
     result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
     assertVk(result);
-    *pipeline_layout_out = pipeline_layout;
 
 
     const VkGraphicsPipelineCreateInfo pipeline_info {
@@ -1288,19 +1301,34 @@ static void createGridPipeline(
         .basePipelineIndex = -1,
     };
 
+    VkPipeline pipeline = VK_NULL_HANDLE;
     result = vk_dev_procs.CreateGraphicsPipelines(
         device,
         VK_NULL_HANDLE, // pipelineCache
         1, // createInfoCount
         &pipeline_info,
         NULL, // allocationCallbacks
-        pipeline_out
+        &pipeline
     );
+    if (result == VK_ERROR_INVALID_SHADER_NV) {
+        LOG_F(
+            ERROR, "Failed to create pipeline for shader modules {%p, %p}.",
+            vertex_shader_module, fragment_shader_module
+        );
+        vk_dev_procs.DestroyPipelineLayout(device, pipeline_layout, NULL);
+        return false;
+    }
     assertVk(result);
+
+
+    *pipeline_layout_out = pipeline_layout;
+    *pipeline_out = pipeline;
+
+    return true;
 }
 
 
-static void createCubeOutlinePipeline(
+[[nodiscard]] static bool createCubeOutlinePipeline(
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
@@ -1455,7 +1483,6 @@ static void createCubeOutlinePipeline(
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
     result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
     assertVk(result);
-    *pipeline_layout_out = pipeline_layout;
 
 
     const VkGraphicsPipelineCreateInfo pipeline_info {
@@ -1478,15 +1505,30 @@ static void createCubeOutlinePipeline(
         .basePipelineIndex = -1,
     };
 
+    VkPipeline pipeline = VK_NULL_HANDLE;
     result = vk_dev_procs.CreateGraphicsPipelines(
         device,
         VK_NULL_HANDLE, // pipelineCache
         1, // createInfoCount
         &pipeline_info,
         NULL, // allocationCallbacks
-        pipeline_out
+        &pipeline
     );
+    if (result == VK_ERROR_INVALID_SHADER_NV) {
+        LOG_F(
+            ERROR, "Failed to create pipeline for shader modules {%p, %p}.",
+            vertex_shader_module, fragment_shader_module
+        );
+        vk_dev_procs.DestroyPipelineLayout(device, pipeline_layout, NULL);
+        return false;
+    }
     assertVk(result);
+
+
+    *pipeline_layout_out = pipeline_layout;
+    *pipeline_out = pipeline;
+
+    return true;
 }
 
 
@@ -1996,17 +2038,18 @@ extern void init(const char* app_name, const char* specific_named_device_request
 
 
         PipelineAndLayout* p_pipeline = &pipelines_[pipeline_idx];
-        p_build_info->pfn_createPipeline(
+        bool success = p_build_info->pfn_createPipeline(
             device_,
             vertex_shader_module, fragment_shader_module,
             render_pass, the_only_subpass_, descriptor_set_layout_,
             &p_pipeline->pipeline, &p_pipeline->layout
         );
+        alwaysAssert(success);
     }
 
 
     bool success = libshaderc_procs_.init();
-    // TODO Maybe we should just log an error message, disable the hot-reloading feature, and continue
+    // TODO FIXME we should just log an error message, disable the hot-reloading feature, and continue
     // running. This isn't fatal, after all.
     alwaysAssert(success);
 
@@ -2748,7 +2791,7 @@ bool reloadAllShaders(RenderResources renderer) {
 
     for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
 
-        PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline(
+        bool success = PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline(
             device_,
             new_shader_modules[pipeline_idx].vertex_shader_module,
             new_shader_modules[pipeline_idx].fragment_shader_module,
@@ -2758,7 +2801,7 @@ bool reloadAllShaders(RenderResources renderer) {
             &new_pipelines[pipeline_idx].pipeline,
             &new_pipelines[pipeline_idx].layout
         );
-        // TODO FIXME check for success here. If failure and not fatal, return false
+        if (!success) return false;
     }
 
 
@@ -3278,7 +3321,7 @@ extern bool reloadModifiedShaderSourceFiles(RenderResources renderer) {
 
     for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
         if (modified_shaders[pipeline_idx] != 0) {
-            PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline(
+            bool success = PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].pfn_createPipeline(
                 device_,
                 new_shader_modules[pipeline_idx].vertex_shader_module,
                 new_shader_modules[pipeline_idx].fragment_shader_module,
@@ -3288,7 +3331,7 @@ extern bool reloadModifiedShaderSourceFiles(RenderResources renderer) {
                 &new_pipelines[pipeline_idx].pipeline,
                 &new_pipelines[pipeline_idx].layout
             );
-            // TODO FIXME check for success here. If failure, return false (if not fatal).
+            if (!success) return false;
         }
     }
 
