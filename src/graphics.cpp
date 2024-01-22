@@ -3193,13 +3193,6 @@ extern void reloadModifiedShaderSourceFiles(RenderResources renderer) {
             filewatch::FileID event_watch_id = p_events[event_idx];
             ShaderSourceFileWatchIds* this_pipeline_watch_ids = &shader_source_file_watch_ids_[pipeline_idx];
 
-            // TODO OPTIMIZE: we shouldn't need to recompile both shaders if only one of them changed.
-            // Split up `hotReloadShadersAndPipeline` into
-            // `compileShaderSourcesToSpirv` and `rebuildPipelineWithNewShader` or something like that,
-            // so that we can handle compilation and pipeline building separately.
-            // We can probably keep the shader modules around instead of destroying them right after pipeline
-            // creation, so that when only one shader in a pipeline is recompiled, the other can just be
-            // loaded straight from the module.
             const char* shader_src_filepath = NULL;
             shaderc_shader_kind shader_type;
             VkShaderModule* p_shader_module = NULL;
