@@ -95,8 +95,6 @@ RenderResult render(
 VkInstance getVkInstance(void);
 
 
-void reloadAllShaders(RenderResources renderer);
-
 /// Watch shader source files, taking note when they are modified.
 /// Returns false on failure to enable or disable.
 [[nodiscard]] bool setShaderSourceFileModificationTracking(bool enable);

@@ -380,6 +380,7 @@ int main(int argc, char** argv) {
             frame_start_time_seconds_ = time;
         }
 
+        // TODO FIXME: put this behind a bool `shader_autoreload_enabled_`
         gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
 
         glfwPollEvents();
@@ -398,13 +399,10 @@ int main(int argc, char** argv) {
 
         if (!left_ctrl_r_was_pressed and left_ctrl_r_is_pressed_) {
 
-            LOG_F(INFO, "Reloading shaders due to keybind pressed.");
+            LOG_F(INFO, "Triggering shader-reload due to keybind pressed.");
 
-            f64 time_start = glfwGetTime();
-            gfx::reloadAllShaders(gfx_renderer);
-            f64 time_end = glfwGetTime();
-
-            LOG_F(INFO, "Shaders reloaded (%.0lf ms).", (time_end - time_start) * 1000.);
+            // TODO FIXME you're not allowed to call this if file modification tracking is not enabled
+            gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
         }
 
 

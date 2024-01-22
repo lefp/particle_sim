@@ -10,8 +10,9 @@
 #define FOR_EACH_SHADERC_PROC(X) \
     X(compile_into_spv) \
     X(compiler_initialize) \
-    X(result_get_length) \
     X(result_get_bytes) \
+    X(result_get_compilation_status) \
+    X(result_get_length) \
     X(result_release)
 
 //
