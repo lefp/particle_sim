@@ -490,20 +490,20 @@ int main(int argc, char** argv) {
 
             ImGui::Begin("Shaders", NULL, ImGuiWindowFlags_AlwaysAutoResize);
 
+            ImGui::Text("Last reload:");
+            ImGui::SameLine();
+            if (last_shader_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
+            else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
+
+            bool shader_reload_all_button_was_pressed = shader_reload_all_button_is_pressed_;
+            shader_reload_all_button_is_pressed_ = ImGui::Button("Reload all");
+
             if (shader_file_tracking_enabled_) ImGui::Checkbox("Auto-reload", &shader_autoreload_enabled_);
             else {
                 ImGui::BeginDisabled();
                 ImGui::Checkbox("Auto-reload (unavailable)", &shader_autoreload_enabled_);
                 ImGui::EndDisabled();
             }
-
-            bool shader_reload_all_button_was_pressed = shader_reload_all_button_is_pressed_;
-            shader_reload_all_button_is_pressed_ = ImGui::Button("Reload all");
-
-            ImGui::Text("Last shader reload:");
-            ImGui::SameLine();
-            if (last_shader_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
-            else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
 
             ImGui::End();
 
