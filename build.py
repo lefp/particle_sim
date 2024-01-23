@@ -15,7 +15,7 @@ BUILD_DIR_PATH = 'build'
 INTERMEDIATE_OBJECTS_PATH = BUILD_DIR_PATH + '/intermediate_objects'
 
 COMMON_COMPILE_FLAGS: list[str] = (
-    (['-g3'] if DEBUG_BUILD else []) +
+    (['-g3'] if DEBUG_BUILD else ['-O3', '-DNDEBUG']) +
     ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES']
 )
 
