@@ -3252,7 +3252,7 @@ extern bool setShaderSourceFileModificationTracking(bool enable) {
 // is created with should probably be the same for all versions of the pipeline created in different renderers,
 // so maybe that should be global? ugh. Maybe you need to sit down and try to draw out a dependency graph
 // that includes RenderResources, pipelines, render passes, and descriptor set layouts.
-extern bool reloadModifiedShaderSourceFiles(RenderResources renderer) {
+extern ShaderReloadResult reloadModifiedShaderSourceFiles(RenderResources renderer) {
 
     assert(initialized_);
     assert(shader_source_file_watch_enabled_ && "Shader source file tracking is not enabled!");
@@ -3264,7 +3264,7 @@ extern bool reloadModifiedShaderSourceFiles(RenderResources renderer) {
     const filewatch::FileID* p_events = NULL;
     filewatch::poll(shader_source_file_watchlist_, &event_count, &p_events);
 
-    if (event_count == 0) return true;
+    if (event_count == 0) return ShaderReloadResult::no_shaders_need_reloading;
 
 
     timespec start_time {};
@@ -3311,7 +3311,7 @@ extern bool reloadModifiedShaderSourceFiles(RenderResources renderer) {
             bool success = createShaderModuleFromShaderSourceFile(
                 device_, shader_src_filepath, shader_type, p_shader_module
             );
-            if (!success) return false;
+            if (!success) return ShaderReloadResult::error;
         }
     }
 
@@ -3331,7 +3331,7 @@ extern bool reloadModifiedShaderSourceFiles(RenderResources renderer) {
                 &new_pipelines[pipeline_idx].pipeline,
                 &new_pipelines[pipeline_idx].layout
             );
-            if (!success) return false;
+            if (!success) return ShaderReloadResult::error;
         }
     }
 
@@ -3373,7 +3373,7 @@ extern bool reloadModifiedShaderSourceFiles(RenderResources renderer) {
     LOG_F(INFO, "Shaders reloaded (%.0lf ms).", duration_milliseconds);
 
 
-    return true;
+    return ShaderReloadResult::success;
 }
 
 //

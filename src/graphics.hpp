@@ -50,6 +50,12 @@ enum class [[nodiscard]] RenderResult {
     success_surface_resources_out_of_date,
 };
 
+enum class [[nodiscard]] ShaderReloadResult {
+    success,
+    no_shaders_need_reloading,
+    error,
+};
+
 //
 // ===========================================================================================================
 //
@@ -100,7 +106,7 @@ VkInstance getVkInstance(void);
 [[nodiscard]] bool setShaderSourceFileModificationTracking(bool enable);
 
 /// Shader source tracking must be enabled before running this.
-[[nodiscard]] bool reloadModifiedShaderSourceFiles(RenderResources renderer);
+[[nodiscard]] ShaderReloadResult reloadModifiedShaderSourceFiles(RenderResources renderer);
 
 /// This can be run without source-file tracking enabled.
 [[nodiscard]] bool reloadAllShaders(RenderResources renderer);

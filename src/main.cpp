@@ -97,6 +97,7 @@ gfx::Voxel voxels_[] {
 bool shader_autoreload_enabled_ = false;
 bool shader_file_tracking_enabled_ = false;
 bool shader_reload_all_button_is_pressed_ = false;
+bool last_shader_reload_failed_ = false;
 
 //
 // ===========================================================================================================
@@ -387,8 +388,12 @@ int main(int argc, char** argv) {
         }
 
         if (shader_autoreload_enabled_ and shader_file_tracking_enabled_) {
-            success = gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
-            if (!success) {} // TODO FIXME: make some visual indication of this in imgui
+            gfx::ShaderReloadResult reload_result = gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+            switch (reload_result) {
+                case gfx::ShaderReloadResult::no_shaders_need_reloading : break;
+                case gfx::ShaderReloadResult::success : last_shader_reload_failed_ = false; break;
+                case gfx::ShaderReloadResult::error : last_shader_reload_failed_ = true; break;
+            }
         }
 
         glfwPollEvents();
@@ -410,8 +415,12 @@ int main(int argc, char** argv) {
             LOG_F(INFO, "Shader-reload keybind pressed. Triggering reload of modified shaders.");
 
             if (shader_file_tracking_enabled_) {
-                success = gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
-                if (!success) {} // TODO FIXME: make some visual indication of this in imgui
+                gfx::ShaderReloadResult reload_result = gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+                switch (reload_result) {
+                    case gfx::ShaderReloadResult::no_shaders_need_reloading : break;
+                    case gfx::ShaderReloadResult::success : last_shader_reload_failed_ = false; break;
+                    case gfx::ShaderReloadResult::error : last_shader_reload_failed_ = true; break;
+                }
             }
             else {
                 LOG_F(ERROR, "Shader-reload keybind pressed, but shader file tracking is disabled. Doing nothing.");
@@ -491,12 +500,17 @@ int main(int argc, char** argv) {
             bool shader_reload_all_button_was_pressed = shader_reload_all_button_is_pressed_;
             shader_reload_all_button_is_pressed_ = ImGui::Button("Reload all");
 
+            ImGui::Text("Last shader reload:");
+            ImGui::SameLine();
+            if (last_shader_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
+            else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
+
             ImGui::End();
 
             if (!shader_reload_all_button_was_pressed and shader_reload_all_button_is_pressed_) {
                 LOG_F(INFO, "Reload-all-shaders button pressed. Triggering reload.");
                 success = gfx::reloadAllShaders(gfx_renderer);
-                if (!success) {} // TODO FIXME: make some visual indication of this in imgui
+                last_shader_reload_failed_ = !success;
             }
         }
 
