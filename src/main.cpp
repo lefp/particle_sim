@@ -94,7 +94,7 @@ gfx::Voxel voxels_[] {
     { .coord = ivec3 {2.0, 2.0, 2.0}, .color = u8vec4 { 0, 255, 0, 255 } },
 };
 
-bool shader_autoreload_enabled_ = false;
+bool shader_autoreload_enabled_ = true;
 bool shader_file_tracking_enabled_ = false;
 bool shader_reload_all_button_is_pressed_ = false;
 bool last_shader_reload_failed_ = false;
