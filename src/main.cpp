@@ -291,7 +291,7 @@ int main(int argc, char** argv) {
     #ifndef NDEBUG
         LOG_F(INFO, "Debug build.");
     #else
-        LOG_F(INFO), "Release build.");
+        LOG_F(INFO, "Release build.");
     #endif
 
     int success = glfwInit();
