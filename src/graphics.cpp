@@ -2626,13 +2626,14 @@ extern Result createRenderer(RenderResources* render_resources_out) {
     constexpr u32 descriptors_per_frame_count = 2;
     constexpr u32 descriptor_write_count = MAX_FRAMES_IN_FLIGHT * descriptors_per_frame_count;
 
+    VkDescriptorBufferInfo descriptor_buffer_infos[descriptor_write_count] {};
     VkWriteDescriptorSet descriptor_writes[descriptor_write_count] {};
     u32fast descriptor_write_idx = 0;
 
     for (u32fast frame_idx = 0; frame_idx < MAX_FRAMES_IN_FLIGHT; frame_idx++) {
 
         {
-            VkDescriptorBufferInfo descriptor_buffer_info {
+            descriptor_buffer_infos[descriptor_write_idx] = VkDescriptorBufferInfo {
                 .buffer = p_render_resources->frame_resources_array[frame_idx].uniform_buffer,
                 .offset = 0,
                 .range = sizeof(UniformBuffer),
@@ -2645,14 +2646,14 @@ extern Result createRenderer(RenderResources* render_resources_out) {
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 .pImageInfo = NULL,
-                .pBufferInfo = &descriptor_buffer_info,
+                .pBufferInfo = &descriptor_buffer_infos[descriptor_write_idx],
                 .pTexelBufferView = NULL,
             };
         }
         descriptor_write_idx++;
 
         {
-            VkDescriptorBufferInfo descriptor_buffer_info {
+            descriptor_buffer_infos[descriptor_write_idx] = VkDescriptorBufferInfo {
                 .buffer = p_render_resources->frame_resources_array[frame_idx].voxels_buffer,
                 .offset = 0,
                 .range = MAX_VOXEL_COUNT * sizeof(Voxel),
@@ -2665,7 +2666,7 @@ extern Result createRenderer(RenderResources* render_resources_out) {
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 .pImageInfo = NULL,
-                .pBufferInfo = &descriptor_buffer_info,
+                .pBufferInfo = &descriptor_buffer_infos[descriptor_write_idx],
                 .pTexelBufferView = NULL,
             };
         }
