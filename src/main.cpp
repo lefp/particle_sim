@@ -79,6 +79,7 @@ VkRect2D window_draw_region_ {};
 bool window_or_surface_out_of_date_ = false;
 
 f64 frame_start_time_seconds_ = 0;
+f64 last_frame_duration_seconds_ = 0;
 
 bool cursor_visible_ = false;
 
@@ -512,6 +513,13 @@ int main(int argc, char** argv) {
                 success = gfx::reloadAllShaders(gfx_renderer);
                 last_shader_reload_failed_ = !success;
             }
+
+
+            ImGui::Begin("Performance");
+
+            ImGui::Text("Frame time: %.2lf ms", last_frame_duration_seconds_ * 1000.);
+
+            ImGui::End();
         }
 
 
@@ -682,6 +690,7 @@ int main(int argc, char** argv) {
             case gfx::RenderResult::success: break;
         }
 
+        last_frame_duration_seconds_ = glfwGetTime() - frame_start_time_seconds_;
         frame_counter++;
     };
 
