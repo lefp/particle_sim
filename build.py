@@ -186,7 +186,9 @@ gcc_process = sp.Popen(
     ]
 )
 gcc_process.communicate()
-
+if gcc_process.returncode != 0:
+    print('Link failed; aborting build.')
+    exit(1)
 
 end_time: float = time()
 total_time: float = end_time - start_time
