@@ -128,6 +128,7 @@ lib_my_app = Library(
         for s in filesInDirWithSuffix('src', '.cpp')
     ],
     additional_compile_flags = ['-isystem', 'libs'] + MY_COMPILE_FLAGS_W
+                               + ['-isystem', 'libs/imgui'] # implot.h #includes "imgui.h", not "libs/imgui.h"
 )
 lib_loguru = Library(
     source_file_paths = ['libs/loguru/loguru.cpp'],
