@@ -535,6 +535,10 @@ int main(int argc, char** argv) {
 
         if (imgui_overlay_visible_) {
 
+            ImGuiWindowFlags common_imgui_window_flags = ImGuiWindowFlags_NoFocusOnAppearing;
+            if (!cursor_visible_) common_imgui_window_flags |= ImGuiWindowFlags_NoInputs;
+
+
             // Crosshair.
             // TODO Should we do this in our own renderer?
             ImGui::GetBackgroundDrawList()->AddCircleFilled(
@@ -548,7 +552,7 @@ int main(int argc, char** argv) {
             );
 
 
-            ImGui::Begin("Camera", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Begin("Camera", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
 
             f32 user_pos_input[3] { camera_pos_.x, camera_pos_.y, camera_pos_.z };
             if (ImGui::DragFloat3("Position", user_pos_input, 0.1f, 0.0, 0.0, "%.1f")) {
@@ -563,7 +567,7 @@ int main(int argc, char** argv) {
             ImGui::End();
 
 
-            ImGui::Begin("Shaders", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Begin("Shaders", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
 
             ImGui::Text("Last reload:");
             ImGui::SameLine();
@@ -589,7 +593,7 @@ int main(int argc, char** argv) {
             }
 
 
-            ImGui::Begin("Performance", NULL, ImGuiWindowFlags_NoFocusOnAppearing);
+            ImGui::Begin("Performance", NULL, common_imgui_window_flags);
 
             {
                 bool checkbox_clicked = ImGui::Checkbox("Pause plot", &frametimeplot_paused_);
@@ -598,8 +602,8 @@ int main(int argc, char** argv) {
                 }
             }
 
-            ImPlot::BeginPlot(frametimeplot_axis_label, ImVec2(-1,-1));
-            {
+            if (ImPlot::BeginPlot(frametimeplot_axis_label, ImVec2(-1,-1))) {
+
                 ImPlot::SetupAxis(ImAxis_X1, NULL, ImPlotAxisFlags_Lock);
                 ImPlot::SetupAxisLimits(ImAxis_X1, -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, 0.0);
                 ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
@@ -627,8 +631,9 @@ int main(int argc, char** argv) {
                     ImPlotShadedFlags_None, // flags
                     (int)frametimeplot_samples_scrolling_buffer_.first_sample_index // offset
                 );
+
+                ImPlot::EndPlot();
             }
-            ImPlot::EndPlot();
 
             ImGui::End();
         }
