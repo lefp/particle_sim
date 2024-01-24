@@ -140,8 +140,15 @@ lib_imgui = Library(
     ],
     additional_compile_flags = []
 )
+lib_implot = Library(
+    source_file_paths = [
+        'libs/implot/' + s
+        for s in filesInDirWithSuffix('libs/implot', '.cpp')
+    ],
+    additional_compile_flags = ['-isystem', 'libs/imgui']
+)
 
-libs = [lib_my_app, lib_loguru, lib_imgui]
+libs = [lib_my_app, lib_loguru, lib_imgui, lib_implot]
 for lib in libs:
     for source_file_path in lib.source_file_paths:
         gcc_process = sp.Popen(

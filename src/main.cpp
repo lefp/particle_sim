@@ -13,10 +13,12 @@
 #include <glm/gtx/rotate_vector.hpp>
 #include <imgui/imgui_impl_glfw.h>
 #include <imgui/imgui_impl_vulkan.h>
+#include <implot/implot.h>
 
 #include "types.hpp"
 #include "error_util.hpp"
 #include "graphics.hpp"
+#include "alloc_util.hpp"
 
 namespace gfx = graphics;
 
@@ -58,6 +60,11 @@ const float VOXEL_RADIUS = 0.5; // unit: meters
 
 const u32fast INVALID_VOXEL_IDX = UINT32_MAX;
 
+constexpr f64 FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS = 10.0;
+constexpr f64 FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS = 1. / 30.;
+constexpr u32fast FRAMETIME_PLOT_MAX_SAMPLE_COUNT =
+    (u32fast)(FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS / FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS);
+
 //
 // Global variables ==========================================================================================
 //
@@ -79,7 +86,6 @@ VkRect2D window_draw_region_ {};
 bool window_or_surface_out_of_date_ = false;
 
 f64 frame_start_time_seconds_ = 0;
-f64 last_frame_duration_seconds_ = 0;
 
 bool cursor_visible_ = false;
 
@@ -99,6 +105,35 @@ bool shader_autoreload_enabled_ = true;
 bool shader_file_tracking_enabled_ = false;
 bool shader_reload_all_button_is_pressed_ = false;
 bool last_shader_reload_failed_ = false;
+
+struct {
+    u32fast first_sample_index = 0;
+    u32fast sample_count = 0;
+    f32 samples_avg_milliseconds[FRAMETIME_PLOT_MAX_SAMPLE_COUNT];
+    f32 samples_max_milliseconds[FRAMETIME_PLOT_MAX_SAMPLE_COUNT];
+
+    inline void push(f32 sample_avg_seconds, f32 sample_max_seconds) {
+        if (sample_count < FRAMETIME_PLOT_MAX_SAMPLE_COUNT) {
+            this->samples_avg_milliseconds[this->sample_count] = sample_avg_seconds * 1000.f;
+            this->samples_max_milliseconds[this->sample_count] = sample_max_seconds * 1000.f;
+            this->sample_count++;
+        }
+        else {
+            this->samples_avg_milliseconds[first_sample_index] = sample_avg_seconds * 1000.f;
+            this->samples_max_milliseconds[first_sample_index] = sample_max_seconds * 1000.f;
+            this->first_sample_index = (this->first_sample_index + 1) % FRAMETIME_PLOT_MAX_SAMPLE_COUNT;
+        }
+    }
+
+    inline void reset(void) {
+        this->sample_count = 0;
+        this->first_sample_index = 0;
+    }
+} frametimeplot_samples_scrolling_buffer_;
+f64 frametimeplot_last_sample_time_ = 0.0;
+u32fast frametimeplot_frames_since_last_sample_ = 0;
+f64 frametimeplot_largest_reading_since_last_sample_ = 0;
+bool frametimeplot_paused_ = false;
 
 //
 // ===========================================================================================================
@@ -363,6 +398,28 @@ int main(int argc, char** argv) {
     ImGuiContext* imgui_context = ImGui::CreateContext();
     alwaysAssert(imgui_context != NULL);
 
+    ImPlotContext* implot_context = ImPlot::CreateContext();
+    alwaysAssert(implot_context != NULL);
+
+    char* frametimeplot_axis_label = NULL;
+    {
+        int len_without_nul = snprintf(
+            NULL, 0,
+            "Frame time (ms)\nOver %.1lf ms intervals", FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS * 1000.
+        );
+        alwaysAssert(len_without_nul > 0);
+
+        const size_t len_with_nul = (size_t)len_without_nul + 1;
+        frametimeplot_axis_label = (char*)mallocAsserted(len_with_nul);
+
+        len_without_nul = snprintf(
+            frametimeplot_axis_label, len_with_nul,
+            "Frame time (ms)\nOver %.1lf ms intervals", FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS * 1000.
+        );
+        alwaysAssert(len_without_nul > 0);
+    };
+
+    // TODO Why is this code here? Delete if not needed.
     ImGuiIO& imgui_io = ImGui::GetIO();
     (void)imgui_io;
 
@@ -381,11 +438,28 @@ int main(int argc, char** argv) {
 
         LABEL_MAIN_LOOP_START: {}
 
-        f64 delta_t_seconds;
+        f64 delta_t_seconds = 0.0;
         {
             f64 time = glfwGetTime();
             delta_t_seconds = time - frame_start_time_seconds_;
             frame_start_time_seconds_ = time;
+
+            frametimeplot_frames_since_last_sample_++;
+            frametimeplot_largest_reading_since_last_sample_ = glm::max(
+                frametimeplot_largest_reading_since_last_sample_,
+                delta_t_seconds
+            );
+
+            f64 time_since_last_sample = time - frametimeplot_last_sample_time_;
+            if (time_since_last_sample >= FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS) {
+                if (!frametimeplot_paused_) frametimeplot_samples_scrolling_buffer_.push(
+                    (f32)(time_since_last_sample / (f64)frametimeplot_frames_since_last_sample_),
+                    (f32)frametimeplot_largest_reading_since_last_sample_
+                );
+                frametimeplot_last_sample_time_ = time;
+                frametimeplot_frames_since_last_sample_ = 0;
+                frametimeplot_largest_reading_since_last_sample_ = 0.;
+            }
         }
 
         if (shader_autoreload_enabled_ and shader_file_tracking_enabled_) {
@@ -515,9 +589,46 @@ int main(int argc, char** argv) {
             }
 
 
-            ImGui::Begin("Performance");
+            ImGui::Begin("Performance", NULL, ImGuiWindowFlags_NoFocusOnAppearing);
 
-            ImGui::Text("Frame time: %.2lf ms", last_frame_duration_seconds_ * 1000.);
+            {
+                bool checkbox_clicked = ImGui::Checkbox("Pause plot", &frametimeplot_paused_);
+                if (checkbox_clicked and !frametimeplot_paused_) {
+                    frametimeplot_samples_scrolling_buffer_.reset();
+                }
+            }
+
+            ImPlot::BeginPlot(frametimeplot_axis_label, ImVec2(-1,-1));
+            {
+                ImPlot::SetupAxis(ImAxis_X1, NULL, ImPlotAxisFlags_Lock);
+                ImPlot::SetupAxisLimits(ImAxis_X1, -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, 0.0);
+                ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
+
+                ImPlot::SetupAxis(ImAxis_Y1, NULL, ImPlotAxisFlags_LockMin);
+                ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, 3.0);
+
+                ImPlot::PlotShaded<f32>(
+                    "Avg",
+                    (const f32*)&frametimeplot_samples_scrolling_buffer_.samples_avg_milliseconds,
+                    (int)frametimeplot_samples_scrolling_buffer_.sample_count,
+                    0.0, // yref
+                    FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS, // xscale
+                    -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, // xstart
+                    ImPlotShadedFlags_None, // flags
+                    (int)frametimeplot_samples_scrolling_buffer_.first_sample_index // offset
+                );
+
+                ImPlot::PlotLine<f32>(
+                    "Max",
+                    (const f32*)&frametimeplot_samples_scrolling_buffer_.samples_max_milliseconds,
+                    (int)frametimeplot_samples_scrolling_buffer_.sample_count,
+                    FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS, // xscale
+                    -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, // xstart
+                    ImPlotShadedFlags_None, // flags
+                    (int)frametimeplot_samples_scrolling_buffer_.first_sample_index // offset
+                );
+            }
+            ImPlot::EndPlot();
 
             ImGui::End();
         }
@@ -690,7 +801,6 @@ int main(int argc, char** argv) {
             case gfx::RenderResult::success: break;
         }
 
-        last_frame_duration_seconds_ = glfwGetTime() - frame_start_time_seconds_;
         frame_counter++;
     };
 
