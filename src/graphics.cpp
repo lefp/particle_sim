@@ -1564,23 +1564,25 @@ static Result createSwapchain(
 
     // Vk spec 1.3.259, appendix VK_KHR_swapchain, issue 12: suggests using capabilities.minImageCount + 1
     // to guarantee that vkAcquireNextImageKHR is non-blocking when using Mailbox present mode.
-    // In FIFO mode, I don't expect this to have any negative effect, as long as we don't render too many
-    // frames in advance (which would cause noticeable input latency).
-    u32 min_image_count = surface_capabilities.minImageCount + 1;
+    // In FIFO mode, having a larger queue of submitted images increases input latency, so we request the
+    // minimum possible in that case.
+    // In Immediate mode, I assume the number of images doesn't matter.
+    u32 min_image_count_request = surface_capabilities.minImageCount;
+    if (present_mode == VK_PRESENT_MODE_MAILBOX_KHR) min_image_count_request += 1;
     {
-        u32 count_preclamp = min_image_count;
-        min_image_count = math::max(min_image_count, surface_capabilities.minImageCount);
+        u32 count_preclamp = min_image_count_request;
+        min_image_count_request = math::max(min_image_count_request, surface_capabilities.minImageCount);
         if (surface_capabilities.maxImageCount != 0) {
-            min_image_count = math::min(min_image_count, surface_capabilities.maxImageCount);
+            min_image_count_request = math::min(min_image_count_request, surface_capabilities.maxImageCount);
         }
 
-        if (min_image_count != count_preclamp) LOG_F(
+        if (min_image_count_request != count_preclamp) LOG_F(
             WARNING,
             "Min swapchain image count clamped from %" PRIu32 " to %" PRIu32 ", to fit surface limits.",
-            count_preclamp, min_image_count
+            count_preclamp, min_image_count_request
         );
     }
-    LOG_F(INFO, "Will request minImageCount=%" PRIu32 " for swapchain creation.", min_image_count);
+    LOG_F(INFO, "Will request minImageCount=%" PRIu32 " for swapchain creation.", min_image_count_request);
 
 
     // Vk spec 1.3.234:
@@ -1646,7 +1648,7 @@ static Result createSwapchain(
     VkSwapchainCreateInfoKHR swapchain_info {
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = surface,
-        .minImageCount = min_image_count,
+        .minImageCount = min_image_count_request,
         .imageFormat = SWAPCHAIN_FORMAT,
         .imageColorSpace = SWAPCHAIN_COLOR_SPACE,
         .imageExtent = extent,
