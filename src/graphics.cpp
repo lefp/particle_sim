@@ -200,8 +200,9 @@ static u32 the_only_subpass_ = INVALID_SUBPASS_IDX;
 static PipelineAndLayout pipelines_[PIPELINE_INDEX_COUNT] {};
 static GraphicsPipelineShaderModules shader_modules_[PIPELINE_INDEX_COUNT] {};
 
-// TODO FIXME use a FIFO fallback if this present mode is not supported
-static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_MAILBOX_KHR;
+// TODO FIXME: temporary default, because my Nvidia driver doesn't support MAILBOX and I haven't fixed the
+// high latency in FIFO.
+static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_IMMEDIATE_KHR;
 
 static VmaAllocator vma_allocator_ = NULL;
 
@@ -328,6 +329,7 @@ struct SurfaceResourcesImpl {
     // per-image resources
     VkImage* swapchain_images;
     VkSemaphore* swapchain_image_acquired_semaphores;
+    VkSemaphore* swapchain_image_in_use_semaphores;
 
     VkExtent2D swapchain_extent;
     u32 swapchain_image_count;
@@ -1619,6 +1621,28 @@ static Result createSwapchain(
     alwaysAssert(surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
 
+    u32 present_mode_count = 0;
+    result = vk_inst_procs.GetPhysicalDeviceSurfacePresentModesKHR(
+        physical_device, surface, &present_mode_count, NULL
+    );
+    assertVk(result);
+    alwaysAssert(present_mode_count != 0);
+
+    VkPresentModeKHR* p_present_modes = mallocArray(present_mode_count, VkPresentModeKHR);
+    defer(free(p_present_modes));
+    result = vk_inst_procs.GetPhysicalDeviceSurfacePresentModesKHR(
+        physical_device, surface, &present_mode_count, p_present_modes
+    );
+    assertVk(result);
+
+    bool our_present_mode_is_supported = false;
+    for (u32fast i = 0; i < present_mode_count; i++) {
+        our_present_mode_is_supported |= (p_present_modes[i] == present_mode);
+    }
+    // TODO FIXME use a FIFO fallback if the present mode is not supported
+    alwaysAssert(our_present_mode_is_supported);
+
+
     VkSwapchainCreateInfoKHR swapchain_info {
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = surface,
@@ -1653,7 +1677,8 @@ static void createPerSwapchainImageSurfaceResources(
     VkSwapchainKHR swapchain,
     u32* image_count_out,
     VkImage** images_out,
-    VkSemaphore** image_acquired_semaphores_out
+    VkSemaphore** image_acquired_semaphores_out,
+    VkSemaphore** image_in_use_semaphores_out
 ) {
 
     u32 image_count = 0;
@@ -1669,19 +1694,54 @@ static void createPerSwapchainImageSurfaceResources(
 
 
     VkSemaphore* swapchain_image_acquired_semaphores = mallocArray(image_count, VkSemaphore);
+    {
+        VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
+            result = vk_dev_procs.CreateSemaphore(
+                device_, &semaphore_info, NULL, &swapchain_image_acquired_semaphores[im_idx]
+            );
+            assertVk(result);
+        }
+    }
 
-    VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
-        result = vk_dev_procs.CreateSemaphore(
-            device_, &semaphore_info, NULL, &swapchain_image_acquired_semaphores[im_idx]
-        );
+    VkSemaphore* swapchain_image_in_use_semaphores = mallocArray(image_count, VkSemaphore);
+    {
+        VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
+            result = vk_dev_procs.CreateSemaphore(
+                device_, &semaphore_info, NULL, &swapchain_image_in_use_semaphores[im_idx]
+            );
+            assertVk(result);
+        }
+    }
+
+    // set the image_in_use semaphores to signalled, so that we don't deadlock on the first frame
+    {
+        VkFence fence = VK_NULL_HANDLE;
+        VkFenceCreateInfo fence_info = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        result = vk_dev_procs.CreateFence(device_, &fence_info, NULL, &fence);
         assertVk(result);
+
+        VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 0,
+            .pCommandBuffers = NULL,
+            .signalSemaphoreCount = image_count,
+            .pSignalSemaphores = swapchain_image_in_use_semaphores,
+        };
+        result = vk_dev_procs.QueueSubmit(queue_, 1, &submit_info, fence);
+        assertVk(result);
+
+        result = vk_dev_procs.WaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+        assertVk(result);
+        vk_dev_procs.DestroyFence(device_, fence, NULL);
     }
 
 
     *image_count_out = image_count;
     *images_out = swapchain_images;
     *image_acquired_semaphores_out = swapchain_image_acquired_semaphores;
+    *image_in_use_semaphores_out = swapchain_image_in_use_semaphores;
 }
 
 /// Does not synchronize.
@@ -2097,7 +2157,8 @@ extern Result createSurfaceResources(
         swapchain,
         &p_resources->swapchain_image_count,
         &p_resources->swapchain_images,
-        &p_resources->swapchain_image_acquired_semaphores
+        &p_resources->swapchain_image_acquired_semaphores,
+        &p_resources->swapchain_image_in_use_semaphores
     );
 
 
@@ -2433,7 +2494,8 @@ extern Result updateSurfaceResources(
             new_swapchain,
             &p_surface_resources->swapchain_image_count,
             &p_surface_resources->swapchain_images,
-            &p_surface_resources->swapchain_image_acquired_semaphores
+            &p_surface_resources->swapchain_image_acquired_semaphores,
+            &p_surface_resources->swapchain_image_in_use_semaphores
         );
 
         p_surface_resources->last_used_swapchain_image_acquired_semaphore_idx = 0;
@@ -3164,16 +3226,31 @@ RenderResult render(
     assertVk(result);
 
 
-    const VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    constexpr u32 wait_semaphore_count = 2;
+    const VkSemaphore wait_semaphores[wait_semaphore_count] {
+        swapchain_image_acquired_semaphore,
+        p_surface_resources->swapchain_image_in_use_semaphores[acquired_swapchain_image_idx],
+    };
+    const VkPipelineStageFlags wait_dst_stage_mask[wait_semaphore_count] {
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+    };
+
+    constexpr u32 signal_semaphore_count = 2;
+    const VkSemaphore signal_semaphores[signal_semaphore_count] {
+        this_frame_resources->render_finished_semaphore,
+        p_surface_resources->swapchain_image_in_use_semaphores[acquired_swapchain_image_idx],
+    };
+
     const VkSubmitInfo submit_info {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &swapchain_image_acquired_semaphore,
-        .pWaitDstStageMask = &wait_dst_stage_mask,
+        .waitSemaphoreCount = wait_semaphore_count,
+        .pWaitSemaphores = wait_semaphores,
+        .pWaitDstStageMask = wait_dst_stage_mask,
         .commandBufferCount = 1,
         .pCommandBuffers = &command_buffer,
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &this_frame_resources->render_finished_semaphore,
+        .signalSemaphoreCount = signal_semaphore_count,
+        .pSignalSemaphores = signal_semaphores,
     };
     result = vk_dev_procs.QueueSubmit(queue_, 1, &submit_info, command_buffer_pending_fence);
     assertVk(result);

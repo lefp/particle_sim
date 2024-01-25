@@ -22,7 +22,8 @@
     X(GetDeviceProcAddr) \
     X(GetPhysicalDeviceProperties) \
     X(GetPhysicalDeviceQueueFamilyProperties) \
-    X(GetPhysicalDeviceSurfaceCapabilitiesKHR)
+    X(GetPhysicalDeviceSurfaceCapabilitiesKHR) \
+    X(GetPhysicalDeviceSurfacePresentModesKHR)
 
 #define FOR_EACH_DEVICE_PROC(X) \
     X(AcquireNextImageKHR) \
