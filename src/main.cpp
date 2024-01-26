@@ -14,6 +14,7 @@
 #include <imgui/imgui_impl_glfw.h>
 #include <imgui/imgui_impl_vulkan.h>
 #include <implot/implot.h>
+#include <tracy/tracy/Tracy.hpp>
 
 #include "types.hpp"
 #include "error_util.hpp"
@@ -303,6 +304,7 @@ static u32fast rayCast(
     u32fast voxel_count,
     const gfx::Voxel* p_voxels
 ) {
+    ZoneScoped;
 
     u32fast earliest_collision_idx = INVALID_VOXEL_IDX;
     f32 earliest_collision_time = INFINITY;
@@ -331,6 +333,8 @@ static u32fast rayCast(
 
 
 int main(int argc, char** argv) {
+
+    ZoneScoped;
 
     loguru::init(argc, argv);
     #ifndef NDEBUG
@@ -448,9 +452,10 @@ int main(int argc, char** argv) {
     u32fast frame_counter = 0;
 
 
+    // main loop
     while (true) {
 
-        LABEL_MAIN_LOOP_START: {}
+        ZoneScopedN("main loop");
 
         f64 delta_t_seconds = 0.0;
         {
@@ -488,9 +493,9 @@ int main(int argc, char** argv) {
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) goto LABEL_EXIT_MAIN_LOOP;
 
-        ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        { ZoneScopedN("ImGui_ImplVulkan_NewFrame"); ImGui_ImplVulkan_NewFrame(); }
+        { ZoneScopedN("ImGui_ImplGlfw_NewFrame"); ImGui_ImplGlfw_NewFrame(); }
+        { ZoneScopedN("ImGui::NewFrame"); ImGui::NewFrame(); }
 
 
         bool left_ctrl_r_was_pressed = left_ctrl_r_is_pressed_;
@@ -548,6 +553,8 @@ int main(int argc, char** argv) {
         }
 
         if (imgui_overlay_visible_) {
+
+            ZoneScopedN("Imgui");
 
             ImGuiWindowFlags common_imgui_window_flags = ImGuiWindowFlags_NoFocusOnAppearing;
             if (!cursor_visible_) common_imgui_window_flags |= ImGuiWindowFlags_NoInputs;
@@ -690,18 +697,24 @@ int main(int argc, char** argv) {
                 assertGraphics(gfx_result);
 
                 ImGui::EndFrame();
-                goto LABEL_MAIN_LOOP_START;
+                continue; // main loop
             }
         }
 
 
         ivec2 prev_window_pos = window_pos_;
-        glfwGetWindowPos(window, &window_pos_.x, &window_pos_.y);
+        {
+            ZoneScopedN("glfwGetWindowPos");
+            glfwGetWindowPos(window, &window_pos_.x, &window_pos_.y);
+        }
         abortIfGlfwError();
         bool window_repositioned = prev_window_pos != window_pos_;
 
         ivec2 prev_window_size = window_size_;
-        glfwGetWindowSize(window, &window_size_.x, &window_size_.y);
+        {
+            ZoneScopedN("glfwGetWindowSize");
+            glfwGetWindowSize(window, &window_size_.x, &window_size_.y);
+        }
         abortIfGlfwError();
 
         bool window_resized = prev_window_size != window_size_;
@@ -771,7 +784,10 @@ int main(int argc, char** argv) {
 
 
         dvec2 prev_cursor_pos = cursor_pos_;
-        checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
+        {
+            ZoneScopedN("checkedGlfwGetCursorPos");
+            checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
+        }
 
         // If window is resized or moved, the virtual cursor position reported by glfw changes even if the
         // user did not move it. We must ignore the cursor position change in this case.
@@ -859,12 +875,13 @@ int main(int argc, char** argv) {
             {
                 LOG_F(INFO, "Surface resources out of date.");
                 window_or_surface_out_of_date_ = true;
-                goto LABEL_MAIN_LOOP_START;
+                continue; // main loop
             }
             case gfx::RenderResult::success: break;
         }
 
         frame_counter++;
+        FrameMark;
     };
 
     LABEL_EXIT_MAIN_LOOP: {}

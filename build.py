@@ -10,13 +10,15 @@ import re
 from dataclasses import dataclass
 
 DEBUG_BUILD = True
+TRACY = True
 
 BUILD_DIR_PATH = 'build'
 INTERMEDIATE_OBJECTS_PATH = BUILD_DIR_PATH + '/intermediate_objects'
 
 COMMON_COMPILE_FLAGS: list[str] = (
     (['-g3'] if DEBUG_BUILD else ['-O3', '-DNDEBUG']) +
-    ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES']
+    ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES'] +
+    ['-DTRACY_ENABLE'] if TRACY else []
 )
 
 glfw_link_flags_str, stderr = (
@@ -148,8 +150,22 @@ lib_implot = Library(
     ],
     additional_compile_flags = ['-isystem', 'libs/imgui']
 )
+lib_tracy = Library(
+    source_file_paths = [
+        'libs/tracy/' + s
+        for s in filesInDirWithSuffix('libs/tracy', '.cpp')
+    ],
+    additional_compile_flags = ['-isystem', 'libs/tracy']
+)
 
-libs = [lib_my_app, lib_loguru, lib_imgui, lib_implot]
+libs = [
+    lib_my_app,
+    lib_loguru,
+    lib_imgui,
+    lib_implot,
+]
+if TRACY: libs.append(lib_tracy)
+
 for lib in libs:
     for source_file_path in lib.source_file_paths:
         gcc_process = sp.Popen(

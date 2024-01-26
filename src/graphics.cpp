@@ -32,6 +32,8 @@
 
 #include <shaderc/shaderc.h>
 
+#include <tracy/tracy/Tracy.hpp>
+
 #include "types.hpp"
 #include "error_util.hpp"
 #include "vk_procs.hpp"
@@ -493,6 +495,7 @@ static void selectPhysicalDeviceAndQueueFamily(
 /// If `specific_device_request` isn't NULL, attempts to select a device with that name.
 /// If no such device exists or doesn't satisfactory requirements, silently selects a different device.
 static void initGraphicsUptoQueueCreation(const char* app_name, const char* specific_named_device_request) {
+    ZoneScoped;
 
     if (!glfwVulkanSupported()) ABORT_F("Failed to find Vulkan; do you need to install drivers?");
     vk_base_procs.init((PFN_vkGetInstanceProcAddr)glfwGetInstanceProcAddress);
@@ -690,6 +693,8 @@ static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
     const char* shader_src_filename,
     shaderc_shader_kind shader_type
 ) {
+    ZoneScoped;
+
     // TODO: should we lock the source file while reading it? Maybe using something like `fcntl` or `flock`.
 
     size_t file_size = 0;
@@ -721,6 +726,7 @@ static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
     const u32* p_spirv_bytes,
     VkShaderModule* p_shader_module_out
 ) {
+    ZoneScoped;
 
     VkShaderModuleCreateInfo cinfo {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -1836,6 +1842,8 @@ static bool recordCommandBuffer(
     const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants,
     ImDrawData* imgui_draw_data
 ) {
+    ZoneScoped;
+
     VkCommandBuffer command_buffer = p_frame_resources->command_buffer;
 
     // TODO replace magic number with some named constant (it's the number of render pass attachments with
@@ -2011,6 +2019,8 @@ extern bool initImGuiVulkanBackend(void) {
 
 extern void init(const char* app_name, const char* specific_named_device_request) {
 
+    ZoneScoped;
+
     // TODO remaining work:
     // Set up validation layer debug logging thing, to log their messages as loguru messages. This way they
     // will be logged if we're logging to a file.
@@ -2070,74 +2080,81 @@ extern void init(const char* app_name, const char* specific_named_device_request
 
     the_only_subpass_ = 0;
 
-    for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
+    {
+        ZoneScopedN("pipeline init");
 
-        const PipelineBuildFromSpirvFilesInfo* p_build_info =
-            &PIPELINE_BUILD_FROM_SPIRV_FILES_INFOS[pipeline_idx];
+        for (u32fast pipeline_idx = 0; pipeline_idx < PIPELINE_INDEX_COUNT; pipeline_idx++) {
 
-
-        size_t vertex_shader_spirv_byte_count = 0;
-        void* vertex_shader_spirv_bytes = readEntireFile(
-            p_build_info->vertex_shader_spirv_filepath,
-            &vertex_shader_spirv_byte_count
-        );
-        alwaysAssert(vertex_shader_spirv_bytes != NULL);
-        defer(free(vertex_shader_spirv_bytes));
-
-        alwaysAssert(vertex_shader_spirv_byte_count % sizeof(u32) == 0);
-        alwaysAssert((uintptr_t)vertex_shader_spirv_bytes % alignof(u32) == 0);
-
-        VkShaderModule vertex_shader_module = VK_NULL_HANDLE;
-        result = createShaderModuleFromSpirv(
-            device_,
-            (u32)vertex_shader_spirv_byte_count,
-            (const u32*)vertex_shader_spirv_bytes,
-            &vertex_shader_module
-        );
-        assertVk(result);
-        shader_modules_[pipeline_idx].vertex_shader_module = vertex_shader_module;
+            const PipelineBuildFromSpirvFilesInfo* p_build_info =
+                &PIPELINE_BUILD_FROM_SPIRV_FILES_INFOS[pipeline_idx];
 
 
-        size_t fragment_shader_spirv_byte_count = 0;
-        void* fragment_shader_spirv_bytes = readEntireFile(
-            p_build_info->fragment_shader_spirv_filepath,
-            &fragment_shader_spirv_byte_count
-        );
-        alwaysAssert(fragment_shader_spirv_bytes != NULL);
-        defer(free(fragment_shader_spirv_bytes));
+            size_t vertex_shader_spirv_byte_count = 0;
+            void* vertex_shader_spirv_bytes = readEntireFile(
+                p_build_info->vertex_shader_spirv_filepath,
+                &vertex_shader_spirv_byte_count
+            );
+            alwaysAssert(vertex_shader_spirv_bytes != NULL);
+            defer(free(vertex_shader_spirv_bytes));
 
-        alwaysAssert(vertex_shader_spirv_byte_count % sizeof(u32) == 0);
-        alwaysAssert((uintptr_t)vertex_shader_spirv_bytes % alignof(u32) == 0);
+            alwaysAssert(vertex_shader_spirv_byte_count % sizeof(u32) == 0);
+            alwaysAssert((uintptr_t)vertex_shader_spirv_bytes % alignof(u32) == 0);
 
-        VkShaderModule fragment_shader_module = VK_NULL_HANDLE;
-        result = createShaderModuleFromSpirv(
-            device_,
-            (u32)fragment_shader_spirv_byte_count,
-            (const u32*)fragment_shader_spirv_bytes,
-            &fragment_shader_module
-        );
-        assertVk(result);
-        shader_modules_[pipeline_idx].fragment_shader_module = fragment_shader_module;
+            VkShaderModule vertex_shader_module = VK_NULL_HANDLE;
+            result = createShaderModuleFromSpirv(
+                device_,
+                (u32)vertex_shader_spirv_byte_count,
+                (const u32*)vertex_shader_spirv_bytes,
+                &vertex_shader_module
+            );
+            assertVk(result);
+            shader_modules_[pipeline_idx].vertex_shader_module = vertex_shader_module;
 
 
-        PipelineAndLayout* p_pipeline = &pipelines_[pipeline_idx];
-        bool success = p_build_info->pfn_createPipeline(
-            device_,
-            vertex_shader_module, fragment_shader_module,
-            render_pass, the_only_subpass_, descriptor_set_layout_,
-            &p_pipeline->pipeline, &p_pipeline->layout
-        );
-        alwaysAssert(success);
+            size_t fragment_shader_spirv_byte_count = 0;
+            void* fragment_shader_spirv_bytes = readEntireFile(
+                p_build_info->fragment_shader_spirv_filepath,
+                &fragment_shader_spirv_byte_count
+            );
+            alwaysAssert(fragment_shader_spirv_bytes != NULL);
+            defer(free(fragment_shader_spirv_bytes));
+
+            alwaysAssert(vertex_shader_spirv_byte_count % sizeof(u32) == 0);
+            alwaysAssert((uintptr_t)vertex_shader_spirv_bytes % alignof(u32) == 0);
+
+            VkShaderModule fragment_shader_module = VK_NULL_HANDLE;
+            result = createShaderModuleFromSpirv(
+                device_,
+                (u32)fragment_shader_spirv_byte_count,
+                (const u32*)fragment_shader_spirv_bytes,
+                &fragment_shader_module
+            );
+            assertVk(result);
+            shader_modules_[pipeline_idx].fragment_shader_module = fragment_shader_module;
+
+
+            PipelineAndLayout* p_pipeline = &pipelines_[pipeline_idx];
+            bool success = p_build_info->pfn_createPipeline(
+                device_,
+                vertex_shader_module, fragment_shader_module,
+                render_pass, the_only_subpass_, descriptor_set_layout_,
+                &p_pipeline->pipeline, &p_pipeline->layout
+            );
+            alwaysAssert(success);
+        }
     }
 
 
-    bool success = libshaderc_procs_.init();
-    // TODO FIXME we should just log an error message, disable the hot-reloading feature, and continue
-    // running. This isn't fatal, after all.
-    alwaysAssert(success);
+    {
+        ZoneScopedN("libshaderc init");
+        bool success = libshaderc_procs_.init();
+        // TODO FIXME we should just log an error message, disable the hot-reloading feature, and continue
+        // running. This isn't fatal, after all.
+        alwaysAssert(success);
 
-    libshaderc_compiler_ = libshaderc_procs_.compiler_initialize();
-    alwaysAssert(libshaderc_compiler_ != NULL);
+        libshaderc_compiler_ = libshaderc_procs_.compiler_initialize();
+        alwaysAssert(libshaderc_compiler_ != NULL);
+    }
 
 
     initialized_ = true;
@@ -2182,6 +2199,7 @@ extern Result createSurfaceResources(
     SurfaceResources* surface_resources_out,
     PresentMode* selected_present_mode_out
 ) {
+    ZoneScoped;
 
     SurfaceResourcesImpl* p_resources = (SurfaceResourcesImpl*)calloc(1, sizeof(SurfaceResourcesImpl));
     assertErrno(p_resources != NULL);
@@ -2251,6 +2269,7 @@ extern Result createSurfaceResources(
 /// `renderer` must not currently have any surface attached.
 /// `surface` must not currently have any renderer attached.
 extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources renderer) {
+    ZoneScoped;
 
     VkResult result;
 
@@ -2490,6 +2509,7 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
 }
 
 extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources renderer) {
+    ZoneScoped;
 
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
     RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)renderer.impl;
@@ -2539,6 +2559,7 @@ extern Result updateSurfaceResources(
     VkExtent2D fallback_window_size,
     PresentMode* selected_present_mode_out
 ) {
+    ZoneScoped;
 
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface_resources.impl;
 
@@ -2623,6 +2644,7 @@ extern Result updateSurfaceResources(
 
 
 extern Result createRenderer(RenderResources* render_resources_out) {
+    ZoneScoped;
 
     VkResult result;
 
@@ -2867,6 +2889,8 @@ extern Result createRenderer(RenderResources* render_resources_out) {
     shaderc_shader_kind shader_type,
     VkShaderModule* p_shader_module_out
 ) {
+    ZoneScoped;
+
     shaderc_compilation_result_t compile_result = compileShaderSrcFileToSpirv(
         shader_src_filepath, shader_type
     );
@@ -2915,6 +2939,8 @@ extern Result createRenderer(RenderResources* render_resources_out) {
 
 
 bool reloadAllShaders(RenderResources renderer) {
+
+    ZoneScoped;
 
     LOG_F(INFO, "Reloading all shaders");
 
@@ -3023,6 +3049,8 @@ RenderResult render(
     const u32* p_outlined_voxel_indices
 ) {
 
+    ZoneScoped;
+
     VkResult result;
 
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface.impl;
@@ -3041,14 +3069,17 @@ RenderResult render(
         swapchain_image_acquired_semaphore =
             p_surface_resources->swapchain_image_acquired_semaphores[im_acquired_semaphore_idx];
 
-        result = vk_dev_procs.AcquireNextImageKHR(
-            device_,
-            p_surface_resources->swapchain,
-            UINT64_MAX,
-            swapchain_image_acquired_semaphore,
-            VK_NULL_HANDLE,
-            &acquired_swapchain_image_idx
-        );
+        {
+            ZoneScopedN("acquireNextImage");
+            result = vk_dev_procs.AcquireNextImageKHR(
+                device_,
+                p_surface_resources->swapchain,
+                UINT64_MAX,
+                swapchain_image_acquired_semaphore,
+                VK_NULL_HANDLE,
+                &acquired_swapchain_image_idx
+            );
+        }
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
             LOG_F(INFO, "acquireNextImageKHR returned VK_ERROR_OUT_OF_DATE_KHR. `render()` returning early.");
@@ -3066,8 +3097,11 @@ RenderResult render(
 
     const VkFence command_buffer_pending_fence = this_frame_resources->command_buffer_pending_fence;
 
-    result = vk_dev_procs.WaitForFences(device_, 1, &command_buffer_pending_fence, VK_TRUE, UINT64_MAX);
-    assertVk(result);
+    {
+        ZoneScopedN("wait for command_buffer_pending_fence");
+        result = vk_dev_procs.WaitForFences(device_, 1, &command_buffer_pending_fence, VK_TRUE, UINT64_MAX);
+        assertVk(result);
+    }
 
     result = vk_dev_procs.ResetFences(device_, 1, &command_buffer_pending_fence);
     assertVk(result);
@@ -3186,6 +3220,8 @@ RenderResult render(
     result = vk_dev_procs.BeginCommandBuffer(command_buffer, &begin_info);
     assertVk(result);
     {
+        ZoneScopedN("cmd buf record");
+
         // TODO maybe we shouldn't hardcode this, if we're doing the whole "attached renderer" thing?
         // Maybe have a function pointer in the renderer or something to the appropriate Render function. Idk,
         // this is getting kinda weird. Maybe we should just ditch the whole generic crap.
@@ -3374,7 +3410,10 @@ RenderResult render(
         .pSwapchains = &p_surface_resources->swapchain,
         .pImageIndices = &acquired_swapchain_image_idx,
     };
-    result = vk_dev_procs.QueuePresentKHR(queue_, &present_info);
+    {
+        ZoneScopedN("queuePresent");
+        result = vk_dev_procs.QueuePresentKHR(queue_, &present_info);
+    }
 
     switch (result) {
         case VK_ERROR_OUT_OF_DATE_KHR: return RenderResult::error_surface_resources_out_of_date;
@@ -3441,6 +3480,8 @@ extern bool setShaderSourceFileModificationTracking(bool enable) {
 // so maybe that should be global? ugh. Maybe you need to sit down and try to draw out a dependency graph
 // that includes RenderResources, pipelines, render passes, and descriptor set layouts.
 extern ShaderReloadResult reloadModifiedShaderSourceFiles(RenderResources renderer) {
+
+    ZoneScoped;
 
     assert(initialized_);
     assert(shader_source_file_watch_enabled_ && "Shader source file tracking is not enabled!");
