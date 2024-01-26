@@ -270,7 +270,7 @@ struct Ray {
 /// TODO FIXME:
 /// 1. Doesn't handle the case where the ray is parallel to an axis.
 /// 2. Don't know if it handles the case where the ray origin is inside the box.
-static f32 rayBoxInteriorCollisionTime(const Ray* ray, const AxisAlignedBox* box) {
+static inline f32 rayBoxInteriorCollisionTime(const Ray* ray, const AxisAlignedBox* box) {
 
     f32 t_x0 = (box->x_min - ray->origin.x) * ray->direction_reciprocal.x;
     f32 t_y0 = (box->y_min - ray->origin.y) * ray->direction_reciprocal.y;
