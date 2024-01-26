@@ -56,6 +56,31 @@ enum class [[nodiscard]] ShaderReloadResult {
     error,
 };
 
+enum PresentMode {
+    PRESENT_MODE_IMMEDIATE = 0,
+    PRESENT_MODE_MAILBOX = 1,
+    PRESENT_MODE_FIFO = 2,
+    PRESENT_MODE_ENUM_COUNT
+};
+static_assert((int)PRESENT_MODE_IMMEDIATE == (int)VK_PRESENT_MODE_IMMEDIATE_KHR);
+static_assert((int)PRESENT_MODE_MAILBOX == (int)VK_PRESENT_MODE_MAILBOX_KHR);
+static_assert((int)PRESENT_MODE_FIFO == (int)VK_PRESENT_MODE_FIFO_KHR);
+
+enum PresentModeFlagBits : u8 {
+    PRESENT_MODE_IMMEDIATE_BIT = 1 << PRESENT_MODE_IMMEDIATE,
+    PRESENT_MODE_MAILBOX_BIT = 1 << PRESENT_MODE_MAILBOX,
+    PRESENT_MODE_FIFO_BIT = 1 << PRESENT_MODE_FIFO,
+};
+using PresentModeFlags = u8;
+static inline PresentModeFlagBits PresentModeFlagBits_fromMode(PresentMode mode) {
+    return (PresentModeFlagBits)(1 << mode);
+}
+
+/// Initialize using the PresentMode enum as an index.
+/// Larger number indicates higher priority.
+/// 0 means "don't use this present mode in any case".
+using PresentModePriorities = u8[PRESENT_MODE_ENUM_COUNT];
+
 //
 // ===========================================================================================================
 //
@@ -67,16 +92,27 @@ void init(const char* app_name, const char* specific_named_device_request);
 /// Calls `ImGui_ImplVulkan_Init()`. You might need to call `ImGui::CreateContext()` earlier, idk.
 bool initImGuiVulkanBackend(void);
 
+/// Not expensive.
+PresentModeFlags getSupportedPresentModes(SurfaceResources);
+
+/// `selected_present_mode_out` may be NULL.
 /// The fallback size is used if it fails to determine the window size via Vulkan. I recommend you pass the
 /// current window size, as reported by the window library you're using (GLFW, X11, etc).
 /// Returns `error_window_size_zero` if the max surface size is found to be zero, or if the fallback size is
 /// used and found to be zero.
 Result createSurfaceResources(
     VkSurfaceKHR surface,
+    const PresentModePriorities present_mode_priorities,
     VkExtent2D fallback_window_size,
-    SurfaceResources* surface_resources_out
+    SurfaceResources* surface_resources_out,
+    PresentMode* selected_present_mode_out
 );
-Result updateSurfaceResources(SurfaceResources, VkExtent2D fallback_window_size);
+Result updateSurfaceResources(
+    SurfaceResources surface_resources,
+    const PresentModePriorities present_mode_priorities,
+    VkExtent2D fallback_window_size,
+    PresentMode* selected_present_mode_out
+);
 void destroySurfaceResources(SurfaceResources);
 
 void attachSurfaceToRenderer(SurfaceResources surface, RenderResources renderer);

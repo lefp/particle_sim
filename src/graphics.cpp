@@ -200,10 +200,6 @@ static u32 the_only_subpass_ = INVALID_SUBPASS_IDX;
 static PipelineAndLayout pipelines_[PIPELINE_INDEX_COUNT] {};
 static GraphicsPipelineShaderModules shader_modules_[PIPELINE_INDEX_COUNT] {};
 
-// TODO FIXME: temporary default, because my Nvidia driver doesn't support MAILBOX and I haven't fixed the
-// high latency in FIFO.
-static VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_IMMEDIATE_KHR;
-
 static VmaAllocator vma_allocator_ = NULL;
 
 static VkDescriptorSetLayout descriptor_set_layout_ = VK_NULL_HANDLE;
@@ -336,6 +332,8 @@ struct SurfaceResourcesImpl {
     u32 last_used_swapchain_image_acquired_semaphore_idx;
 
     RenderResourcesImpl* attached_render_resources; // can be NULL if nothing is attached
+
+    PresentModeFlags supported_present_modes;
 };
 
 //
@@ -1534,6 +1532,32 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
 }
 
 
+/// On failure, sets `p_present_mode_count_out` to 0 and returns `NULL`.
+/// You own the returned array. You are responsible for freeing it via `free()`.
+static VkPresentModeKHR* getSupportedVkPresentModes(VkSurfaceKHR surface, u32* p_present_mode_count_out) {
+
+    assert(initialized_);
+    VkResult result;
+
+
+    result = vk_inst_procs.GetPhysicalDeviceSurfacePresentModesKHR(
+        physical_device_, surface, p_present_mode_count_out, NULL
+    );
+    assertVk(result);
+    if (p_present_mode_count_out == 0) return NULL;
+
+    VkPresentModeKHR* p_present_modes = mallocArray(*p_present_mode_count_out, VkPresentModeKHR);
+    result = vk_inst_procs.GetPhysicalDeviceSurfacePresentModesKHR(
+        physical_device_, surface, p_present_mode_count_out, p_present_modes
+    );
+    assertVk(result);
+
+
+    return p_present_modes;
+}
+
+
+/// Doesn't verify present mode support. You must do so before calling this.
 /// Doesn't verify surface support. You must do so before calling this.
 /// `fallback_extent` is used if the surface doesn't report a specific extent via Vulkan surface properties.
 ///     If you want resizing to work on all platforms, you should probably get the window's current dimensions
@@ -1554,6 +1578,22 @@ static Result createSwapchain(
      VkSwapchainKHR* swapchain_out,
      VkExtent2D* extent_out
 ) {
+
+    #ifndef NDEBUG
+    {
+        u32 supported_mode_count = 0;
+        VkPresentModeKHR* supported_modes = getSupportedVkPresentModes(surface, &supported_mode_count);
+
+        bool present_mode_supported = false;
+        for (u32fast i = 0; i < supported_mode_count; i++) {
+            present_mode_supported |= (supported_modes[i] == present_mode);
+        }
+        assert(present_mode_supported);
+
+        free(supported_modes);
+    }
+    #endif
+
 
     VkSurfaceCapabilitiesKHR surface_capabilities {};
     VkResult result = vk_inst_procs.GetPhysicalDeviceSurfaceCapabilitiesKHR(
@@ -1582,7 +1622,6 @@ static Result createSwapchain(
             count_preclamp, min_image_count_request
         );
     }
-    LOG_F(INFO, "Will request minImageCount=%" PRIu32 " for swapchain creation.", min_image_count_request);
 
 
     // Vk spec 1.3.234:
@@ -1623,28 +1662,10 @@ static Result createSwapchain(
     alwaysAssert(surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
 
-    u32 present_mode_count = 0;
-    result = vk_inst_procs.GetPhysicalDeviceSurfacePresentModesKHR(
-        physical_device, surface, &present_mode_count, NULL
+    LOG_F(
+        INFO, "Requesting minImageCount=%" PRIu32 ", presentMode=%i for swapchain creation.",
+        min_image_count_request, present_mode
     );
-    assertVk(result);
-    alwaysAssert(present_mode_count != 0);
-
-    VkPresentModeKHR* p_present_modes = mallocArray(present_mode_count, VkPresentModeKHR);
-    defer(free(p_present_modes));
-    result = vk_inst_procs.GetPhysicalDeviceSurfacePresentModesKHR(
-        physical_device, surface, &present_mode_count, p_present_modes
-    );
-    assertVk(result);
-
-    bool our_present_mode_is_supported = false;
-    for (u32fast i = 0; i < present_mode_count; i++) {
-        our_present_mode_is_supported |= (p_present_modes[i] == present_mode);
-    }
-    // TODO FIXME use a FIFO fallback if the present mode is not supported
-    alwaysAssert(our_present_mode_is_supported);
-
-
     VkSwapchainCreateInfoKHR swapchain_info {
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = surface,
@@ -2123,10 +2144,43 @@ extern void init(const char* app_name, const char* specific_named_device_request
 }
 
 
+extern PresentModeFlags getSupportedPresentModes(SurfaceResources surface_resources) {
+    const SurfaceResourcesImpl* p_surface_resources = (const SurfaceResourcesImpl*)surface_resources.impl;
+    return p_surface_resources->supported_present_modes;
+};
+
+
+/// Returns VK_PRESENT_MODE_MAX_ENUM_KHR if there is no mode in `p_modes` whose priority > 0.
+static VkPresentModeKHR selectHighestPriorityPresentMode(
+    const PresentModePriorities priorities,
+    u32 mode_count,
+    VkPresentModeKHR* p_modes
+) {
+    VkPresentModeKHR highest_priority_mode = VK_PRESENT_MODE_MAX_ENUM_KHR;
+    u8 highest_priority = 0;
+
+    for (u32fast mode_idx = 0; mode_idx < mode_count; mode_idx++) {
+
+        VkPresentModeKHR mode = p_modes[mode_idx];
+        if (mode >= (int)PRESENT_MODE_ENUM_COUNT) continue;
+
+        u8 priority = priorities[mode];
+        if (priority <= highest_priority) continue;
+
+        highest_priority_mode = mode;
+        highest_priority = priority;
+    }
+
+    return highest_priority_mode;
+};
+
+
 extern Result createSurfaceResources(
     VkSurfaceKHR surface,
+    const PresentModePriorities present_mode_priorities,
     VkExtent2D fallback_window_size,
-    SurfaceResources* surface_resources_out
+    SurfaceResources* surface_resources_out,
+    PresentMode* selected_present_mode_out
 ) {
 
     SurfaceResourcesImpl* p_resources = (SurfaceResourcesImpl*)calloc(1, sizeof(SurfaceResourcesImpl));
@@ -2138,10 +2192,34 @@ extern Result createSurfaceResources(
     p_resources->last_used_swapchain_image_acquired_semaphore_idx = 0;
 
 
+    VkPresentModeKHR present_mode;
+    {
+        u32 supported_mode_count = 0;
+        VkPresentModeKHR* p_supported_modes = getSupportedVkPresentModes(surface, &supported_mode_count);
+        alwaysAssert(p_supported_modes != NULL);
+        defer(free(p_supported_modes));
+
+        PresentModeFlags supported_mode_flags = 0;
+        for (u32fast i = 0; i < supported_mode_count; i++) {
+            VkPresentModeKHR mode = p_supported_modes[i];
+            if (p_supported_modes[i] < (int)PRESENT_MODE_ENUM_COUNT) {
+                supported_mode_flags |= PresentModeFlagBits_fromMode((PresentMode)mode);
+            }
+        }
+
+        p_resources->supported_present_modes = supported_mode_flags;
+
+        present_mode = selectHighestPriorityPresentMode(
+            present_mode_priorities, supported_mode_count, p_supported_modes
+        );
+        alwaysAssert(present_mode != VK_PRESENT_MODE_MAX_ENUM_KHR);
+    }
+
+
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     VkExtent2D swapchain_extent {};
     Result res = createSwapchain(
-        physical_device_, device_, surface, fallback_window_size, queue_family_, present_mode_,
+        physical_device_, device_, surface, fallback_window_size, queue_family_, present_mode,
         VK_NULL_HANDLE, // old_swapchain
         &swapchain, &swapchain_extent
     );
@@ -2165,6 +2243,7 @@ extern Result createSurfaceResources(
 
 
     surface_resources_out->impl = p_resources;
+    if (selected_present_mode_out != NULL) *selected_present_mode_out = (PresentMode)present_mode;
     return Result::success;
 }
 
@@ -2453,13 +2532,41 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
 }
 
 
-/// Use if a window resize has caused the resources to be out-of-date.
+/// Use if a window resize has caused the resources to be out-of-date, or to switch present modes.
 extern Result updateSurfaceResources(
     SurfaceResources surface_resources,
-    VkExtent2D fallback_window_size
+    const PresentModePriorities present_mode_priorities,
+    VkExtent2D fallback_window_size,
+    PresentMode* selected_present_mode_out
 ) {
 
     SurfaceResourcesImpl* p_surface_resources = (SurfaceResourcesImpl*)surface_resources.impl;
+
+
+    VkPresentModeKHR present_mode;
+    {
+        u32 supported_mode_count = 0;
+        VkPresentModeKHR* p_supported_modes = getSupportedVkPresentModes(
+            p_surface_resources->surface, &supported_mode_count
+        );
+        alwaysAssert(p_supported_modes != NULL);
+        defer(free(p_supported_modes));
+
+        PresentModeFlags supported_mode_flags = 0;
+        for (u32fast i = 0; i < supported_mode_count; i++) {
+            VkPresentModeKHR mode = p_supported_modes[i];
+            if (p_supported_modes[i] < (int)PRESENT_MODE_ENUM_COUNT) {
+                supported_mode_flags |= PresentModeFlagBits_fromMode((PresentMode)mode);
+            }
+        }
+
+        p_surface_resources->supported_present_modes = supported_mode_flags;
+
+        present_mode = selectHighestPriorityPresentMode(
+            present_mode_priorities, supported_mode_count, p_supported_modes
+        );
+        alwaysAssert(present_mode != VK_PRESENT_MODE_MAX_ENUM_KHR);
+    }
 
 
     VkSwapchainKHR old_swapchain = p_surface_resources->swapchain;
@@ -2467,7 +2574,7 @@ extern Result updateSurfaceResources(
 
     Result res = createSwapchain(
         physical_device_, device_, p_surface_resources->surface, fallback_window_size, queue_family_,
-        present_mode_, old_swapchain, &new_swapchain, &p_surface_resources->swapchain_extent
+        present_mode, old_swapchain, &new_swapchain, &p_surface_resources->swapchain_extent
     );
     if (res == Result::error_window_size_zero) return res;
     else assertGraphics(res);
@@ -2510,6 +2617,7 @@ extern Result updateSurfaceResources(
         attachSurfaceToRenderer(surface_resources, RenderResources { .impl = p_render_resources });
     }
 
+    if (selected_present_mode_out != NULL) *selected_present_mode_out = (PresentMode)present_mode;
     return Result::success;
 }
 

@@ -65,6 +65,12 @@ constexpr f64 FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS = 1. / 30.;
 constexpr u32fast FRAMETIME_PLOT_MAX_SAMPLE_COUNT =
     (u32fast)(FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS / FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS);
 
+const u8 DEFAULT_PRESENT_MODE_PRIORITIES[3] {
+    [gfx::PRESENT_MODE_IMMEDIATE] = 1,
+    [gfx::PRESENT_MODE_MAILBOX] = 3,
+    [gfx::PRESENT_MODE_FIFO] = 2,
+};
+
 //
 // Global variables ==========================================================================================
 //
@@ -134,6 +140,9 @@ f64 frametimeplot_last_sample_time_ = 0.0;
 u32fast frametimeplot_frames_since_last_sample_ = 0;
 f64 frametimeplot_largest_reading_since_last_sample_ = 0;
 bool frametimeplot_paused_ = false;
+
+gfx::PresentMode present_mode_ = gfx::PRESENT_MODE_ENUM_COUNT;
+gfx::PresentModePriorities present_mode_priorities_ {};
 
 //
 // ===========================================================================================================
@@ -380,11 +389,16 @@ int main(int argc, char** argv) {
     // TODO if current_width == current_height == 0, check if window is minimized or something; if it is, do
     // something that doesn't waste resources
 
+
+    memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
+
     gfx::SurfaceResources gfx_surface {};
     res = gfx::createSurfaceResources(
         vk_surface,
+        present_mode_priorities_,
         VkExtent2D { .width = (u32)window_size_.x, .height = (u32)window_size_.y },
-        &gfx_surface
+        &gfx_surface,
+        &present_mode_
     );
     // TODO handle error_window_size_zero
     assertGraphics(res);
@@ -636,6 +650,48 @@ int main(int argc, char** argv) {
             }
 
             ImGui::End();
+
+
+            ImGui::Begin("Present mode");
+
+            gfx::PresentModeFlags supported_present_modes = gfx::getSupportedPresentModes(gfx_surface);
+            bool present_mode_button_pressed = false;
+            int selected_present_mode = present_mode_;
+            {
+                ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_MAILBOX_BIT));
+                present_mode_button_pressed |= ImGui::RadioButton(
+                    "Mailbox", &selected_present_mode, gfx::PRESENT_MODE_MAILBOX
+                );
+                ImGui::EndDisabled();
+
+                ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_FIFO_BIT));
+                present_mode_button_pressed |= ImGui::RadioButton(
+                    "FIFO", &selected_present_mode, gfx::PRESENT_MODE_FIFO
+                );
+                ImGui::EndDisabled();
+
+                ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_IMMEDIATE_BIT));
+                present_mode_button_pressed |= ImGui::RadioButton(
+                    "Immediate", &selected_present_mode, gfx::PRESENT_MODE_IMMEDIATE
+                );
+                ImGui::EndDisabled();
+            }
+            ImGui::End();
+
+            if (present_mode_button_pressed and selected_present_mode != present_mode_) {
+
+                memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
+                assert(0 <= selected_present_mode and selected_present_mode < gfx::PRESENT_MODE_ENUM_COUNT);
+                present_mode_priorities_[selected_present_mode] = UINT8_MAX;
+
+                gfx::Result gfx_result = gfx::updateSurfaceResources(
+                    gfx_surface, present_mode_priorities_, DEFAULT_WINDOW_EXTENT, &present_mode_
+                );
+                assertGraphics(gfx_result);
+
+                ImGui::EndFrame();
+                goto LABEL_MAIN_LOOP_START;
+            }
         }
 
 
@@ -656,7 +712,9 @@ int main(int argc, char** argv) {
 
             res = gfx::updateSurfaceResources(
                 gfx_surface,
-                VkExtent2D { (u32)window_size_.x, (u32)window_size_.y }
+                present_mode_priorities_,
+                VkExtent2D { (u32)window_size_.x, (u32)window_size_.y },
+                &present_mode_
             );
             assertGraphics(res);
 
@@ -812,6 +870,6 @@ int main(int argc, char** argv) {
     LABEL_EXIT_MAIN_LOOP: {}
 
 
-    glfwTerminate();
+    glfwTerminate(); // TODO delet this; it sometimes adds (unnecessary, I think?) significant shutdown time.
     exit(0);
 }
