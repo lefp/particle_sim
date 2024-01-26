@@ -1941,7 +1941,10 @@ static bool recordCommandBuffer(
     }
 
 
-    if (imgui_draw_data != NULL) ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
+    if (imgui_draw_data != NULL) {
+        ZoneScopedN("ImGui_ImplVulkan_RenderDrawData");
+        ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
+    }
 
     vk_dev_procs.CmdEndRenderPass(command_buffer);
 
