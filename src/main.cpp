@@ -102,11 +102,8 @@ bool left_ctrl_r_is_pressed_ = false;
 
 bool imgui_overlay_visible_ = false;
 
-u32fast voxel_count_ = 2;
-gfx::Voxel voxels_[] {
-    { .coord = ivec3 {0.0, 0.0, 0.0}, .color = u8vec4 { 255, 0, 0, 255 } },
-    { .coord = ivec3 {2.0, 2.0, 2.0}, .color = u8vec4 { 0, 255, 0, 255 } },
-};
+u32fast voxel_count_ = 0;
+gfx::Voxel* p_voxels_ = NULL;
 
 bool shader_autoreload_enabled_ = true;
 bool shader_file_tracking_enabled_ = false;
@@ -446,6 +443,24 @@ int main(int argc, char** argv) {
 
     success = gfx::initImGuiVulkanBackend();
     alwaysAssert(success);
+
+
+    voxel_count_ = 100'000;
+    p_voxels_ = mallocArray(voxel_count_, gfx::Voxel);
+
+    for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
+
+        vec3 random_0_to_1 {
+            (f32)rand() / (f32)RAND_MAX,
+            (f32)rand() / (f32)RAND_MAX,
+            (f32)rand() / (f32)RAND_MAX,
+        };
+
+        p_voxels_[voxel_idx] = gfx::Voxel {
+            .coord = (random_0_to_1 - 0.5f) * 500.0f,
+            .color = vec4(random_0_to_1 * 255.0f, 255.0f),
+        };
+    }
 
 
     checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
@@ -819,7 +834,7 @@ int main(int argc, char** argv) {
             camera_pos_ + camera_direction_unit * (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
             camera_direction_unit,
             voxel_count_,
-            voxels_
+            p_voxels_
         );
 
         u32 outlined_voxel_index_count = 0;
@@ -864,7 +879,7 @@ int main(int argc, char** argv) {
             &world_to_screen_transform_inverse,
             imgui_draw_data,
             (u32)voxel_count_,
-            voxels_,
+            p_voxels_,
             (u32)outlined_voxel_index_count,
             &outlined_voxel_index
         );
