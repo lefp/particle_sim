@@ -259,21 +259,26 @@ struct AxisAlignedBox {
     f32 y_max;
     f32 z_max;
 };
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+    vec3 direction_reciprocal;
+};
 // TODO OPTIMIZE
 // src: https://tavianator.com/2022/ray_box_boundary.html
 /// Returns a number <= 0 if there is no collision.
 /// TODO FIXME:
 /// 1. Doesn't handle the case where the ray is parallel to an axis.
 /// 2. Don't know if it handles the case where the ray origin is inside the box.
-static f32 rayBoxInteriorCollisionTime(vec3 ray_origin, vec3 ray_direction, const AxisAlignedBox* box) {
+static f32 rayBoxInteriorCollisionTime(const Ray* ray, const AxisAlignedBox* box) {
 
-    f32 t_x0 = (box->x_min - ray_origin.x) / ray_direction.x;
-    f32 t_y0 = (box->y_min - ray_origin.y) / ray_direction.y;
-    f32 t_z0 = (box->z_min - ray_origin.z) / ray_direction.z;
+    f32 t_x0 = (box->x_min - ray->origin.x) * ray->direction_reciprocal.x;
+    f32 t_y0 = (box->y_min - ray->origin.y) * ray->direction_reciprocal.y;
+    f32 t_z0 = (box->z_min - ray->origin.z) * ray->direction_reciprocal.z;
 
-    f32 t_x1 = (box->x_max - ray_origin.x) / ray_direction.x;
-    f32 t_y1 = (box->y_max - ray_origin.y) / ray_direction.y;
-    f32 t_z1 = (box->z_max - ray_origin.z) / ray_direction.z;
+    f32 t_x1 = (box->x_max - ray->origin.x) * ray->direction_reciprocal.x;
+    f32 t_y1 = (box->y_max - ray->origin.y) * ray->direction_reciprocal.y;
+    f32 t_z1 = (box->z_max - ray->origin.z) * ray->direction_reciprocal.z;
 
 
     f32 t_min_x = glm::min(t_x0, t_x1);
@@ -306,6 +311,12 @@ static u32fast rayCast(
     u32fast earliest_collision_idx = INVALID_VOXEL_IDX;
     f32 earliest_collision_time = INFINITY;
 
+    Ray ray {
+        .origin = ray_origin,
+        .direction = ray_direction,
+        .direction_reciprocal = 1.f / ray_direction,
+    };
+
     for (u32fast voxel_idx = 0; voxel_idx < voxel_count; voxel_idx++) {
 
         ivec3 voxel_coord = p_voxels[voxel_idx].coord;
@@ -318,7 +329,7 @@ static u32fast rayCast(
             .z_max = (f32)voxel_coord.z + VOXEL_RADIUS,
         };
 
-        f32 t = rayBoxInteriorCollisionTime(ray_origin, ray_direction, &box);
+        f32 t = rayBoxInteriorCollisionTime(&ray, &box);
         if (0.0f < t and t < earliest_collision_time) {
             earliest_collision_time = t;
             earliest_collision_idx = voxel_idx;
