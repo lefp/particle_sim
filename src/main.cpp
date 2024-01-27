@@ -108,6 +108,8 @@ bool shader_file_tracking_enabled_ = false;
 bool shader_reload_all_button_is_pressed_ = false;
 bool last_shader_reload_failed_ = false;
 
+bool grid_shader_enabled_ = true;
+
 struct {
     u32fast first_sample_index = 0;
     u32fast sample_count = 0;
@@ -359,6 +361,8 @@ int main(int argc, char** argv) {
     success = gfx::setShaderSourceFileModificationTracking(true);
     shader_file_tracking_enabled_ = success;
     LOG_IF_F(ERROR, !success, "Failed to enable shader source file tracking.");
+
+    gfx::setGridEnabled(grid_shader_enabled_);
 
 
     gfx::RenderResources gfx_renderer {};
@@ -628,6 +632,8 @@ int main(int argc, char** argv) {
                 ImGui::Checkbox("Auto-reload (unavailable)", &shader_autoreload_enabled_);
                 ImGui::EndDisabled();
             }
+
+            if (ImGui::Checkbox("Grid", &grid_shader_enabled_)) gfx::setGridEnabled(grid_shader_enabled_);
 
             ImGui::End();
 

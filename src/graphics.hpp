@@ -138,6 +138,8 @@ RenderResult render(
 /// `init()` must have been called before this; otherwise returns VK_NULL_HANDLE.
 VkInstance getVkInstance(void);
 
+void setGridEnabled(bool enable);
+
 
 /// Watch shader source files, taking note when they are modified.
 /// Returns false on failure to enable or disable.

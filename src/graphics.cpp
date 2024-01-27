@@ -206,10 +206,11 @@ static VmaAllocator vma_allocator_ = NULL;
 
 static VkDescriptorSetLayout descriptor_set_layout_ = VK_NULL_HANDLE;
 
-
 static bool shader_source_file_watch_enabled_ = false;
 static filewatch::Watchlist shader_source_file_watchlist_ = NULL;
 static ShaderSourceFileWatchIds shader_source_file_watch_ids_[PIPELINE_INDEX_COUNT] {};
+
+static bool grid_enabled_ = false;
 
 //
 // ===========================================================================================================
@@ -1947,7 +1948,7 @@ static bool recordCommandBuffer(
 
         vk_dev_procs.CmdDraw(command_buffer, 72, outlined_voxel_count, 0, 0);
     }
-    {
+    if (grid_enabled_) {
         PipelineAndLayout* p_pipeline = &pipelines_[PIPELINE_INDEX_GRID_PIPELINE];
 
         vk_dev_procs.CmdBindDescriptorSets(
@@ -3458,6 +3459,11 @@ RenderResult render(
 
 extern VkInstance getVkInstance(void) {
     return instance_;
+}
+
+
+extern void setGridEnabled(bool enable) {
+    grid_enabled_ = enable;
 }
 
 
