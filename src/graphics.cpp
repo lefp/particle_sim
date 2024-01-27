@@ -931,6 +931,19 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
     VkResult result;
 
 
+    VkSpecializationMapEntry vertex_shader_specialization_map_entry {
+        .constantID = 0,
+        .offset = 0,
+        .size = sizeof(f32),
+    };
+    VkSpecializationInfo vertex_shader_specialization_info {
+        .mapEntryCount = 1,
+        .pMapEntries = &vertex_shader_specialization_map_entry,
+        .dataSize = sizeof(f32),
+        .pData = &VOXEL_RADIUS,
+    };
+    static_assert(sizeof(VOXEL_RADIUS) == sizeof(f32));
+
     constexpr u32 shader_stage_info_count = 2;
     const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
         {
@@ -938,6 +951,7 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
             .module = vertex_shader_module,
             .pName = "main",
+            .pSpecializationInfo = &vertex_shader_specialization_info
         },
         {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -1348,6 +1362,19 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
     VkResult result;
 
 
+    VkSpecializationMapEntry vertex_shader_specialization_map_entry {
+        .constantID = 0,
+        .offset = 0,
+        .size = sizeof(f32),
+    };
+    VkSpecializationInfo vertex_shader_specialization_info {
+        .mapEntryCount = 1,
+        .pMapEntries = &vertex_shader_specialization_map_entry,
+        .dataSize = sizeof(f32),
+        .pData = &VOXEL_RADIUS,
+    };
+    static_assert(sizeof(VOXEL_RADIUS) == sizeof(f32));
+
     constexpr u32 shader_stage_info_count = 2;
     const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
         {
@@ -1355,6 +1382,7 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
             .module = vertex_shader_module,
             .pName = "main",
+            .pSpecializationInfo = &vertex_shader_specialization_info
         },
         {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,

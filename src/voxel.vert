@@ -9,18 +9,17 @@ layout(binding = 0, std140) uniform Uniforms {
     mat4 world_to_screen_transform_;
 };
 
-// TODO FIXME make this a specialization constant
-const float CUBE_RADIUS = 0.5;
+layout(constant_id = 0) const float CUBE_RADIUS = 0.5;
 
 const vec3 CUBE_VERTICES[8] = {
-    { -CUBE_RADIUS, -CUBE_RADIUS,  CUBE_RADIUS },
-    {  CUBE_RADIUS, -CUBE_RADIUS,  CUBE_RADIUS },
-    { -CUBE_RADIUS,  CUBE_RADIUS,  CUBE_RADIUS },
-    {  CUBE_RADIUS,  CUBE_RADIUS,  CUBE_RADIUS },
-    { -CUBE_RADIUS, -CUBE_RADIUS, -CUBE_RADIUS },
-    {  CUBE_RADIUS, -CUBE_RADIUS, -CUBE_RADIUS },
-    { -CUBE_RADIUS,  CUBE_RADIUS, -CUBE_RADIUS },
-    {  CUBE_RADIUS,  CUBE_RADIUS, -CUBE_RADIUS },
+    { -1.0f, -1.0f,  1.0f },
+    {  1.0f, -1.0f,  1.0f },
+    { -1.0f,  1.0f,  1.0f },
+    {  1.0f,  1.0f,  1.0f },
+    { -1.0f, -1.0f, -1.0f },
+    {  1.0f, -1.0f, -1.0f },
+    { -1.0f,  1.0f, -1.0f },
+    {  1.0f,  1.0f, -1.0f },
 };
 
 const uint TRIANGLES_VERTEX_INDICES[36] = {
@@ -47,7 +46,7 @@ const uint TRIANGLES_VERTEX_INDICES[36] = {
 void main(void) {
 
     const uint cube_vertex_idx = TRIANGLES_VERTEX_INDICES[gl_VertexIndex];
-    vec4 vertex_pos = vec4(CUBE_VERTICES[cube_vertex_idx], 1.0);
+    vec4 vertex_pos = vec4(CUBE_RADIUS * CUBE_VERTICES[cube_vertex_idx], 1.0);
 
     vertex_pos.xyz = vertex_pos.xyz + vec3(voxel_coord_);
     vertex_pos = world_to_screen_transform_ * vertex_pos;

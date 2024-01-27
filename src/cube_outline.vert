@@ -14,21 +14,20 @@ layout(binding = 1, std430) buffer Voxels {
     Voxel voxels_[];
 };
 
+layout(constant_id = 0) const float CUBE_RADIUS = 0.5;
 
-// TODO FIXME make this a specialization constant
-const float CUBE_RADIUS = 0.5;
 
 const float LINE_RADIUS = 0.01;
 
 const vec3 CUBE_VERTICES[8] = {
-    { -CUBE_RADIUS, -CUBE_RADIUS,  CUBE_RADIUS },
-    {  CUBE_RADIUS, -CUBE_RADIUS,  CUBE_RADIUS },
-    {  CUBE_RADIUS,  CUBE_RADIUS,  CUBE_RADIUS },
-    { -CUBE_RADIUS,  CUBE_RADIUS,  CUBE_RADIUS },
-    { -CUBE_RADIUS, -CUBE_RADIUS, -CUBE_RADIUS },
-    {  CUBE_RADIUS, -CUBE_RADIUS, -CUBE_RADIUS },
-    {  CUBE_RADIUS,  CUBE_RADIUS, -CUBE_RADIUS },
-    { -CUBE_RADIUS,  CUBE_RADIUS, -CUBE_RADIUS },
+    { -1.0f, -1.0f,  1.0f },
+    {  1.0f, -1.0f,  1.0f },
+    {  1.0f,  1.0f,  1.0f },
+    { -1.0f,  1.0f,  1.0f },
+    { -1.0f, -1.0f, -1.0f },
+    {  1.0f, -1.0f, -1.0f },
+    {  1.0f,  1.0f, -1.0f },
+    { -1.0f,  1.0f, -1.0f },
 };
 
 struct LineSegmentIndexed {
@@ -74,8 +73,8 @@ void main(void) {
 
     const LineSegmentIndexed line = LINES[gl_VertexIndex / 6];
 
-    vec4 start_point_world = vec4(voxel_coord + CUBE_VERTICES[line.start], 1.0);
-    vec4 end_point_world = vec4(voxel_coord + CUBE_VERTICES[line.end], 1.0);
+    vec4 start_point_world = vec4(voxel_coord + CUBE_RADIUS * CUBE_VERTICES[line.start], 1.0);
+    vec4 end_point_world = vec4(voxel_coord + CUBE_RADIUS * CUBE_VERTICES[line.end], 1.0);
 
     vec4 start_point_screen = world_to_screen_transform_ * start_point_world;
     vec4 end_point_screen = world_to_screen_transform_ * end_point_world;

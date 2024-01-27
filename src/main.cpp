@@ -57,8 +57,6 @@ const float VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y = (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANC
 const float VIEW_FRUSTUM_NEAR_SIDE_SIZE_X = VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y * (f32)ASPECT_RATIO_X_OVER_Y;
 const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE { VIEW_FRUSTUM_NEAR_SIDE_SIZE_X, VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y };
 
-const float VOXEL_RADIUS = 0.5; // unit: meters
-
 const u32fast INVALID_VOXEL_IDX = UINT32_MAX;
 
 constexpr f64 FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS = 10.0;
@@ -321,12 +319,12 @@ static u32fast rayCast(
 
         ivec3 voxel_coord = p_voxels[voxel_idx].coord;
         AxisAlignedBox box {
-            .x_min = (f32)voxel_coord.x - VOXEL_RADIUS,
-            .y_min = (f32)voxel_coord.y - VOXEL_RADIUS,
-            .z_min = (f32)voxel_coord.z - VOXEL_RADIUS,
-            .x_max = (f32)voxel_coord.x + VOXEL_RADIUS,
-            .y_max = (f32)voxel_coord.y + VOXEL_RADIUS,
-            .z_max = (f32)voxel_coord.z + VOXEL_RADIUS,
+            .x_min = (f32)voxel_coord.x - gfx::VOXEL_RADIUS,
+            .y_min = (f32)voxel_coord.y - gfx::VOXEL_RADIUS,
+            .z_min = (f32)voxel_coord.z - gfx::VOXEL_RADIUS,
+            .x_max = (f32)voxel_coord.x + gfx::VOXEL_RADIUS,
+            .y_max = (f32)voxel_coord.y + gfx::VOXEL_RADIUS,
+            .z_max = (f32)voxel_coord.z + gfx::VOXEL_RADIUS,
         };
 
         f32 t = rayBoxInteriorCollisionTime(&ray, &box);
