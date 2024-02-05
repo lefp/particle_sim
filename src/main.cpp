@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <cinttypes>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -56,6 +57,12 @@ const float VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y = (f32)(VIEW_FRUSTUM_NEAR_SIDE_DISTANC
 const float VIEW_FRUSTUM_NEAR_SIDE_SIZE_X = VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y * (f32)ASPECT_RATIO_X_OVER_Y;
 const vec2 VIEW_FRUSTUM_NEAR_SIDE_SIZE { VIEW_FRUSTUM_NEAR_SIDE_SIZE_X, VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y };
 
+const f32 VIEW_FRUSTUM_FAR_SIDE_SIZE_X =
+    VIEW_FRUSTUM_NEAR_SIDE_SIZE_X / (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE;
+const f32 VIEW_FRUSTUM_FAR_SIDE_SIZE_Y =
+    VIEW_FRUSTUM_NEAR_SIDE_SIZE_X / (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE;
+const vec2 VIEW_FRUSTUM_FAR_SIDE_SIZE { VIEW_FRUSTUM_FAR_SIDE_SIZE_X, VIEW_FRUSTUM_FAR_SIDE_SIZE_Y };
+
 const u32fast INVALID_VOXEL_IDX = UINT32_MAX;
 
 constexpr f64 FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS = 10.0;
@@ -96,11 +103,20 @@ bool cursor_visible_ = false;
 bool left_alt_is_pressed_ = false;
 bool left_ctrl_g_is_pressed_ = false;
 bool left_ctrl_r_is_pressed_ = false;
+bool left_mouse_is_pressed_ = false;
 
 bool imgui_overlay_visible_ = false;
 
 u32fast voxel_count_ = 0;
 gfx::Voxel* p_voxels_ = NULL;
+
+u32fast selected_voxel_index_buffer_capacity_ = 0;
+u32fast selected_voxel_index_count_ = 0;
+u32* p_selected_voxel_indices_ = NULL;
+
+bool selection_active_;
+vec2 selection_point1_windowspace_;
+vec2 selection_point2_windowspace_;
 
 bool shader_autoreload_enabled_ = true;
 bool shader_file_tracking_enabled_ = false;
@@ -215,8 +231,16 @@ static void checkedGlfwGetCursorPos(GLFWwindow* window, double* x_out, double* y
 }
 
 
-static vec2 flip_screenXY_to_cameraXY(vec2 screen_coords) {
+static inline vec2 flip_screenXY_to_cameraXY(vec2 screen_coords) {
     return vec2(screen_coords.x, -screen_coords.y);
+}
+
+
+static inline vec2 windowspaceToNormalizedScreenspace(vec2 p, const VkRect2D* viewport) {
+    return
+        (p - vec2 { viewport->offset.x, viewport->offset.y })
+        / vec2 { viewport->extent.width, viewport->extent.height }
+        * 2.0f - 1.0f;
 }
 
 
@@ -336,6 +360,107 @@ static u32fast rayCast(
     }
 
     return earliest_collision_idx;
+}
+
+
+struct Frustum {
+    vec3 near_bot_left_p;
+    vec3 far_top_right_p;
+
+    vec3 near_normal;
+    vec3 bot_normal;
+    vec3 left_normal;
+
+    vec3 far_normal;
+    vec3 top_normal;
+    vec3 right_normal;
+};
+
+
+/// p1 and p2 must be in normalized screenspace;
+///     i.e. the top-left of the screen is [-1, -1], and the bottom-right is [1, 1].
+static Frustum frustumFromScreenspacePoints(
+    vec3 camera_pos,
+    vec3 camera_direction_unit,
+    vec3 camera_horizontal_right_direction_unit,
+    vec3 camera_relative_up_direction_unit,
+    vec2 p1,
+    vec2 p2
+) {
+
+    p1 = flip_screenXY_to_cameraXY(p1);
+    p2 = flip_screenXY_to_cameraXY(p2);
+
+    vec2 min = glm::min(p1, p2);
+    vec2 max = glm::max(p1, p2);
+
+    vec3 near_bot_left_p = camera_pos
+        + (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * camera_direction_unit
+        + min.x * 0.5f * (f32)VIEW_FRUSTUM_NEAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
+        + min.y * 0.5f * (f32)VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
+
+    vec3 near_top_left_p = camera_pos
+        + (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * camera_direction_unit
+        + min.x * 0.5f * (f32)VIEW_FRUSTUM_NEAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
+        + max.y * 0.5f * (f32)VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
+
+    vec3 near_bot_right_p = camera_pos
+        + (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * camera_direction_unit
+        + max.x * 0.5f * (f32)VIEW_FRUSTUM_NEAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
+        + min.y * 0.5f * (f32)VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
+
+    vec3 near_top_right_p = camera_pos
+        + (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE * camera_direction_unit
+        + max.x * 0.5f * (f32)VIEW_FRUSTUM_NEAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
+        + max.y * 0.5f * (f32)VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
+
+    vec3 far_bot_left_p = camera_pos
+        + (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE * camera_direction_unit
+        + min.x * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
+        + min.y * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
+
+    vec3 far_top_left_p = camera_pos
+        + (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE * camera_direction_unit
+        + min.x * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
+        + max.y * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
+
+    vec3 far_bot_right_p = camera_pos
+        + (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE * camera_direction_unit
+        + max.x * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
+        + min.y * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
+
+    vec3 far_top_right_p = camera_pos
+        + (f32)VIEW_FRUSTUM_FAR_SIDE_DISTANCE * camera_direction_unit
+        + max.x * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
+        + max.y * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
+
+    return Frustum {
+        .near_bot_left_p = near_bot_left_p,
+        .far_top_right_p = far_top_right_p,
+
+        .near_normal = camera_direction_unit,
+        .bot_normal = glm::cross(far_bot_right_p - near_bot_right_p, near_bot_left_p - near_bot_right_p),
+        .left_normal = glm::cross(far_bot_left_p - near_bot_left_p, near_top_left_p - near_bot_left_p),
+        .far_normal = -camera_direction_unit,
+        .top_normal = glm::cross(far_top_left_p - near_top_left_p, near_top_right_p - near_top_left_p),
+        .right_normal = glm::cross(far_top_right_p - near_top_right_p, near_bot_right_p - near_top_right_p),
+    };
+};
+
+
+static inline bool pointIsInFrustum(const Frustum* f, vec3 p) {
+
+    bool inside = true;
+
+    inside &= glm::dot(p - f->near_bot_left_p, f->near_normal) > 0.0f;
+    inside &= glm::dot(p - f->near_bot_left_p, f->bot_normal) > 0.0f;
+    inside &= glm::dot(p - f->near_bot_left_p, f->left_normal) > 0.0f;
+
+    inside &= glm::dot(p - f->far_top_right_p, f->far_normal) > 0.0f;
+    inside &= glm::dot(p - f->far_top_right_p, f->top_normal) > 0.0f;
+    inside &= glm::dot(p - f->far_top_right_p, f->right_normal) > 0.0f;
+
+    return inside;
 }
 
 
@@ -615,6 +740,11 @@ int main(int argc, char** argv) {
             ImGui::End();
 
 
+            ImGui::Begin("Selection", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Text("Selected voxels: %" PRIuFAST32, selected_voxel_index_count_);
+            ImGui::End();
+
+
             ImGui::Begin("Shaders", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
 
             ImGui::Text("Last reload:");
@@ -854,6 +984,61 @@ int main(int argc, char** argv) {
         u32 outlined_voxel_index_count = 0;
         u32 outlined_voxel_index = (u32)voxel_being_look_at_idx;
         if (outlined_voxel_index != INVALID_VOXEL_IDX) outlined_voxel_index_count = 1;
+
+
+        bool left_mouse_was_pressed = left_mouse_is_pressed_;
+        left_mouse_is_pressed_ = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        abortIfGlfwError();
+
+        if (!left_mouse_was_pressed and left_mouse_is_pressed_) {
+            selection_active_ = true;
+            selection_point1_windowspace_ = cursor_pos_;
+            selection_point2_windowspace_ = selection_point1_windowspace_;
+        }
+        if (left_mouse_was_pressed and !left_mouse_is_pressed_) selection_active_ = false;
+
+        if (selection_active_) {
+
+            selection_point2_windowspace_ = cursor_pos_;
+
+            Frustum frustum = frustumFromScreenspacePoints(
+                camera_pos_,
+                camera_direction_unit,
+                camera_horizontal_right_direction_unit,
+                camera_y_axis_unit,
+                windowspaceToNormalizedScreenspace(selection_point1_windowspace_, &window_draw_region_),
+                windowspaceToNormalizedScreenspace(selection_point2_windowspace_, &window_draw_region_)
+            );
+
+            u32fast voxel_in_frustum_count = 0;
+            for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
+                if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) voxel_in_frustum_count++;
+            }
+
+            selected_voxel_index_count_ = voxel_in_frustum_count;
+            if (selected_voxel_index_count_ > selected_voxel_index_buffer_capacity_) {
+                p_selected_voxel_indices_ = reallocArray(
+                    p_selected_voxel_indices_, selected_voxel_index_count_, typeof(*p_selected_voxel_indices_)
+                );
+                selected_voxel_index_buffer_capacity_ = selected_voxel_index_count_;
+            }
+
+            u32fast selected_voxel_idx = 0;
+            // TODO doing this twice is probably unnecessarily slow. Just preallocate the buffer to some
+            // reasonable max size.
+            for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
+                if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) {
+                    p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
+                    selected_voxel_idx++;
+                };
+            }
+
+            ImGui::GetBackgroundDrawList()->AddRect(
+                ImVec2 { selection_point1_windowspace_.x, selection_point1_windowspace_.y },
+                ImVec2 { selection_point2_windowspace_.x, selection_point2_windowspace_.y },
+                IM_COL32(255, 0, 0, 255)
+            );
+        }
 
 
         mat4 world_to_screen_transform = glm::identity<mat4>();
