@@ -990,60 +990,62 @@ int main(int argc, char** argv) {
         left_mouse_is_pressed_ = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         abortIfGlfwError();
 
-        if (!left_mouse_was_pressed and left_mouse_is_pressed_) {
-            selection_active_ = true;
-            selection_point1_windowspace_ = cursor_pos_;
-            selection_point2_windowspace_ = selection_point1_windowspace_;
-        }
-        if (left_mouse_was_pressed and !left_mouse_is_pressed_) selection_active_ = false;
-
-        if (selection_active_) {
-
-            selection_point2_windowspace_ = cursor_pos_;
-
-            Frustum frustum = frustumFromScreenspacePoints(
-                camera_pos_,
-                camera_direction_unit,
-                camera_horizontal_right_direction_unit,
-                camera_y_axis_unit,
-                windowspaceToNormalizedScreenspace(selection_point1_windowspace_, &window_draw_region_),
-                windowspaceToNormalizedScreenspace(selection_point2_windowspace_, &window_draw_region_)
-            );
-
-            u32fast voxel_in_frustum_count = 0;
-            {
-                ZoneScopedN("Get selection count");
-                for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                    if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) voxel_in_frustum_count++;
-                }
+        if (cursor_visible_) {
+            if (!left_mouse_was_pressed and left_mouse_is_pressed_) {
+                selection_active_ = true;
+                selection_point1_windowspace_ = cursor_pos_;
+                selection_point2_windowspace_ = selection_point1_windowspace_;
             }
+            if (left_mouse_was_pressed and !left_mouse_is_pressed_) selection_active_ = false;
 
-            selected_voxel_index_count_ = voxel_in_frustum_count;
-            if (selected_voxel_index_count_ > selected_voxel_index_buffer_capacity_) {
-                p_selected_voxel_indices_ = reallocArray(
-                    p_selected_voxel_indices_, selected_voxel_index_count_, typeof(*p_selected_voxel_indices_)
+            if (selection_active_) {
+
+                selection_point2_windowspace_ = cursor_pos_;
+
+                Frustum frustum = frustumFromScreenspacePoints(
+                    camera_pos_,
+                    camera_direction_unit,
+                    camera_horizontal_right_direction_unit,
+                    camera_y_axis_unit,
+                    windowspaceToNormalizedScreenspace(selection_point1_windowspace_, &window_draw_region_),
+                    windowspaceToNormalizedScreenspace(selection_point2_windowspace_, &window_draw_region_)
                 );
-                selected_voxel_index_buffer_capacity_ = selected_voxel_index_count_;
-            }
 
-            u32fast selected_voxel_idx = 0;
-            // TODO doing this twice is probably unnecessarily slow. Just preallocate the buffer to some
-            // reasonable max size.
-            {
-                ZoneScopedN("Get selected voxels");
-                for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                    if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) {
-                        p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
-                        selected_voxel_idx++;
-                    };
+                u32fast voxel_in_frustum_count = 0;
+                {
+                    ZoneScopedN("Get selection count");
+                    for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
+                        if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) voxel_in_frustum_count++;
+                    }
                 }
-            }
 
-            ImGui::GetBackgroundDrawList()->AddRect(
-                ImVec2 { selection_point1_windowspace_.x, selection_point1_windowspace_.y },
-                ImVec2 { selection_point2_windowspace_.x, selection_point2_windowspace_.y },
-                IM_COL32(255, 0, 0, 255)
-            );
+                selected_voxel_index_count_ = voxel_in_frustum_count;
+                if (selected_voxel_index_count_ > selected_voxel_index_buffer_capacity_) {
+                    p_selected_voxel_indices_ = reallocArray(
+                        p_selected_voxel_indices_, selected_voxel_index_count_, typeof(*p_selected_voxel_indices_)
+                    );
+                    selected_voxel_index_buffer_capacity_ = selected_voxel_index_count_;
+                }
+
+                u32fast selected_voxel_idx = 0;
+                // TODO doing this twice is probably unnecessarily slow. Just preallocate the buffer to some
+                // reasonable max size.
+                {
+                    ZoneScopedN("Get selected voxels");
+                    for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
+                        if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) {
+                            p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
+                            selected_voxel_idx++;
+                        };
+                    }
+                }
+
+                ImGui::GetBackgroundDrawList()->AddRect(
+                    ImVec2 { selection_point1_windowspace_.x, selection_point1_windowspace_.y },
+                    ImVec2 { selection_point2_windowspace_.x, selection_point2_windowspace_.y },
+                    IM_COL32(255, 0, 0, 255)
+                );
+            }
         }
 
 
