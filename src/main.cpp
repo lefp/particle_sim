@@ -1011,8 +1011,11 @@ int main(int argc, char** argv) {
             );
 
             u32fast voxel_in_frustum_count = 0;
-            for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) voxel_in_frustum_count++;
+            {
+                ZoneScopedN("Get selection count");
+                for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
+                    if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) voxel_in_frustum_count++;
+                }
             }
 
             selected_voxel_index_count_ = voxel_in_frustum_count;
@@ -1026,11 +1029,14 @@ int main(int argc, char** argv) {
             u32fast selected_voxel_idx = 0;
             // TODO doing this twice is probably unnecessarily slow. Just preallocate the buffer to some
             // reasonable max size.
-            for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) {
-                    p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
-                    selected_voxel_idx++;
-                };
+            {
+                ZoneScopedN("Get selected voxels");
+                for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
+                    if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) {
+                        p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
+                        selected_voxel_idx++;
+                    };
+                }
             }
 
             ImGui::GetBackgroundDrawList()->AddRect(
