@@ -1,8 +1,6 @@
-#include <cstdint>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
-#include <cinttypes>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -17,6 +15,7 @@
 #include <tracy/tracy/Tracy.hpp>
 
 #include "types.hpp"
+#include "math_util.hpp"
 #include "error_util.hpp"
 #include "graphics.hpp"
 #include "alloc_util.hpp"

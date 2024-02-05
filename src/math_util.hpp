@@ -1,11 +1,11 @@
 #ifndef _MATH_UTIL_HPP
 #define _MATH_UTIL_HPP
 
+// #include "types.hpp"
+
 //
 // ===========================================================================================================
 //
-
-#include "types.hpp"
 
 namespace math {
     inline u32 min(u32 a, u32 b) {

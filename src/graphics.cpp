@@ -35,6 +35,7 @@
 #include <tracy/tracy/Tracy.hpp>
 
 #include "types.hpp"
+#include "math_util.hpp"
 #include "error_util.hpp"
 #include "vk_procs.hpp"
 #include "alloc_util.hpp"

@@ -9,10 +9,12 @@
 #include <cassert>
 #include <cerrno>
 #include <cstring>
+#include <cstdlib>
 
 #include <loguru/loguru.hpp>
 
 #include "types.hpp"
+#include "math_util.hpp"
 #include "file_watch.hpp"
 #include "error_util.hpp"
 #include "alloc_util.hpp"
