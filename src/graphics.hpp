@@ -18,10 +18,11 @@ using glm::mat4;
 // ===========================================================================================================
 //
 
-const u32 MAX_VOXEL_COUNT = 1'000'000;
-const u32 MAX_OUTLINED_VOXEL_COUNT = 1'000'000;
+constexpr u32 MAX_VOXEL_COUNT = 1'000'000;
+constexpr u32 MAX_OUTLINED_VOXEL_COUNT = 1'000'000;
 
-const f32 VOXEL_RADIUS = 1. / 16.;
+constexpr f32 VOXEL_RADIUS = 1. / 16.;
+constexpr f32 VOXEL_DIAMETER = 2. * VOXEL_RADIUS;
 
 //
 // ===========================================================================================================

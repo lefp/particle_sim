@@ -273,6 +273,17 @@ static VkRect2D centeredSubregion_16x9(u32 image_width, u32 image_height) {
 }
 
 
+static inline vec3 indexspaceToWorldspace(ivec3 idx) {
+    return vec3(idx) * gfx::VOXEL_DIAMETER;
+}
+
+
+static inline ivec3 worldspaceToIndexspace(vec3 pos) {
+    vec3 indexspace_float = pos * ( 1.f / gfx::VOXEL_DIAMETER);
+    return ivec3(indexspace_float + 0.1f); // add 0.1 to avoid truncation on cases like 2.999 that should be 3.0.
+}
+
+
 struct AxisAlignedBox {
     f32 x_min;
     f32 y_min;
@@ -339,7 +350,7 @@ static u32fast rayCast(
 
     for (u32fast voxel_idx = 0; voxel_idx < voxel_count; voxel_idx++) {
 
-        ivec3 voxel_coord = p_voxels[voxel_idx].coord;
+        vec3 voxel_coord = indexspaceToWorldspace(p_voxels[voxel_idx].coord);
         AxisAlignedBox box {
             .x_min = (f32)voxel_coord.x - gfx::VOXEL_RADIUS,
             .y_min = (f32)voxel_coord.y - gfx::VOXEL_RADIUS,
@@ -592,7 +603,7 @@ int main(int argc, char** argv) {
         };
 
         p_voxels_[voxel_idx] = gfx::Voxel {
-            .coord = (random_0_to_1 - 0.5f) * 500.0f,
+            .coord = worldspaceToIndexspace((random_0_to_1 - 0.5f) * 500.0f),
             .color = vec4(random_0_to_1 * 255.0f, 255.0f),
         };
     }
@@ -1002,7 +1013,9 @@ int main(int argc, char** argv) {
                 {
                     ZoneScopedN("Get selected voxels");
                     for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                        if (pointIsInHexahedron(&frustum, vec3(p_voxels_[voxel_idx].coord))) {
+                        // TODO OPTIMIZE this `indexspaceToWorldspace` conversion has a significant impact on
+                        // the runtime of this loop (takes ~35% longer).
+                        if (pointIsInHexahedron(&frustum, indexspaceToWorldspace(p_voxels_[voxel_idx].coord))) {
                             p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
                             selected_voxel_idx++;
                         };
@@ -1057,7 +1070,7 @@ int main(int argc, char** argv) {
             ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
             assert(draw_list != NULL);
 
-            const vec3 cube_center = p_voxels_[voxel_being_looked_at_idx].coord;
+            const vec3 cube_center = indexspaceToWorldspace(p_voxels_[voxel_being_looked_at_idx].coord);
             const f32 rad = gfx::VOXEL_RADIUS;
 
             vec4 vec4_p000 = world_to_screen_transform * vec4(cube_center + vec3(-rad, -rad, -rad), 1.0f);

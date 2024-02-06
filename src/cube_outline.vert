@@ -15,6 +15,7 @@ layout(binding = 1, std430) buffer Voxels {
 };
 
 layout(constant_id = 0) const float CUBE_RADIUS = 0.5;
+#define CUBE_DIAMETER (2.0f * CUBE_RADIUS);
 
 
 const float LINE_RADIUS = 0.01;
@@ -67,7 +68,7 @@ const vec2 BASE_RECTANGLE_VERTICES[6] = {
 void main(void) {
 
     const Voxel voxel = voxels_[voxel_idx_];
-    const vec3 voxel_coord = vec3(voxel.coord);
+    const vec3 voxel_coord = vec3(voxel.coord) * CUBE_DIAMETER;
 
     const vec2 base_vertex = BASE_RECTANGLE_VERTICES[gl_VertexIndex % 6];
 
