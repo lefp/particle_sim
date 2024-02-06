@@ -100,6 +100,7 @@ f64 frame_start_time_seconds_ = 0;
 bool cursor_visible_ = false;
 
 bool left_alt_is_pressed_ = false;
+bool left_ctrl_is_pressed_ = false;
 bool left_ctrl_g_is_pressed_ = false;
 bool left_ctrl_r_is_pressed_ = false;
 bool left_mouse_is_pressed_ = false;
@@ -662,6 +663,14 @@ int main(int argc, char** argv) {
         { ZoneScopedN("ImGui_ImplVulkan_NewFrame"); ImGui_ImplVulkan_NewFrame(); }
         { ZoneScopedN("ImGui_ImplGlfw_NewFrame"); ImGui_ImplGlfw_NewFrame(); }
         { ZoneScopedN("ImGui::NewFrame"); ImGui::NewFrame(); }
+
+
+        bool left_ctrl_was_pressed = left_ctrl_is_pressed_;
+        left_ctrl_is_pressed_ = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL);
+        abortIfGlfwError();
+
+        if (!left_ctrl_was_pressed and left_ctrl_is_pressed_) camera_speed_ *= 8.0f;
+        if (left_ctrl_was_pressed and !left_ctrl_is_pressed_) camera_speed_ *= 0.125f;
 
 
         bool left_ctrl_r_was_pressed = left_ctrl_r_is_pressed_;
