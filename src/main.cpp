@@ -571,9 +571,7 @@ int main(int argc, char** argv) {
         alwaysAssert(len_without_nul > 0);
     };
 
-    // TODO Why is this code here? Delete if not needed.
     ImGuiIO& imgui_io = ImGui::GetIO();
-    (void)imgui_io;
 
     success = ImGui_ImplGlfw_InitForVulkan(window, true);
     alwaysAssert(success);
@@ -989,6 +987,7 @@ int main(int argc, char** argv) {
         bool left_mouse_was_pressed = left_mouse_is_pressed_;
         left_mouse_is_pressed_ = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         abortIfGlfwError();
+        if (imgui_io.WantCaptureMouse) left_mouse_is_pressed_ = false;
 
         if (cursor_visible_) {
             if (!left_mouse_was_pressed and left_mouse_is_pressed_) {
