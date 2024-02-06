@@ -279,9 +279,14 @@ static inline vec3 indexspaceToWorldspace(ivec3 idx) {
 }
 
 
-static inline ivec3 worldspaceToIndexspace(vec3 pos) {
-    vec3 indexspace_float = pos * ( 1.f / gfx::VOXEL_DIAMETER);
-    return ivec3(indexspace_float + 0.1f); // add 0.1 to avoid truncation on cases like 2.999 that should be 3.0.
+static inline vec3 worldspaceToIndexspaceFloat(vec3 pos) {
+    return pos * (1.f / gfx::VOXEL_DIAMETER);
+}
+
+
+static inline ivec3 worldspaceToIndexspaceInt(vec3 pos) {
+    vec3 indexspace_float = worldspaceToIndexspaceFloat(pos);
+    return ivec3(glm::round(indexspace_float) + 0.1f); // + 0.1 to avoid truncation of e.g. 2.999 to 2.0
 }
 
 
@@ -345,20 +350,20 @@ static u32fast rayCast(
     f32 earliest_collision_time = INFINITY;
 
     RaycastRay ray {
-        .origin = ray_origin,
+        .origin = worldspaceToIndexspaceFloat(ray_origin),
         .direction_reciprocal = 1.f / ray_direction,
     };
 
     for (u32fast voxel_idx = 0; voxel_idx < voxel_count; voxel_idx++) {
 
-        vec3 voxel_coord = indexspaceToWorldspace(p_voxels[voxel_idx].coord);
+        vec3 voxel_coord = p_voxels[voxel_idx].coord;
         AxisAlignedBox box {
-            .x_min = (f32)voxel_coord.x - gfx::VOXEL_RADIUS,
-            .y_min = (f32)voxel_coord.y - gfx::VOXEL_RADIUS,
-            .z_min = (f32)voxel_coord.z - gfx::VOXEL_RADIUS,
-            .x_max = (f32)voxel_coord.x + gfx::VOXEL_RADIUS,
-            .y_max = (f32)voxel_coord.y + gfx::VOXEL_RADIUS,
-            .z_max = (f32)voxel_coord.z + gfx::VOXEL_RADIUS,
+            .x_min = (f32)voxel_coord.x - 0.5f,
+            .y_min = (f32)voxel_coord.y - 0.5f,
+            .z_min = (f32)voxel_coord.z - 0.5f,
+            .x_max = (f32)voxel_coord.x + 0.5f,
+            .y_max = (f32)voxel_coord.y + 0.5f,
+            .z_max = (f32)voxel_coord.z + 0.5f,
         };
 
         f32 t = rayBoxInteriorCollisionTime(&ray, &box);
@@ -604,7 +609,7 @@ int main(int argc, char** argv) {
         };
 
         p_voxels_[voxel_idx] = gfx::Voxel {
-            .coord = worldspaceToIndexspace((random_0_to_1 - 0.5f) * 500.0f),
+            .coord = worldspaceToIndexspaceInt((random_0_to_1 - 0.5f) * 500.0f),
             .color = vec4(random_0_to_1 * 255.0f, 255.0f),
         };
     }
@@ -1016,8 +1021,8 @@ int main(int argc, char** argv) {
                     windowspaceToNormalizedScreenspace(selection_point1_windowspace_, &window_draw_region_),
                     windowspaceToNormalizedScreenspace(selection_point2_windowspace_, &window_draw_region_)
                 );
-                frustum.near_bot_left_p = worldspaceToIndexspace(frustum.near_bot_left_p);
-                frustum.far_top_right_p = worldspaceToIndexspace(frustum.far_top_right_p);
+                frustum.near_bot_left_p = worldspaceToIndexspaceFloat(frustum.near_bot_left_p);
+                frustum.far_top_right_p = worldspaceToIndexspaceFloat(frustum.far_top_right_p);
 
                 u32fast selected_voxel_idx = 0;
                 {
