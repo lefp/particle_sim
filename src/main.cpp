@@ -282,9 +282,8 @@ struct AxisAlignedBox {
     f32 y_max;
     f32 z_max;
 };
-struct Ray {
+struct RaycastRay {
     vec3 origin;
-    vec3 direction;
     vec3 direction_reciprocal;
 };
 // TODO OPTIMIZE
@@ -293,7 +292,7 @@ struct Ray {
 /// TODO FIXME:
 /// 1. Doesn't handle the case where the ray is parallel to an axis.
 /// 2. Don't know if it handles the case where the ray origin is inside the box.
-static inline f32 rayBoxInteriorCollisionTime(const Ray* ray, const AxisAlignedBox* box) {
+static inline f32 rayBoxInteriorCollisionTime(const RaycastRay* ray, const AxisAlignedBox* box) {
 
     f32 t_x0 = (box->x_min - ray->origin.x) * ray->direction_reciprocal.x;
     f32 t_y0 = (box->y_min - ray->origin.y) * ray->direction_reciprocal.y;
@@ -334,9 +333,8 @@ static u32fast rayCast(
     u32fast earliest_collision_idx = INVALID_VOXEL_IDX;
     f32 earliest_collision_time = INFINITY;
 
-    Ray ray {
+    RaycastRay ray {
         .origin = ray_origin,
-        .direction = ray_direction,
         .direction_reciprocal = 1.f / ray_direction,
     };
 
@@ -975,18 +973,6 @@ int main(int argc, char** argv) {
         }
 
 
-        u32fast voxel_being_look_at_idx = rayCast(
-            camera_pos_ + camera_direction_unit * (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
-            camera_direction_unit,
-            voxel_count_,
-            p_voxels_
-        );
-
-        u32 outlined_voxel_index_count = 0;
-        u32 outlined_voxel_index = (u32)voxel_being_look_at_idx;
-        if (outlined_voxel_index != INVALID_VOXEL_IDX) outlined_voxel_index_count = 1;
-
-
         bool left_mouse_was_pressed = left_mouse_is_pressed_;
         left_mouse_is_pressed_ = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         abortIfGlfwError();
@@ -1078,6 +1064,64 @@ int main(int argc, char** argv) {
         mat4 world_to_screen_transform_inverse = glm::inverse(world_to_screen_transform);
 
 
+        u32fast voxel_being_looked_at_idx = rayCast(
+            camera_pos_ + camera_direction_unit * (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
+            camera_direction_unit,
+            voxel_count_,
+            p_voxels_
+        );
+        if (voxel_being_looked_at_idx != INVALID_VOXEL_IDX) {
+
+            ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
+            assert(draw_list != NULL);
+
+            const vec3 cube_center = p_voxels_[voxel_being_looked_at_idx].coord;
+            const f32 rad = gfx::VOXEL_RADIUS;
+
+            vec4 vec4_p000 = world_to_screen_transform * vec4(cube_center + vec3(-rad, -rad, -rad), 1.0f);
+            vec4 vec4_p001 = world_to_screen_transform * vec4(cube_center + vec3(-rad, -rad,  rad), 1.0f);
+            vec4 vec4_p010 = world_to_screen_transform * vec4(cube_center + vec3(-rad,  rad, -rad), 1.0f);
+            vec4 vec4_p011 = world_to_screen_transform * vec4(cube_center + vec3(-rad,  rad,  rad), 1.0f);
+            vec4 vec4_p100 = world_to_screen_transform * vec4(cube_center + vec3( rad, -rad, -rad), 1.0f);
+            vec4 vec4_p101 = world_to_screen_transform * vec4(cube_center + vec3( rad, -rad,  rad), 1.0f);
+            vec4 vec4_p110 = world_to_screen_transform * vec4(cube_center + vec3( rad,  rad, -rad), 1.0f);
+            vec4 vec4_p111 = world_to_screen_transform * vec4(cube_center + vec3( rad,  rad,  rad), 1.0f);
+
+            vec2 p000 = vec4_p000 / vec4_p000.w;
+            vec2 p001 = vec4_p001 / vec4_p001.w;
+            vec2 p010 = vec4_p010 / vec4_p010.w;
+            vec2 p011 = vec4_p011 / vec4_p011.w;
+            vec2 p100 = vec4_p100 / vec4_p100.w;
+            vec2 p101 = vec4_p101 / vec4_p101.w;
+            vec2 p110 = vec4_p110 / vec4_p110.w;
+            vec2 p111 = vec4_p111 / vec4_p111.w;
+
+            p000 = (p000 + 1.0f) * 0.5f * vec2(window_draw_region_.extent.width, window_draw_region_.extent.height) + vec2(window_draw_region_.offset.x, window_draw_region_.offset.y);
+            p001 = (p001 + 1.0f) * 0.5f * vec2(window_draw_region_.extent.width, window_draw_region_.extent.height) + vec2(window_draw_region_.offset.x, window_draw_region_.offset.y);
+            p010 = (p010 + 1.0f) * 0.5f * vec2(window_draw_region_.extent.width, window_draw_region_.extent.height) + vec2(window_draw_region_.offset.x, window_draw_region_.offset.y);
+            p011 = (p011 + 1.0f) * 0.5f * vec2(window_draw_region_.extent.width, window_draw_region_.extent.height) + vec2(window_draw_region_.offset.x, window_draw_region_.offset.y);
+            p100 = (p100 + 1.0f) * 0.5f * vec2(window_draw_region_.extent.width, window_draw_region_.extent.height) + vec2(window_draw_region_.offset.x, window_draw_region_.offset.y);
+            p101 = (p101 + 1.0f) * 0.5f * vec2(window_draw_region_.extent.width, window_draw_region_.extent.height) + vec2(window_draw_region_.offset.x, window_draw_region_.offset.y);
+            p110 = (p110 + 1.0f) * 0.5f * vec2(window_draw_region_.extent.width, window_draw_region_.extent.height) + vec2(window_draw_region_.offset.x, window_draw_region_.offset.y);
+            p111 = (p111 + 1.0f) * 0.5f * vec2(window_draw_region_.extent.width, window_draw_region_.extent.height) + vec2(window_draw_region_.offset.x, window_draw_region_.offset.y);
+
+            draw_list->AddLine({ p000.x, p000.y }, { p001.x, p001.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p001.x, p001.y }, { p011.x, p011.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p011.x, p011.y }, { p010.x, p010.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p010.x, p010.y }, { p000.x, p000.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+
+            draw_list->AddLine({ p100.x, p100.y }, { p101.x, p101.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p101.x, p101.y }, { p111.x, p111.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p111.x, p111.y }, { p110.x, p110.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p110.x, p110.y }, { p100.x, p100.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+
+            draw_list->AddLine({ p000.x, p000.y }, { p100.x, p100.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p001.x, p001.y }, { p101.x, p101.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p011.x, p011.y }, { p111.x, p111.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+            draw_list->AddLine({ p010.x, p010.y }, { p110.x, p110.y }, IM_COL32(0, 128, 255, 255), 2.0f);
+        }
+
+
         ImGui::Render();
         ImDrawData* imgui_draw_data = ImGui::GetDrawData();
 
@@ -1089,8 +1133,8 @@ int main(int argc, char** argv) {
             imgui_draw_data,
             (u32)voxel_count_,
             p_voxels_,
-            (u32)outlined_voxel_index_count,
-            &outlined_voxel_index
+            (u32)selected_voxel_index_count_,
+            p_selected_voxel_indices_
         );
 
         switch (render_result) {
