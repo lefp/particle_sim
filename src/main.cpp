@@ -110,9 +110,8 @@ bool imgui_overlay_visible_ = false;
 u32fast voxel_count_ = 0;
 gfx::Voxel* p_voxels_ = NULL;
 
-u32fast selected_voxel_index_buffer_capacity_ = 0;
 u32fast selected_voxel_index_count_ = 0;
-u32* p_selected_voxel_indices_ = NULL;
+u32 p_selected_voxel_indices_[gfx::MAX_OUTLINED_VOXEL_COUNT];
 
 bool selection_active_;
 vec2 selection_point1_windowspace_;
@@ -999,25 +998,7 @@ int main(int argc, char** argv) {
                     windowspaceToNormalizedScreenspace(selection_point2_windowspace_, &window_draw_region_)
                 );
 
-                u32fast voxel_in_frustum_count = 0;
-                {
-                    ZoneScopedN("Get selection count");
-                    for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                        if (pointIsInHexahedron(&frustum, vec3(p_voxels_[voxel_idx].coord))) voxel_in_frustum_count++;
-                    }
-                }
-
-                selected_voxel_index_count_ = voxel_in_frustum_count;
-                if (selected_voxel_index_count_ > selected_voxel_index_buffer_capacity_) {
-                    p_selected_voxel_indices_ = reallocArray(
-                        p_selected_voxel_indices_, selected_voxel_index_count_, typeof(*p_selected_voxel_indices_)
-                    );
-                    selected_voxel_index_buffer_capacity_ = selected_voxel_index_count_;
-                }
-
                 u32fast selected_voxel_idx = 0;
-                // TODO doing this twice is probably unnecessarily slow. Just preallocate the buffer to some
-                // reasonable max size.
                 {
                     ZoneScopedN("Get selected voxels");
                     for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
@@ -1027,6 +1008,7 @@ int main(int argc, char** argv) {
                         };
                     }
                 }
+                selected_voxel_index_count_ = selected_voxel_idx;
 
                 ImGui::GetBackgroundDrawList()->AddRect(
                     ImVec2 { selection_point1_windowspace_.x, selection_point1_windowspace_.y },
