@@ -44,8 +44,6 @@ constexpr VkExtent2D DEFAULT_WINDOW_EXTENT { 800, 600 }; // TODO weird default, 
 constexpr double ASPECT_RATIO_X_OVER_Y = 16.0 / 9.0;
 constexpr double ASPECT_RATIO_Y_OVER_X = 1.0 / ASPECT_RATIO_X_OVER_Y;
 
-constexpr double CAMERA_MOVEMENT_SPEED = 3.0; // unit: m/s
-
 constexpr double VIEW_FRUSTUM_NEAR_SIDE_DISTANCE = 0.15; // unit: m
 constexpr double VIEW_FRUSTUM_FAR_SIDE_DISTANCE = 500.0;
 
@@ -81,6 +79,7 @@ const u8 DEFAULT_PRESENT_MODE_PRIORITIES[3] {
 //
 
 vec3 camera_pos_ { 0, 0, 0 };
+f32 camera_speed_ = 3.0; // unit: m/s
 
 /// Spherical coordinates.
 // TODO do it from Z- instead of from X+, for consistency?
@@ -752,6 +751,8 @@ int main(int argc, char** argv) {
             ImGui::SliderAngle("Rotation X", &camera_angles_.x, 0.0, 360.0);
             ImGui::SliderAngle("Rotation Y", &camera_angles_.y, -90.0, 90.0);
 
+            ImGui::DragFloat("Movement speed", &camera_speed_, 1.0f, 0.0f, FLT_MAX / (f32)INT_MAX);
+
             ImGui::End();
 
 
@@ -951,7 +952,7 @@ int main(int argc, char** argv) {
             f32 tmp_speed = length(camera_vel);
             if (tmp_speed > 1e-5) {
                 camera_vel /= tmp_speed;
-                camera_vel *= CAMERA_MOVEMENT_SPEED;
+                camera_vel *= camera_speed_;
             }
         }
         camera_pos_ += camera_vel * (f32)delta_t_seconds;
