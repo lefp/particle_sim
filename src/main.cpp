@@ -363,7 +363,10 @@ static u32fast rayCast(
 }
 
 
-struct Frustum {
+struct Hexahedron {
+    // TODO Rename the member variables; they were originally named with a frustum in mind, but a hexahedron
+    // is not necessarily a frustum.
+
     vec3 near_bot_left_p;
     vec3 far_top_right_p;
 
@@ -379,7 +382,7 @@ struct Frustum {
 
 /// p1 and p2 must be in normalized screenspace;
 ///     i.e. the top-left of the screen is [-1, -1], and the bottom-right is [1, 1].
-static Frustum frustumFromScreenspacePoints(
+static Hexahedron frustumFromScreenspacePoints(
     vec3 camera_pos,
     vec3 camera_direction_unit,
     vec3 camera_horizontal_right_direction_unit,
@@ -434,7 +437,7 @@ static Frustum frustumFromScreenspacePoints(
         + max.x * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_X * camera_horizontal_right_direction_unit
         + max.y * 0.5f * (f32)VIEW_FRUSTUM_FAR_SIDE_SIZE_Y * camera_relative_up_direction_unit;
 
-    return Frustum {
+    return Hexahedron {
         .near_bot_left_p = near_bot_left_p,
         .far_top_right_p = far_top_right_p,
 
@@ -448,7 +451,7 @@ static Frustum frustumFromScreenspacePoints(
 };
 
 
-static inline bool pointIsInFrustum(const Frustum* f, vec3 p) {
+static inline bool pointIsInHexahedron(const Hexahedron* f, vec3 p) {
 
     bool inside = true;
 
@@ -1001,7 +1004,7 @@ int main(int argc, char** argv) {
 
                 selection_point2_windowspace_ = cursor_pos_;
 
-                Frustum frustum = frustumFromScreenspacePoints(
+                Hexahedron frustum = frustumFromScreenspacePoints(
                     camera_pos_,
                     camera_direction_unit,
                     camera_horizontal_right_direction_unit,
@@ -1014,7 +1017,7 @@ int main(int argc, char** argv) {
                 {
                     ZoneScopedN("Get selection count");
                     for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                        if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) voxel_in_frustum_count++;
+                        if (pointIsInHexahedron(&frustum, vec3(p_voxels_[voxel_idx].coord))) voxel_in_frustum_count++;
                     }
                 }
 
@@ -1032,7 +1035,7 @@ int main(int argc, char** argv) {
                 {
                     ZoneScopedN("Get selected voxels");
                     for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                        if (pointIsInFrustum(&frustum, vec3(p_voxels_[voxel_idx].coord))) {
+                        if (pointIsInHexahedron(&frustum, vec3(p_voxels_[voxel_idx].coord))) {
                             p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
                             selected_voxel_idx++;
                         };
