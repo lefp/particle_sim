@@ -1008,14 +1008,14 @@ int main(int argc, char** argv) {
                     windowspaceToNormalizedScreenspace(selection_point1_windowspace_, &window_draw_region_),
                     windowspaceToNormalizedScreenspace(selection_point2_windowspace_, &window_draw_region_)
                 );
+                frustum.near_bot_left_p = worldspaceToIndexspace(frustum.near_bot_left_p);
+                frustum.far_top_right_p = worldspaceToIndexspace(frustum.far_top_right_p);
 
                 u32fast selected_voxel_idx = 0;
                 {
                     ZoneScopedN("Get selected voxels");
                     for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                        // TODO OPTIMIZE this `indexspaceToWorldspace` conversion has a significant impact on
-                        // the runtime of this loop (takes ~35% longer).
-                        if (pointIsInHexahedron(&frustum, indexspaceToWorldspace(p_voxels_[voxel_idx].coord))) {
+                        if (pointIsInHexahedron(&frustum, p_voxels_[voxel_idx].coord)) {
                             p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
                             selected_voxel_idx++;
                         };
