@@ -104,6 +104,7 @@ bool left_alt_is_pressed_ = false;
 bool left_ctrl_g_is_pressed_ = false;
 bool left_ctrl_r_is_pressed_ = false;
 bool left_mouse_is_pressed_ = false;
+bool right_mouse_is_pressed_ = false;
 
 bool imgui_overlay_visible_ = false;
 
@@ -988,6 +989,13 @@ int main(int argc, char** argv) {
         abortIfGlfwError();
         if (imgui_io.WantCaptureMouse) left_mouse_is_pressed_ = false;
 
+        bool right_mouse_was_pressed = right_mouse_is_pressed_;
+        right_mouse_is_pressed_ = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+        abortIfGlfwError();
+        if (imgui_io.WantCaptureMouse) right_mouse_is_pressed_ = false;
+        (void)right_mouse_was_pressed; // TODO FIXME delet dis
+
+
         if (cursor_visible_) {
             if (!left_mouse_was_pressed and left_mouse_is_pressed_) {
                 selection_active_ = true;
@@ -1059,12 +1067,36 @@ int main(int argc, char** argv) {
         mat4 world_to_screen_transform_inverse = glm::inverse(world_to_screen_transform);
 
 
-        u32fast voxel_being_looked_at_idx = rayCast(
-            camera_pos_ + camera_direction_unit * (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE,
-            camera_direction_unit,
-            voxel_count_,
-            p_voxels_
-        );
+        u32fast voxel_being_looked_at_idx = INVALID_VOXEL_IDX;
+        {
+            vec3 ray_origin = camera_pos_ + camera_direction_unit * (f32)VIEW_FRUSTUM_NEAR_SIDE_DISTANCE;
+            vec3 ray_direction_unit = camera_direction_unit;
+
+            vec2 cursor_pos_screenspace = windowspaceToNormalizedScreenspace(cursor_pos_, &window_draw_region_);
+            vec2 cursor_pos_viewportspace = flip_screenXY_to_cameraXY(cursor_pos_screenspace);
+
+            if (cursor_visible_) {
+
+                ray_origin +=
+                    camera_horizontal_right_direction_unit
+                    * cursor_pos_viewportspace.x
+                    * 0.5f * VIEW_FRUSTUM_NEAR_SIDE_SIZE_X;
+
+                ray_origin +=
+                    camera_y_axis_unit
+                    * cursor_pos_viewportspace.y
+                    * 0.5f * VIEW_FRUSTUM_NEAR_SIDE_SIZE_Y;
+
+                ray_direction_unit = glm::normalize(ray_origin - camera_pos_);
+            }
+
+            voxel_being_looked_at_idx = rayCast(
+                ray_origin,
+                ray_direction_unit,
+                voxel_count_,
+                p_voxels_
+            );
+        }
         if (voxel_being_looked_at_idx != INVALID_VOXEL_IDX) {
 
             ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
