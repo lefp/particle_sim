@@ -20,6 +20,7 @@
 #include "error_util.hpp"
 #include "graphics.hpp"
 #include "alloc_util.hpp"
+#include "main_internal.hpp"
 
 namespace gfx = graphics;
 
@@ -110,6 +111,9 @@ bool imgui_overlay_visible_ = false;
 
 u32fast voxel_count_ = 0;
 gfx::Voxel* p_voxels_ = NULL;
+
+u32fast voxels_in_frustum_count_ = 0;
+VoxelPosAndIndex* p_voxels_in_frustum_ = NULL;
 
 u32fast selected_voxel_index_count_ = 0;
 u32 p_selected_voxel_indices_[gfx::MAX_OUTLINED_VOXEL_COUNT];
@@ -456,11 +460,11 @@ static Hexahedron frustumFromScreenspacePoints(
         .far_top_right_p = far_top_right_p,
 
         .near_normal = camera_direction_unit,
-        .bot_normal = glm::cross(far_bot_right_p - near_bot_right_p, near_bot_left_p - near_bot_right_p),
-        .left_normal = glm::cross(far_bot_left_p - near_bot_left_p, near_top_left_p - near_bot_left_p),
+        .bot_normal = glm::normalize(glm::cross(far_bot_right_p - near_bot_right_p, near_bot_left_p - near_bot_right_p)),
+        .left_normal = glm::normalize(glm::cross(far_bot_left_p - near_bot_left_p, near_top_left_p - near_bot_left_p)),
         .far_normal = -camera_direction_unit,
-        .top_normal = glm::cross(far_top_left_p - near_top_left_p, near_top_right_p - near_top_left_p),
-        .right_normal = glm::cross(far_top_right_p - near_top_right_p, near_bot_right_p - near_top_right_p),
+        .top_normal = glm::normalize(glm::cross(far_top_left_p - near_top_left_p, near_top_right_p - near_top_left_p)),
+        .right_normal = glm::normalize(glm::cross(far_top_right_p - near_top_right_p, near_bot_right_p - near_top_right_p)),
     };
 };
 
@@ -478,6 +482,53 @@ static inline bool pointIsInHexahedron(const Hexahedron* f, vec3 p) {
     inside &= glm::dot(p - f->far_top_right_p, f->right_normal) > 0.0f;
 
     return inside;
+}
+
+
+/// The points in `frustum` must be in index space.
+/// The normals in `frustum` must be unit vectors.
+/// Returns the number of points remaining after culling.
+static u32fast frustumCull(
+    const Hexahedron* frustum,
+    u32fast voxel_count,
+    const gfx::Voxel* p_voxels,
+    VoxelPosAndIndex* p_voxels_out
+) {
+    assert(glm::abs(1.f - glm::length(frustum->near_normal)) < 1e-5);
+    assert(glm::abs(1.f - glm::length(frustum->far_normal)) < 1e-5);
+    assert(glm::abs(1.f - glm::length(frustum->bot_normal)) < 1e-5);
+    assert(glm::abs(1.f - glm::length(frustum->top_normal)) < 1e-5);
+    assert(glm::abs(1.f - glm::length(frustum->left_normal)) < 1e-5);
+    assert(glm::abs(1.f - glm::length(frustum->right_normal)) < 1e-5);
+
+    constexpr f32 voxel_bounding_sphere_radius = 0.707106781186548f + 1e-5f; // sqrt(0.5*0.5 + 0.5*0.5)
+
+    u32fast voxel_out_idx = 0;
+    for (u32fast voxel_idx = 0; voxel_idx < voxel_count; voxel_idx++) {
+
+        ivec3 voxel_coord_int = p_voxels[voxel_idx].coord;
+        vec3 p = vec3(voxel_coord_int);
+
+        f32 signed_distance = INFINITY;
+
+        signed_distance = glm::min(signed_distance, glm::dot(p - frustum->near_bot_left_p, frustum->near_normal));
+        signed_distance = glm::min(signed_distance, glm::dot(p - frustum->near_bot_left_p, frustum->bot_normal));
+        signed_distance = glm::min(signed_distance, glm::dot(p - frustum->near_bot_left_p, frustum->left_normal));
+
+        signed_distance = glm::min(signed_distance, glm::dot(p - frustum->far_top_right_p, frustum->far_normal));
+        signed_distance = glm::min(signed_distance, glm::dot(p - frustum->far_top_right_p, frustum->top_normal));
+        signed_distance = glm::min(signed_distance, glm::dot(p - frustum->far_top_right_p, frustum->right_normal));
+
+        if (signed_distance >= -voxel_bounding_sphere_radius) {
+            p_voxels_out[voxel_out_idx] = VoxelPosAndIndex {
+                .pos = voxel_coord_int,
+                .idx = (u32)voxel_idx,
+            };
+            voxel_out_idx++;
+        }
+    }
+
+    return voxel_out_idx;
 }
 
 
@@ -598,7 +649,8 @@ int main(int argc, char** argv) {
 
 
     voxel_count_ = 100'000;
-    p_voxels_ = mallocArray(voxel_count_, gfx::Voxel);
+    p_voxels_ = mallocArray(gfx::MAX_VOXEL_COUNT, gfx::Voxel);
+    p_voxels_in_frustum_ = mallocArray(gfx::MAX_VOXEL_COUNT, typeof(*p_voxels_in_frustum_));
 
     for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
 
@@ -1009,6 +1061,20 @@ int main(int argc, char** argv) {
         abortIfGlfwError();
         if (imgui_io.WantCaptureMouse) right_mouse_is_pressed_ = false;
         (void)right_mouse_was_pressed; // TODO FIXME delet dis
+
+
+        Hexahedron view_frustum = frustumFromScreenspacePoints(
+            camera_pos_,
+            camera_direction_unit,
+            camera_horizontal_right_direction_unit,
+            camera_y_axis_unit,
+            vec2 { -1.f, -1.f },
+            vec2 { 1.f, 1.f }
+        );
+        view_frustum.near_bot_left_p = worldspaceToIndexspaceFloat(view_frustum.near_bot_left_p);
+        view_frustum.far_top_right_p = worldspaceToIndexspaceFloat(view_frustum.far_top_right_p);
+
+        voxels_in_frustum_count_ = frustumCull(&view_frustum, voxel_count_, p_voxels_, p_voxels_in_frustum_);
 
 
         if (cursor_visible_) {
