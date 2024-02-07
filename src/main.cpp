@@ -494,6 +494,8 @@ static u32fast frustumCull(
     const gfx::Voxel* p_voxels,
     VoxelPosAndIndex* p_voxels_out
 ) {
+    ZoneScoped;
+
     assert(glm::abs(1.f - glm::length(frustum->near_normal)) < 1e-5);
     assert(glm::abs(1.f - glm::length(frustum->far_normal)) < 1e-5);
     assert(glm::abs(1.f - glm::length(frustum->bot_normal)) < 1e-5);
