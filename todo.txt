@@ -14,12 +14,15 @@
     - [x] Draw outlines on cubes
         - [ ] Anti-alias
 - [ ] Select multiple cubes (e.g. right-click, or click+drag), modify all of their properties at the same time
+    - [ ] Delete key deletes
+    - [ ] Under the `selection` tab, have a color picker to modify their color.
 - [x] Shader hot-reloading
     - [x] Better logging
     - [x] Error-handling (e.g. failure to compile a shader should not abort the program)
     - [x] UI button to disable file-watch based shader auto-reload
     - [ ] IMPORTANT: clean up all the hot-reloading code, and rethink and unfuck the awful organization.
 - [ ] Stress-test ray-cube interesction on 100k - 1M cubes, and optimize as needed.
+    - [ ] Check if frustum-culling first helps.
 
 - [ ] Simple terrain generation
 - [ ] Fog and volumetric lighting
