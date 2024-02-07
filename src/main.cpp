@@ -1103,9 +1103,9 @@ int main(int argc, char** argv) {
                 u32fast selected_voxel_idx = 0;
                 {
                     ZoneScopedN("Get selected voxels");
-                    for (u32fast voxel_idx = 0; voxel_idx < voxel_count_; voxel_idx++) {
-                        if (pointIsInHexahedron(&frustum, p_voxels_[voxel_idx].coord)) {
-                            p_selected_voxel_indices_[selected_voxel_idx] = (u32)voxel_idx;
+                    for (u32fast voxel_idx = 0; voxel_idx < voxels_in_frustum_count_; voxel_idx++) {
+                        if (pointIsInHexahedron(&frustum, p_voxels_in_frustum_[voxel_idx].pos)) {
+                            p_selected_voxel_indices_[selected_voxel_idx] = p_voxels_in_frustum_[voxel_idx].idx;
                             selected_voxel_idx++;
                         };
                     }
