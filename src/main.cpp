@@ -341,12 +341,12 @@ static inline f32 rayBoxInteriorCollisionTime(const RaycastRay* ray, const AxisA
 }
 
 
-/// Returns the index of the earliest collision, or INVALID_VOXEL_IDX if there are no collisions.
+/// Returns the index of the voxel with the earliest collision, or INVALID_VOXEL_IDX if there are no collisions.
 static u32fast rayCast(
     vec3 ray_origin,
     vec3 ray_direction,
     u32fast voxel_count,
-    const gfx::Voxel* p_voxels
+    const VoxelPosAndIndex* p_voxels
 ) {
     ZoneScoped;
 
@@ -360,7 +360,7 @@ static u32fast rayCast(
 
     for (u32fast voxel_idx = 0; voxel_idx < voxel_count; voxel_idx++) {
 
-        vec3 voxel_coord = p_voxels[voxel_idx].coord;
+        vec3 voxel_coord = p_voxels[voxel_idx].pos;
         AxisAlignedBox box {
             .x_min = (f32)voxel_coord.x - 0.5f,
             .y_min = (f32)voxel_coord.y - 0.5f,
@@ -373,7 +373,7 @@ static u32fast rayCast(
         f32 t = rayBoxInteriorCollisionTime(&ray, &box);
         if (0.0f < t and t < earliest_collision_time) {
             earliest_collision_time = t;
-            earliest_collision_idx = voxel_idx;
+            earliest_collision_idx = p_voxels[voxel_idx].idx;
         }
     }
 
@@ -1174,8 +1174,8 @@ int main(int argc, char** argv) {
             voxel_being_looked_at_idx = rayCast(
                 ray_origin,
                 ray_direction_unit,
-                voxel_count_,
-                p_voxels_
+                voxels_in_frustum_count_,
+                p_voxels_in_frustum_
             );
         }
         if (voxel_being_looked_at_idx != INVALID_VOXEL_IDX) {
