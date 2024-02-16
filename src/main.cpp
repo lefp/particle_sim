@@ -20,6 +20,7 @@
 #include "error_util.hpp"
 #include "graphics.hpp"
 #include "alloc_util.hpp"
+#include "fluid_sim.hpp"
 #include "main_internal.hpp"
 
 namespace gfx = graphics;
@@ -669,6 +670,35 @@ int main(int argc, char** argv) {
     }
 
 
+    fluidsim::SimData sim_data {};
+    {
+        u32fast particle_count = 1000;
+        vec3* p_initial_particles = mallocArray(particle_count, vec3);
+        for (u32fast particle_idx = 0; particle_idx < particle_count; particle_idx++) {
+
+            vec3 random_0_to_1 {
+                (f32)rand() / (f32)RAND_MAX,
+                (f32)rand() / (f32)RAND_MAX,
+                (f32)rand() / (f32)RAND_MAX,
+            };
+
+            p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 1.f;
+        }
+
+        sim_data = fluidsim::init(particle_count, p_initial_particles);
+
+        free(p_initial_particles);
+    }
+
+    gfx::Particle* p_particles = callocArray(sim_data.particle_count, gfx::Particle);
+    for (u32fast i = 0; i < sim_data.particle_count; i++) {
+        p_particles[i].color = u8vec4(
+            vec3(rand(), rand(), rand()) / (f32)RAND_MAX * 255.f,
+            255.f
+        );
+    }
+
+
     checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
     u32fast frame_counter = 0;
 
@@ -700,6 +730,11 @@ int main(int argc, char** argv) {
                 frametimeplot_frames_since_last_sample_ = 0;
                 frametimeplot_largest_reading_since_last_sample_ = 0.;
             }
+        }
+
+        fluidsim::advance(&sim_data, (f32)delta_t_seconds);
+        for (u32fast i = 0; i < sim_data.particle_count; i++) {
+            p_particles[i].coord = sim_data.p_positions[i];
         }
 
         if (shader_autoreload_enabled_ and shader_file_tracking_enabled_) {
@@ -1244,7 +1279,9 @@ int main(int argc, char** argv) {
             (u32)voxel_count_,
             p_voxels_,
             (u32)selected_voxel_index_count_,
-            p_selected_voxel_indices_
+            p_selected_voxel_indices_,
+            (u32)sim_data.particle_count,
+            p_particles
         );
 
         switch (render_result) {

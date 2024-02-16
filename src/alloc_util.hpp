@@ -24,6 +24,18 @@ inline void* mallocAsserted(size_t size) {
 }
 
 
+inline void* callocAsserted(size_t elem_size, size_t elem_count) {
+
+    assert(elem_size != 0);
+    assert(elem_count != 0);
+
+    void* ptr = calloc(elem_count, elem_size);
+    assertErrno(ptr != NULL);
+
+    return ptr;
+}
+
+
 inline void* reallocAsserted(void* old_ptr, size_t size) {
 
     assert(size != 0);
@@ -36,6 +48,7 @@ inline void* reallocAsserted(void* old_ptr, size_t size) {
 
 
 #define mallocArray(COUNT, TYPE) (TYPE*)mallocAsserted(COUNT * sizeof(TYPE))
+#define callocArray(COUNT, TYPE) (TYPE*)callocAsserted(COUNT, sizeof(TYPE))
 #define reallocArray(PTR, COUNT, TYPE) (TYPE*)reallocAsserted(PTR, COUNT * sizeof(TYPE))
 
 

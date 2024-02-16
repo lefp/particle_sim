@@ -24,6 +24,8 @@ constexpr u32 MAX_OUTLINED_VOXEL_COUNT = 1'000'000;
 constexpr f32 VOXEL_RADIUS = 1. / 16.;
 constexpr f32 VOXEL_DIAMETER = 2. * VOXEL_RADIUS;
 
+constexpr f32 PARTICLE_RADIUS = 1. / 32.; // TODO user should be able to specify this
+
 //
 // ===========================================================================================================
 //
@@ -34,6 +36,13 @@ struct Voxel {
 };
 static_assert(alignof(Voxel) == 4);
 static_assert(sizeof(Voxel) == 4 * 4);
+
+struct Particle {
+    vec3 coord;
+    u8vec4 color;
+};
+static_assert(alignof(Particle) == 4);
+static_assert(sizeof(Particle) == 4 * 4);
 
 struct SurfaceResources {
     void* impl;
@@ -133,7 +142,9 @@ RenderResult render(
     u32 voxel_count,
     const Voxel* p_voxels,
     u32 outlined_voxel_index_count,
-    const u32* p_outlined_voxel_indices
+    const u32* p_outlined_voxel_indices,
+    u32 particle_count,
+    const Particle* p_particles
 );
 
 /// `init()` must have been called before this; otherwise returns VK_NULL_HANDLE.
