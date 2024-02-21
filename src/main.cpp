@@ -21,6 +21,7 @@
 #include "graphics.hpp"
 #include "alloc_util.hpp"
 #include "fluid_sim.hpp"
+#include "defer.hpp"
 #include "main_internal.hpp"
 
 namespace gfx = graphics;
@@ -161,6 +162,17 @@ bool frametimeplot_paused_ = false;
 
 gfx::PresentMode present_mode_ = gfx::PRESENT_MODE_ENUM_COUNT;
 gfx::PresentModePriorities present_mode_priorities_ {};
+
+
+constexpr fluidsim::SimParameters FLUID_SIM_PARAMS_DEFAULT {
+    .rest_particle_density = 1000,
+    .rest_particle_interaction_count_approx = 50,
+    .spring_stiffness = 0.05f, // TODO FIXME didn't really think about this
+};
+fluidsim::SimParameters fluid_sim_params_ = FLUID_SIM_PARAMS_DEFAULT;
+
+bool fluid_sim_paused_ = false;
+
 
 //
 // ===========================================================================================================
@@ -535,6 +547,35 @@ static u32fast frustumCull(
 }
 
 
+static fluidsim::SimData initFluidSim(const fluidsim::SimParameters* params) {
+
+    // OPTIMIZE if needed. This was written without much thought.
+
+    fluidsim::SimData sim_data {};
+    {
+        u32fast particle_count = 1000;
+
+        vec3* p_initial_particles = mallocArray(particle_count, vec3);
+        defer(free(p_initial_particles));
+
+        for (u32fast particle_idx = 0; particle_idx < particle_count; particle_idx++) {
+
+            vec3 random_0_to_1 {
+                (f32)rand() / (f32)RAND_MAX,
+                (f32)rand() / (f32)RAND_MAX,
+                (f32)rand() / (f32)RAND_MAX,
+            };
+
+            p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 1.f;
+        }
+
+        sim_data = fluidsim::create(params, particle_count, p_initial_particles);
+    }
+
+    return sim_data;
+}
+
+
 int main(int argc, char** argv) {
 
     ZoneScoped;
@@ -670,25 +711,7 @@ int main(int argc, char** argv) {
     }
 
 
-    fluidsim::SimData sim_data {};
-    {
-        u32fast particle_count = 1000;
-        vec3* p_initial_particles = mallocArray(particle_count, vec3);
-        for (u32fast particle_idx = 0; particle_idx < particle_count; particle_idx++) {
-
-            vec3 random_0_to_1 {
-                (f32)rand() / (f32)RAND_MAX,
-                (f32)rand() / (f32)RAND_MAX,
-                (f32)rand() / (f32)RAND_MAX,
-            };
-
-            p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 1.f;
-        }
-
-        sim_data = fluidsim::init(particle_count, p_initial_particles);
-
-        free(p_initial_particles);
-    }
+    fluidsim::SimData sim_data = initFluidSim(&fluid_sim_params_);
 
     gfx::Particle* p_particles = callocArray(sim_data.particle_count, gfx::Particle);
     for (u32fast i = 0; i < sim_data.particle_count; i++) {
@@ -733,7 +756,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        fluidsim::advance(&sim_data, (f32)delta_t_seconds);
+        if (!fluid_sim_paused_) fluidsim::advance(&sim_data, (f32)delta_t_seconds);
         for (u32fast i = 0; i < sim_data.particle_count; i++) {
             p_particles[i].coord = sim_data.p_positions[i];
         }
@@ -860,32 +883,75 @@ int main(int argc, char** argv) {
             ImGui::End();
 
 
-            ImGui::Begin("Shaders", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Begin("Graphics", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
 
-            ImGui::Text("Last reload:");
-            ImGui::SameLine();
-            if (last_shader_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
-            else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
+            ImGui::SeparatorText("Shaders");
+            {
+                ImGui::Text("Last reload:");
+                ImGui::SameLine();
+                if (last_shader_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
+                else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
 
-            bool shader_reload_all_button_was_pressed = shader_reload_all_button_is_pressed_;
-            shader_reload_all_button_is_pressed_ = ImGui::Button("Reload all");
+                bool shader_reload_all_button_was_pressed = shader_reload_all_button_is_pressed_;
+                shader_reload_all_button_is_pressed_ = ImGui::Button("Reload all");
 
-            if (shader_file_tracking_enabled_) ImGui::Checkbox("Auto-reload", &shader_autoreload_enabled_);
-            else {
-                ImGui::BeginDisabled();
-                ImGui::Checkbox("Auto-reload (unavailable)", &shader_autoreload_enabled_);
-                ImGui::EndDisabled();
+                if (shader_file_tracking_enabled_) ImGui::Checkbox("Auto-reload", &shader_autoreload_enabled_);
+                else {
+                    ImGui::BeginDisabled();
+                    ImGui::Checkbox("Auto-reload (unavailable)", &shader_autoreload_enabled_);
+                    ImGui::EndDisabled();
+                }
+
+                if (ImGui::Checkbox("Grid", &grid_shader_enabled_)) gfx::setGridEnabled(grid_shader_enabled_);
+
+                if (!shader_reload_all_button_was_pressed and shader_reload_all_button_is_pressed_) {
+                    LOG_F(INFO, "Reload-all-shaders button pressed. Triggering reload.");
+                    success = gfx::reloadAllShaders(gfx_renderer);
+                    last_shader_reload_failed_ = !success;
+                }
             }
+            ImGui::SeparatorText("Present mode");
+            {
+                gfx::PresentModeFlags supported_present_modes = gfx::getSupportedPresentModes(gfx_surface);
+                bool present_mode_button_pressed = false;
+                int selected_present_mode = present_mode_;
+                {
+                    ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_MAILBOX_BIT));
+                    present_mode_button_pressed |= ImGui::RadioButton(
+                        "Mailbox", &selected_present_mode, gfx::PRESENT_MODE_MAILBOX
+                    );
+                    ImGui::EndDisabled();
 
-            if (ImGui::Checkbox("Grid", &grid_shader_enabled_)) gfx::setGridEnabled(grid_shader_enabled_);
+                    ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_FIFO_BIT));
+                    present_mode_button_pressed |= ImGui::RadioButton(
+                        "FIFO", &selected_present_mode, gfx::PRESENT_MODE_FIFO
+                    );
+                    ImGui::EndDisabled();
+
+                    ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_IMMEDIATE_BIT));
+                    present_mode_button_pressed |= ImGui::RadioButton(
+                        "Immediate", &selected_present_mode, gfx::PRESENT_MODE_IMMEDIATE
+                    );
+                    ImGui::EndDisabled();
+                }
+
+                if (present_mode_button_pressed and selected_present_mode != present_mode_) {
+
+                    memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
+                    assert(0 <= selected_present_mode and selected_present_mode < gfx::PRESENT_MODE_ENUM_COUNT);
+                    present_mode_priorities_[selected_present_mode] = UINT8_MAX;
+
+                    gfx::Result gfx_result = gfx::updateSurfaceResources(
+                        gfx_surface, present_mode_priorities_, DEFAULT_WINDOW_EXTENT, &present_mode_
+                    );
+                    assertGraphics(gfx_result);
+
+                    ImGui::EndFrame();
+                    continue; // main loop
+                }
+            }
 
             ImGui::End();
-
-            if (!shader_reload_all_button_was_pressed and shader_reload_all_button_is_pressed_) {
-                LOG_F(INFO, "Reload-all-shaders button pressed. Triggering reload.");
-                success = gfx::reloadAllShaders(gfx_renderer);
-                last_shader_reload_failed_ = !success;
-            }
 
 
             ImGui::Begin("Performance", NULL, common_imgui_window_flags);
@@ -933,46 +999,31 @@ int main(int argc, char** argv) {
             ImGui::End();
 
 
-            ImGui::Begin("Present mode");
-
-            gfx::PresentModeFlags supported_present_modes = gfx::getSupportedPresentModes(gfx_surface);
-            bool present_mode_button_pressed = false;
-            int selected_present_mode = present_mode_;
+            bool sim_params_modified = false;
+            ImGui::Begin("Fluid sim", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
             {
-                ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_MAILBOX_BIT));
-                present_mode_button_pressed |= ImGui::RadioButton(
-                    "Mailbox", &selected_present_mode, gfx::PRESENT_MODE_MAILBOX
-                );
-                ImGui::EndDisabled();
+                const char* pause_button_label = fluid_sim_paused_ ? "Resume" : "Pause";
+                if (ImGui::Button(pause_button_label)) fluid_sim_paused_ = !fluid_sim_paused_;
 
-                ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_FIFO_BIT));
-                present_mode_button_pressed |= ImGui::RadioButton(
-                    "FIFO", &selected_present_mode, gfx::PRESENT_MODE_FIFO
-                );
-                ImGui::EndDisabled();
+                if (ImGui::Button("Reset state")) {
+                    fluidsim::destroy(&sim_data);
+                    sim_data = initFluidSim(&fluid_sim_params_);
+                }
 
-                ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_IMMEDIATE_BIT));
-                present_mode_button_pressed |= ImGui::RadioButton(
-                    "Immediate", &selected_present_mode, gfx::PRESENT_MODE_IMMEDIATE
-                );
-                ImGui::EndDisabled();
+                ImGui::SeparatorText("Parameters");
+
+                if (ImGui::Button("Reset params")) {
+                    sim_params_modified = true;
+                    fluid_sim_params_ = FLUID_SIM_PARAMS_DEFAULT;
+                }
+
+                sim_params_modified |= ImGui::DragFloat("Rest particle density", &fluid_sim_params_.rest_particle_density, 10.0f, 1.0f, FLT_MAX / (f32)INT_MAX);
+                sim_params_modified |= ImGui::DragFloat("Rest interaction count", &fluid_sim_params_.rest_particle_interaction_count_approx, 2.0f, 1.0f, FLT_MAX / (f32)INT_MAX);
+                sim_params_modified |= ImGui::DragFloat("Spring stiffness", &fluid_sim_params_.spring_stiffness, 0.01f, 0.0f, FLT_MAX / (f32)INT_MAX);
             }
             ImGui::End();
 
-            if (present_mode_button_pressed and selected_present_mode != present_mode_) {
-
-                memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
-                assert(0 <= selected_present_mode and selected_present_mode < gfx::PRESENT_MODE_ENUM_COUNT);
-                present_mode_priorities_[selected_present_mode] = UINT8_MAX;
-
-                gfx::Result gfx_result = gfx::updateSurfaceResources(
-                    gfx_surface, present_mode_priorities_, DEFAULT_WINDOW_EXTENT, &present_mode_
-                );
-                assertGraphics(gfx_result);
-
-                ImGui::EndFrame();
-                continue; // main loop
-            }
+            if (sim_params_modified) fluidsim::setParams(&sim_data, &fluid_sim_params_);
         }
 
 
