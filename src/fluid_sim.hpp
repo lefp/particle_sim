@@ -16,8 +16,6 @@ struct SimData {
     u32fast particle_count;
     vec3* p_positions;
     vec3* p_velocities;
-    vec3* p_old_positions;
-    vec3* scratch_buffer;
 };
 
 SimData init(u32fast particle_count, const vec3* p_initial_positions);

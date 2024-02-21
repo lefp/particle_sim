@@ -28,6 +28,8 @@
 - [ ] Fog and volumetric lighting
 - [ ] Fire physics
 
+- [ ] Try on-demand Tracy profiling, so it doesn't consume ever-growing memory when you're not trying to get a profile.
+
 
 Consider (not very important):
     Instead of attach/detach to surface, maybe the RenderResources interface should just be "setResolution".

@@ -1,6 +1,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cinttypes>
+#include <cmath>
 
 #include <glm/glm.hpp>
 #include <loguru/loguru.hpp>
@@ -19,11 +20,28 @@ using glm::vec3;
 // ===========================================================================================================
 //
 
-constexpr f32 ACCEL_GRAVITY = 0;
-constexpr f32 INTERACTION_RADIUS = 0.25;
-constexpr f32 REST_DENSITY = 1.0;
-constexpr f32 STIFFNESS = 1.0;
-constexpr f32 NEAR_STIFFNESS = 1.0;
+constexpr f32 PI = (f32)M_PI;
+
+constexpr f32 REST_MASS_DENSITY = 1000.0; // kg / m^3
+constexpr f32 REST_PARTICLE_DENSITY = 1000.0; // particles / m^3
+
+// The number of particles within the interaction radius at rest. This can be tuned.
+constexpr u32fast REST_PARTICLE_INTERACTION_COUNT_APPROX = 50; 
+
+constexpr f32 SPRING_STIFFNESS = 0.05f; // TODO FIXME didn't really think about this
+
+
+
+constexpr f32 PARTICLE_MASS = REST_MASS_DENSITY / REST_PARTICLE_DENSITY;
+
+// Number of particles contained in sphere at rest ~= sphere volume * rest particle density.
+// :: N = (4/3 pi r^3) rho
+// :: r = cuberoot(N * 3 / (4 pi rho)).
+const f32 PARTICLE_INTERACTION_RADIUS = cbrtf(
+    (f32)REST_PARTICLE_INTERACTION_COUNT_APPROX * 3.f / (4.f * PI * REST_PARTICLE_DENSITY)
+);
+
+const f32 SPRING_REST_LENGTH = PARTICLE_INTERACTION_RADIUS / 2.f; // TODO FIXME didn't really think about this
 
 //
 // ===========================================================================================================
@@ -39,109 +57,46 @@ extern SimData init(u32fast particle_count, const vec3* p_initial_positions) {
     memcpy(s.p_positions, p_initial_positions, particle_count * sizeof(vec3));
 
     s.p_velocities = callocArray(particle_count, vec3);
-    s.p_old_positions = callocArray(particle_count, vec3);
-    s.scratch_buffer = mallocArray(particle_count, vec3);
 
     return s;
 }
 
-static inline void doubleDensityRelaxation(SimData* s, f32 delta_t) {
-
-    u32fast particle_count = s->particle_count;
-    vec3* p_displacements = s->scratch_buffer;
-
-    for (u32fast i = 0; i < particle_count; i++) {
-
-        f32 density = 0;
-        f32 near_density = 0;
-
-        for (u32fast j = 0; j < particle_count; j++) {
-
-            if (j == i) continue;
-
-            f32 dist = glm::length(s->p_positions[j] - s->p_positions[i]);
-            if (dist >= INTERACTION_RADIUS) continue;
-
-            f32 tmp = 1.0f - dist / INTERACTION_RADIUS;
-            density += tmp * tmp;
-            near_density += tmp * tmp * tmp;
-        }
-
-        f32 pressure = STIFFNESS * (density - REST_DENSITY);
-        f32 near_pressure = NEAR_STIFFNESS * near_density;
-
-        vec3 displacement = vec3(0.0f);
-        for (u32fast j = 0; j < particle_count; j++) {
-
-            if (j == i) continue;
-
-            vec3 difference = s->p_positions[j] - s->p_positions[i];
-            f32 distance = glm::length(difference);
-            if (distance >= INTERACTION_RADIUS) continue;
-
-            if (distance < 1e-7) {
-                LOG_F(
-                    WARNING, "Distance too small (%" PRIuFAST32 ", %" PRIuFAST32 ", %f)",
-                    i, j, distance
-                );
-                continue;
-            }
-            vec3 difference_unit = difference / distance;
-
-            f32 tmp = 1.0f - distance / INTERACTION_RADIUS;
-
-            displacement +=
-                (delta_t*delta_t)
-                * (
-                    pressure * tmp
-                    + near_pressure * (tmp*tmp)
-                )
-                * difference_unit;
-
-        }
-        p_displacements[i] = displacement;
-    }
-
-    for (u32fast i = 0; i < particle_count; i++) {
-        s->p_positions[i] += p_displacements[i];
-    }
-}
 
 extern void advance(SimData* s, f32 delta_t) {
 
     assert(delta_t > 1e-5); // assert nonzero
 
     u32fast particle_count = s->particle_count;
+    for (u32fast i = 0; i < particle_count; i++)
+    {
+        vec3 accel_i = vec3(0);
+        vec3 pos_i = s->p_positions[i];
 
-    for (u32fast i = 0; i < particle_count; i++) {
-        // apply gravity
-        s->p_velocities[i] += delta_t * ACCEL_GRAVITY;
+        for (u32fast j = 0; j < particle_count; j++)
+        {
+            if (i == j) continue;
+
+            vec3 disp = s->p_positions[j] - pos_i;
+            f32 dist = glm::length(disp);
+
+            if (dist >= PARTICLE_INTERACTION_RADIUS) continue;
+            if (dist < 1e-7)
+            {
+                LOG_F(WARNING, "distance too small: %" PRIuFAST32 " %" PRIuFAST32 "%f", i, j, dist);
+                continue;
+            }
+            vec3 disp_unit = disp / dist;
+
+            accel_i += SPRING_STIFFNESS * (dist - SPRING_REST_LENGTH) * disp_unit;
+        }
+
+        s->p_velocities[i] += accel_i * delta_t;
+        s->p_velocities[i] -= 0.5f * delta_t * s->p_velocities[i]; // damping
     }
 
-    // modify velocities with pairwise viscosity impulses
-    // TODO FIXME applyViscosity // (Section 5.3)
-
-    // save previous position
-    // TODO OPTIMIZE you can do this by swapping the pointers, if you don't need p_positions to also contain
-    //     the old positions.
-    memcpy(s->p_old_positions, s->p_positions, particle_count * sizeof(vec3));
-
-    for (u32fast i = 0; i < particle_count; i++) {
-        // advance to predicted position
-        s->p_positions[i] += delta_t * s->p_velocities[i];
-     }
-
-    // add and remove springs, change rest lengths
-    // TODO FIXME adjustSprings // (Section 5.2)
-    // modify positions according to springs,
-    // double density relaxation, and collisions
-    // TODO FIXME applySpringDisplacements // (Section 5.1)
-    doubleDensityRelaxation(s, delta_t); // (Section 4)
-    // TODO FIXME resolveCollisions // (Section 6)
-
-    for (u32fast i = 0; i < particle_count; i++) {
-        // use previous position to compute next velocity
-        s->p_velocities[i] = (s->p_positions[i] - s->p_old_positions[i]) / delta_t;
+    for (u32fast i = 0; i < particle_count; i++)
+    {
+        s->p_positions[i] += s->p_velocities[i] * delta_t;
     }
 };
 

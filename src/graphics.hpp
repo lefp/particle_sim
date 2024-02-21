@@ -24,7 +24,7 @@ constexpr u32 MAX_OUTLINED_VOXEL_COUNT = 1'000'000;
 constexpr f32 VOXEL_RADIUS = 1. / 16.;
 constexpr f32 VOXEL_DIAMETER = 2. * VOXEL_RADIUS;
 
-constexpr f32 PARTICLE_RADIUS = 1. / 32.; // TODO user should be able to specify this
+constexpr f32 PARTICLE_RADIUS = 1. / 128.; // TODO user should be able to specify this
 
 //
 // ===========================================================================================================

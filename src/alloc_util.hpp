@@ -24,7 +24,7 @@ inline void* mallocAsserted(size_t size) {
 }
 
 
-inline void* callocAsserted(size_t elem_size, size_t elem_count) {
+inline void* callocAsserted(size_t elem_count, size_t elem_size) {
 
     assert(elem_size != 0);
     assert(elem_count != 0);

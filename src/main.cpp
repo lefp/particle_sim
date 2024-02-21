@@ -693,7 +693,8 @@ int main(int argc, char** argv) {
     gfx::Particle* p_particles = callocArray(sim_data.particle_count, gfx::Particle);
     for (u32fast i = 0; i < sim_data.particle_count; i++) {
         p_particles[i].color = u8vec4(
-            vec3(rand(), rand(), rand()) / (f32)RAND_MAX * 255.f,
+            // vec3(rand(), rand(), rand()) / (f32)RAND_MAX * 255.f,
+            0.f, 100.f + 50.f * ((f32)rand() / (f32)RAND_MAX), 255.f,
             255.f
         );
     }
