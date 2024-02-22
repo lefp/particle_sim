@@ -1,10 +1,10 @@
-#ifndef _FLUID_SIM_HPP
-#define _FLUID_SIM_HPP
+#ifndef _FLUID_SIM_TYPES_HPP
+#define _FLUID_SIM_TYPES_HPP
 
-#include <glm/glm.hpp>
-#include "types.hpp"
+// #include "../../src/types.hpp"
+// #include "../../libs/glm/glm.hpp"
 
-namespace fluidsim {
+namespace fluid_sim {
 
 using glm::vec3;
 
@@ -32,17 +32,10 @@ struct SimData {
     } parameters;
 };
 
-SimData create(const SimParameters* params, u32fast particle_count, const vec3* p_initial_positions);
-void destroy(SimData* sim);
-
-void setParams(SimData*, const SimParameters*);
-
-void advance(SimData*, f32 delta_t);
-
 //
 // ===========================================================================================================
 //
 
-} // namespace
+}
 
 #endif // include guard

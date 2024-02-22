@@ -1,0 +1,40 @@
+source_files = [
+  "dynamic/fluid_sim/fluid_sim.cpp",
+]
+
+lib_files = [
+  "libs/loguru/loguru.cpp"
+]
+
+[[procedures]]
+name = "setParams"
+args = [
+  { type = "SimData*" },
+  { type = "const SimParameters*" },
+]
+return = "void"
+
+[[procedures]]
+name = "create"
+args = [
+  { type = "const SimParameters*" },
+  { type = "u32fast", name = "particle_count" },
+  { type = "const vec3*", name = "p_initial_positions" },
+]
+return = "SimData"
+
+[[procedures]]
+name = "destroy"
+args = [
+  { type = "SimData*" },
+]
+return = "void"
+
+[[procedures]]
+name = "advance"
+args = [
+  { type = "SimData*" },
+  { type = "f32", name = "delta_t" },
+]
+return = "void"
+

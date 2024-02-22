@@ -1,16 +1,24 @@
 #ifndef _ALLOC_UTIL_HPP
 #define _ALLOC_UTIL_HPP
 
-//
-// ===========================================================================================================
-//
-
 // #include <cstdlib>
 // #include <cassert>
 // #include <loguru/loguru.hpp>
 // #include "error_util.hpp"
 // #include "types.hpp"
 // #include "math_util.hpp"
+
+//
+// ===========================================================================================================
+//
+
+// TODO FIXME these all should probably be static inline, not just inline
+
+static inline size_t roundUpMultiple(size_t number_to_round, size_t multiple_of) {
+    assert(multiple_of != 0);
+    // TODO FIXME verify that this is correct
+    return ((number_to_round + multiple_of - 1) / multiple_of) * multiple_of;
+};
 
 
 inline void* mallocAsserted(size_t size) {
@@ -44,6 +52,20 @@ inline void* reallocAsserted(void* old_ptr, size_t size) {
     assertErrno(new_ptr != NULL);
 
     return new_ptr;
+}
+
+
+inline void* allocAlignedAsserted(size_t alignment, size_t size) {
+
+    assert(size != 0);
+
+    /// aligned_alloc: "The `size` parameter must be an integral multiple of `alignment`." (cppreference.com)
+    size = roundUpMultiple(size, alignment);
+
+    void* ptr = aligned_alloc(alignment, size);
+    assertErrno(ptr != NULL);
+
+    return ptr;
 }
 
 

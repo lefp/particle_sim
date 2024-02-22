@@ -20,8 +20,12 @@
 #include "error_util.hpp"
 #include "graphics.hpp"
 #include "alloc_util.hpp"
-#include "fluid_sim.hpp"
 #include "defer.hpp"
+
+#include "plugin.hpp"
+#include "../plugins_generated/fluid_sim/plugin_fluid_sim.hpp"
+#include "../plugins_src/fluid_sim/fluid_sim_types.hpp"
+
 #include "main_internal.hpp"
 
 namespace gfx = graphics;
@@ -35,6 +39,8 @@ using glm::dvec2;
 using glm::ivec2;
 using glm::ivec3;
 using glm::u8vec4;
+
+using fluid_sim::FluidSimProcs;
 
 //
 // Global constants ==========================================================================================
@@ -164,14 +170,17 @@ gfx::PresentMode present_mode_ = gfx::PRESENT_MODE_ENUM_COUNT;
 gfx::PresentModePriorities present_mode_priorities_ {};
 
 
-constexpr fluidsim::SimParameters FLUID_SIM_PARAMS_DEFAULT {
+constexpr fluid_sim::SimParameters FLUID_SIM_PARAMS_DEFAULT {
     .rest_particle_density = 1000,
     .rest_particle_interaction_count_approx = 50,
     .spring_stiffness = 0.05f, // TODO FIXME didn't really think about this
 };
-fluidsim::SimParameters fluid_sim_params_ = FLUID_SIM_PARAMS_DEFAULT;
+fluid_sim::SimParameters fluid_sim_params_ = FLUID_SIM_PARAMS_DEFAULT;
 
 bool fluid_sim_paused_ = false;
+
+// TODO maybe the `fluid_sim` namespace should be a subspace of `plugin`?
+const fluid_sim::FluidSimProcs* fluid_sim_procs_ = NULL;
 
 
 //
@@ -547,11 +556,11 @@ static u32fast frustumCull(
 }
 
 
-static fluidsim::SimData initFluidSim(const fluidsim::SimParameters* params) {
+static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
 
     // OPTIMIZE if needed. This was written without much thought.
 
-    fluidsim::SimData sim_data {};
+    fluid_sim::SimData sim_data {};
     {
         u32fast particle_count = 1000;
 
@@ -569,7 +578,7 @@ static fluidsim::SimData initFluidSim(const fluidsim::SimParameters* params) {
             p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 1.f;
         }
 
-        sim_data = fluidsim::create(params, particle_count, p_initial_particles);
+        sim_data = fluid_sim_procs_->create(params, particle_count, p_initial_particles);
     }
 
     return sim_data;
@@ -711,7 +720,9 @@ int main(int argc, char** argv) {
     }
 
 
-    fluidsim::SimData sim_data = initFluidSim(&fluid_sim_params_);
+    PLUGIN_LOAD(fluid_sim_procs_, FluidSim);
+    alwaysAssert(fluid_sim_procs_ != NULL);
+    fluid_sim::SimData sim_data = initFluidSim(&fluid_sim_params_);
 
     gfx::Particle* p_particles = callocArray(sim_data.particle_count, gfx::Particle);
     for (u32fast i = 0; i < sim_data.particle_count; i++) {
@@ -756,7 +767,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (!fluid_sim_paused_) fluidsim::advance(&sim_data, (f32)delta_t_seconds);
+        if (!fluid_sim_paused_) fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
         for (u32fast i = 0; i < sim_data.particle_count; i++) {
             p_particles[i].coord = sim_data.p_positions[i];
         }
@@ -1006,7 +1017,7 @@ int main(int argc, char** argv) {
                 if (ImGui::Button(pause_button_label)) fluid_sim_paused_ = !fluid_sim_paused_;
 
                 if (ImGui::Button("Reset state")) {
-                    fluidsim::destroy(&sim_data);
+                    fluid_sim_procs_->destroy(&sim_data);
                     sim_data = initFluidSim(&fluid_sim_params_);
                 }
 
@@ -1023,7 +1034,7 @@ int main(int argc, char** argv) {
             }
             ImGui::End();
 
-            if (sim_params_modified) fluidsim::setParams(&sim_data, &fluid_sim_params_);
+            if (sim_params_modified) fluid_sim_procs_->setParams(&sim_data, &fluid_sim_params_);
         }
 
 

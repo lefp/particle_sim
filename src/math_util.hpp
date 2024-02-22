@@ -7,6 +7,8 @@
 // ===========================================================================================================
 //
 
+// TODO FIXME these should all be `static inline`, not just `inline`
+
 namespace math {
     inline u32 min(u32 a, u32 b) {
         return a < b ? a : b;

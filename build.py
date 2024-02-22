@@ -15,7 +15,7 @@ environ_str_release = os.environ.get('ANGAME_RELEASE')
 if environ_str_release is not None and int(environ_str_release) == 1:
     debug_build = False
 
-TRACY = True
+TRACY = False # TODO implement a workaround to the dlclose issue for hot-reloading before enabling this
 
 BUILD_DIR_PATH = 'build'
 INTERMEDIATE_OBJECTS_PATH = BUILD_DIR_PATH + '/intermediate_objects'
@@ -23,7 +23,7 @@ INTERMEDIATE_OBJECTS_PATH = BUILD_DIR_PATH + '/intermediate_objects'
 COMMON_COMPILE_FLAGS: list[str] = (
     (['-g3'] if debug_build else ['-O3', '-DNDEBUG']) +
     ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES'] +
-    ['-DTRACY_ENABLE'] if TRACY else []
+    (['-DTRACY_ENABLE'] if TRACY else [])
 )
 
 glfw_link_flags_str, stderr = (

@@ -5,15 +5,14 @@
 
 #include <glm/glm.hpp>
 #include <loguru/loguru.hpp>
-#include <tracy/tracy/Tracy.hpp>
 
-#include "types.hpp"
-#include "error_util.hpp"
-#include "math_util.hpp"
-#include "alloc_util.hpp"
-#include "fluid_sim.hpp"
+#include "../src/types.hpp"
+#include "../src/error_util.hpp"
+#include "../src/math_util.hpp"
+#include "../src/alloc_util.hpp"
+#include "fluid_sim_types.hpp"
 
-namespace fluidsim {
+namespace fluid_sim {
 
 using glm::vec3;
 
@@ -27,7 +26,7 @@ constexpr f32 PI = (f32)M_PI;
 // ===========================================================================================================
 //
 
-extern void setParams(SimData* s, const SimParameters* params) {
+extern "C" void setParams(SimData* s, const SimParameters* params) {
     s->parameters.rest_particle_density = params->rest_particle_density;
     s->parameters.spring_stiffness = params->spring_stiffness;
 
@@ -54,9 +53,7 @@ extern void setParams(SimData* s, const SimParameters* params) {
 }
 
 
-extern SimData create(const SimParameters* params, u32fast particle_count, const vec3* p_initial_positions) {
-
-    ZoneScoped;
+extern "C" SimData create(const SimParameters* params, u32fast particle_count, const vec3* p_initial_positions) {
 
     SimData s {};
     {
@@ -76,9 +73,7 @@ extern SimData create(const SimParameters* params, u32fast particle_count, const
 }
 
 
-extern void destroy(SimData* s) {
-
-    ZoneScoped;
+extern "C" void destroy(SimData* s) {
 
     free(s->p_positions);
     free(s->p_velocities);
@@ -86,7 +81,7 @@ extern void destroy(SimData* s) {
 }
 
 
-extern void advance(SimData* s, f32 delta_t) {
+extern "C" void advance(SimData* s, f32 delta_t) {
 
     assert(delta_t > 1e-5); // assert nonzero
 

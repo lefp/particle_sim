@@ -27,6 +27,8 @@ bool ShadercProcs::init(void) {
         if (err_description == NULL) err_description = "(NO ERROR DESCRIPTION PROVIDED)";
 
         LOG_F(ERROR, "Failed to load libshaderc. dlerror(): `%s`.", err_description);
+
+        return false;
     }
 
 
