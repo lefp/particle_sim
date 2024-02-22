@@ -10,6 +10,7 @@ namespace plugin {
 //
 
 [[nodiscard]] const void* load(PluginID plugin_id);
+[[nodiscard]] bool reload(PluginID plugin_id);
 
 /// NOTE: You might need to bring the xxxProcs type into your namespace for this to work.
 ///     E.g.: `using fluid_sim::FluidSimProcs;`.

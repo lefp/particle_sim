@@ -182,6 +182,8 @@ bool fluid_sim_paused_ = false;
 // TODO maybe the `fluid_sim` namespace should be a subspace of `plugin`?
 const fluid_sim::FluidSimProcs* fluid_sim_procs_ = NULL;
 
+bool last_fluid_sim_plugin_reload_failed_ = false;
+
 
 //
 // ===========================================================================================================
@@ -767,6 +769,10 @@ int main(int argc, char** argv) {
             }
         }
 
+        // TODO FIXME: delta_t gets huge when, e.g., reloading the module
+        //     (and in general, imagine if the computer freezes for whatever reason).
+        //     This breaks the simulation.
+        //     We can probably fix this via a CFL condition or something.
         if (!fluid_sim_paused_) fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
         for (u32fast i = 0; i < sim_data.particle_count; i++) {
             p_particles[i].coord = sim_data.p_positions[i];
@@ -1031,6 +1037,24 @@ int main(int argc, char** argv) {
                 sim_params_modified |= ImGui::DragFloat("Rest particle density", &fluid_sim_params_.rest_particle_density, 10.0f, 1.0f, FLT_MAX / (f32)INT_MAX);
                 sim_params_modified |= ImGui::DragFloat("Rest interaction count", &fluid_sim_params_.rest_particle_interaction_count_approx, 2.0f, 1.0f, FLT_MAX / (f32)INT_MAX);
                 sim_params_modified |= ImGui::DragFloat("Spring stiffness", &fluid_sim_params_.spring_stiffness, 0.01f, 0.0f, FLT_MAX / (f32)INT_MAX);
+
+
+                ImGui::SeparatorText("Plugin");
+
+                ImGui::Text("Last reload:");
+                ImGui::SameLine();
+                if (last_fluid_sim_plugin_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
+                else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
+
+                if (ImGui::Button("Reload")) {
+                    LOG_F(INFO, "Reloading fluid sim plugin.");
+
+                    success = plugin::reload(PluginID_FluidSim);
+                    last_fluid_sim_plugin_reload_failed_ = !success;
+
+                    if (success) LOG_F(INFO, "Fluid sim plugin reloaded.");
+                    else LOG_F(ERROR, "Failed to reload fluid sim plugin.");
+                }
             }
             ImGui::End();
 

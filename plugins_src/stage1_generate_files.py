@@ -197,6 +197,8 @@ struct PluginReloadInfo {
 
     u32fast proc_count;
     const PluginProcInfo* p_proc_infos;
+
+    const char* compile_command;
 };
 
 //
@@ -245,6 +247,7 @@ struct PluginReloadInfo {
         infos_header.write(f'        .shared_object_path = "{plugin_info.shared_object_path}",\n')
         infos_header.write(f'        .proc_count = PROC_COUNT_{plugin_info.lib_name.upper()},\n')
         infos_header.write(f'        .p_proc_infos = PROC_INFOS_{plugin_info.lib_name.upper()},\n')
+        infos_header.write(f'        .compile_command = "plugins_src/stage2_compile.sh",\n')
         infos_header.write("    },\n")
 
     infos_header.write("};\n")
