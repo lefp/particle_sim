@@ -15,7 +15,7 @@ environ_str_release = os.environ.get('ANGAME_RELEASE')
 if environ_str_release is not None and int(environ_str_release) == 1:
     debug_build = False
 
-TRACY = False # TODO implement a workaround to the dlclose issue for hot-reloading before enabling this
+TRACY = True
 
 BUILD_DIR_PATH = 'build'
 INTERMEDIATE_OBJECTS_PATH = BUILD_DIR_PATH + '/intermediate_objects'

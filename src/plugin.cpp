@@ -2,11 +2,13 @@
 #include <cstdlib>
 #include <cerrno>
 #include <cstring>
+#include <cstdio>
 
 #include <glm/glm.hpp>
 #include <loguru/loguru.hpp>
 
 #include "types.hpp"
+#include "defer.hpp"
 #include "error_util.hpp"
 #include "math_util.hpp"
 #include "alloc_util.hpp"
@@ -21,6 +23,7 @@ namespace plugin {
 
 static void* proc_struct_ptrs_[PluginID_COUNT] {};
 static void* dl_handles_[PluginID_COUNT] {};
+static u16 lib_versions_[PluginID_COUNT] {};
 
 //
 // ===========================================================================================================
@@ -37,7 +40,21 @@ static void* dl_handles_[PluginID_COUNT] {};
     const plugin_infos::PluginReloadInfo* plugin_info = &plugin_infos::PLUGIN_RELOAD_INFOS[plugin_id];
 
 
-    void* dl_handle = dlopen(plugin_info->shared_object_path, RTLD_NOW | RTLD_LOCAL);
+    char* lib_path = NULL;
+    {
+        int len_without_null = snprintf(NULL, 0, "%s.%i", plugin_info->shared_object_path, lib_versions_[plugin_id]);
+        alwaysAssert(len_without_null > 0);
+
+        int buf_size = len_without_null + 1;
+
+        lib_path = (char*)mallocAsserted((size_t)len_without_null);
+        len_without_null = snprintf(lib_path, (size_t)buf_size, "%s.%i", plugin_info->shared_object_path, lib_versions_[plugin_id]);
+        alwaysAssert(len_without_null < buf_size);
+    }
+    defer(free(lib_path));
+
+
+    void* dl_handle = dlopen(lib_path, RTLD_NOW | RTLD_LOCAL);
 
     if (dl_handle == NULL) {
 
@@ -121,8 +138,31 @@ extern bool reload(PluginID plugin_id) {
 
     // TODO FIXME we should dlclose() the previously-loaded version and free the procs struct
 
+    lib_versions_[plugin_id]++;
+
+    char* command = NULL;
+    {
+        int len_without_null = snprintf(
+            NULL, 0, "%s %s.%i",
+            plugin_info->compile_command, plugin_info->shared_object_path, lib_versions_[plugin_id]
+        );
+        alwaysAssert(len_without_null > 0);
+
+        int buf_size = len_without_null + 1;
+
+        command = (char*)mallocAsserted((size_t)len_without_null);
+        len_without_null = snprintf(
+            command, (size_t)buf_size, "%s %s.%i",
+            plugin_info->compile_command, plugin_info->shared_object_path, lib_versions_[plugin_id]
+        );
+        alwaysAssert(len_without_null < buf_size);
+    }
+    defer(free(command));
+
+    LOG_F(INFO, "Compiling plugin with command `%s`.", command);
+
     errno = 0;
-    int ret = system(plugin_info->compile_command);
+    int ret = system(command);
 
     if (ret != 0) {
         int err = errno;
@@ -132,6 +172,8 @@ extern bool reload(PluginID plugin_id) {
             ERROR, "Failed to compile shared library `%s`; return code %i, errno %i, strerror(): `%s`.",
             plugin_info->shared_object_path, ret, err, err_description
         );
+
+        return false;
     }
 
     bool success = loadLib(plugin_id);
