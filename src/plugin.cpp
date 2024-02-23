@@ -12,8 +12,9 @@
 #include "error_util.hpp"
 #include "math_util.hpp"
 #include "alloc_util.hpp"
-#include "../plugins_generated/plugin_infos.hpp"
 #include "plugin.hpp"
+
+#include "../build/A_generatePluginHeaders/plugin_infos.hpp"
 
 namespace plugin {
 
@@ -119,62 +120,60 @@ extern const void* load(PluginID plugin_id) {
     return p_procs_struct;
 }
 
-extern bool reload(PluginID plugin_id) {
-
-    alwaysAssert(0 <= plugin_id and plugin_id < PluginID_COUNT);
-
-
-    if (dl_handles_[plugin_id] == NULL) {
-        ABORT_F("Reload called on plugin with id %i, but that plugin wasn't loaded.", plugin_id);
-    }
-
-    int result = dlclose(dl_handles_[plugin_id]);
-    alwaysAssert(result == 0);
-
-    dl_handles_[plugin_id] = NULL;
-
-
-    const plugin_infos::PluginReloadInfo* plugin_info = &plugin_infos::PLUGIN_RELOAD_INFOS[plugin_id];
-
-    // TODO FIXME we should dlclose() the previously-loaded version and free the procs struct
-
-    lib_versions_[plugin_id]++;
-
-    char* command = NULL;
-    {
-        int len_without_null = snprintf(
-            NULL, 0, "%s %s.%i",
-            plugin_info->compile_command, plugin_info->shared_object_path, lib_versions_[plugin_id]
-        );
-        alwaysAssert(len_without_null > 0);
-
-        int buf_size = len_without_null + 1;
-
-        command = (char*)mallocAsserted((size_t)len_without_null);
-        len_without_null = snprintf(
-            command, (size_t)buf_size, "%s %s.%i",
-            plugin_info->compile_command, plugin_info->shared_object_path, lib_versions_[plugin_id]
-        );
-        alwaysAssert(len_without_null < buf_size);
-    }
-    defer(free(command));
-
-    LOG_F(INFO, "Compiling plugin with command `%s`.", command);
+static bool runCommand(const char* command) {
 
     errno = 0;
     int ret = system(command);
 
-    if (ret != 0) {
+    if (ret == 0) return true;
+    else {
         int err = errno;
         const char* err_description = strerror(err);
         if (err_description == NULL) err_description = "(NO ERROR DESCRIPTION PROVIDED)";
         LOG_F(
-            ERROR, "Failed to compile shared library `%s`; return code %i, errno %i, strerror(): `%s`.",
-            plugin_info->shared_object_path, ret, err, err_description
+            ERROR, "Failed to run command `%s`; return code %i, errno %i, strerror(): `%s`.",
+            command, ret, err, err_description
         );
 
         return false;
     }
+}
+
+extern bool reload(PluginID plugin_id) {
+
+    alwaysAssert(0 <= plugin_id and plugin_id < PluginID_COUNT);
+
+    if (dl_handles_[plugin_id] == NULL) {
+        ABORT_F("reload() called on plugin with id %i, but that plugin wasn't loaded.", plugin_id);
+    }
+
+
+    const plugin_infos::PluginReloadInfo* plugin_info = &plugin_infos::PLUGIN_RELOAD_INFOS[plugin_id];
+
+    // TODO FIXME: temporarily disabled until I reimplement versioning in the compile script
+    // lib_versions_[plugin_id]++;
+
+    LOG_F(INFO, "Compiling plugin with ID %i using command `%s`.", plugin_id, plugin_info->compile_script);
+    {
+        bool success = runCommand(plugin_info->compile_script);
+        if (!success) {
+            LOG_F(ERROR, "Failed to compile plugin with ID %i.", plugin_id);
+            return false;
+        }
+    }
+    LOG_F(INFO, "Linking plugin with ID %i using command `%s`.", plugin_id, plugin_info->link_script);
+    {
+        bool success = runCommand(plugin_info->link_script);
+        if (!success) {
+            LOG_F(ERROR, "Failed to link plugin with ID %i.", plugin_id);
+            return false;
+        }
+    }
+
+
+    int result = dlclose(dl_handles_[plugin_id]);
+    alwaysAssert(result == 0);
+    dl_handles_[plugin_id] = NULL;
 
     bool success = loadLib(plugin_id);
     return success;

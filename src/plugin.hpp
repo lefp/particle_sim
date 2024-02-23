@@ -1,7 +1,7 @@
 #ifndef _PLUGIN_HPP
 #define _PLUGIN_HPP
 
-#include "../plugins_generated/plugin_ids.hpp"
+#include "../build/A_generatePluginHeaders/plugin_ids.hpp"
 
 namespace plugin {
 

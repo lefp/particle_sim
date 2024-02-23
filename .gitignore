@@ -2,4 +2,5 @@
 /build
 /plugins_build
 /plugins_generated
+__pycache__
 

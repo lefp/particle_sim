@@ -150,23 +150,23 @@ const u32fast PHYSICAL_DEVICE_TYPE_COUNT = 5; // number of VK_PHYSICAL_DEVICE_TY
 
 const PipelineBuildFromSpirvFilesInfo PIPELINE_BUILD_FROM_SPIRV_FILES_INFOS[PIPELINE_INDEX_COUNT] {
     [PIPELINE_INDEX_VOXEL_PIPELINE] = {
-        .vertex_shader_spirv_filepath = "build/voxel.vert.spv",
-        .fragment_shader_spirv_filepath = "build/voxel.frag.spv",
+        .vertex_shader_spirv_filepath = "build/shaders/voxel.vert.spv",
+        .fragment_shader_spirv_filepath = "build/shaders/voxel.frag.spv",
         .pfn_createPipeline = createVoxelPipeline,
     },
     [PIPELINE_INDEX_GRID_PIPELINE] = {
-        .vertex_shader_spirv_filepath = "build/grid.vert.spv",
-        .fragment_shader_spirv_filepath = "build/grid.frag.spv",
+        .vertex_shader_spirv_filepath = "build/shaders/grid.vert.spv",
+        .fragment_shader_spirv_filepath = "build/shaders/grid.frag.spv",
         .pfn_createPipeline = createGridPipeline,
     },
     [PIPELINE_INDEX_CUBE_OUTLINE_PIPELINE] = {
-        .vertex_shader_spirv_filepath = "build/cube_outline.vert.spv",
-        .fragment_shader_spirv_filepath = "build/cube_outline.frag.spv",
+        .vertex_shader_spirv_filepath = "build/shaders/cube_outline.vert.spv",
+        .fragment_shader_spirv_filepath = "build/shaders/cube_outline.frag.spv",
         .pfn_createPipeline = createCubeOutlinePipeline,
     },
     [PIPELINE_INDEX_PARTICLE_PIPELINE] = {
-        .vertex_shader_spirv_filepath = "build/particle.vert.spv",
-        .fragment_shader_spirv_filepath = "build/particle.frag.spv",
+        .vertex_shader_spirv_filepath = "build/shaders/particle.vert.spv",
+        .fragment_shader_spirv_filepath = "build/shaders/particle.frag.spv",
         .pfn_createPipeline = createParticlePipeline,
     },
 };

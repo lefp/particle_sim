@@ -5,6 +5,8 @@ import os
 import shutil as sh
 from dataclasses import dataclass
 
+import common
+
 
 def pascalcase(s_in: str) -> str:
 
@@ -21,17 +23,13 @@ def pascalcase(s_in: str) -> str:
     return s
 
 
-files_in_dir: list[str] = os.listdir("plugins_src")
-lib_names: list[str] = []
-for filename in files_in_dir:
-    if (os.path.isdir("plugins_src/" + filename)):
-        lib_names.append(filename)
-lib_names.sort()
+lib_names = common.getLibNames()
 
 
-if (os.path.exists("plugins_generated")):
-    sh.rmtree("plugins_generated")
-os.mkdir("plugins_generated")
+GENERATED_HEADERS_DIR = "build/A_generatePluginHeaders"
+if (os.path.exists(GENERATED_HEADERS_DIR)):
+    sh.rmtree(GENERATED_HEADERS_DIR)
+os.mkdir(GENERATED_HEADERS_DIR)
 
 
 @dataclass
@@ -57,12 +55,12 @@ for lib_name in lib_names:
         toml = tomllib.loads(s)
 
 
-    plugin_info_shared_object_path = f"plugins_build/{lib_name}.so"
+    plugin_info_shared_object_path = f"build/D_linkPlugins_dependsOn_BC/{lib_name}.so"
 
 
-    os.mkdir(f"plugins_generated/{lib_name}")
+    os.mkdir(f"{GENERATED_HEADERS_DIR}/{lib_name}")
 
-    header = open(f"plugins_generated/{lib_name}/{header_filename}", "w")
+    header = open(f"{GENERATED_HEADERS_DIR}/{lib_name}/{header_filename}", "w")
 
     # --------------------------------------------------------------------------------------------------------
 
@@ -155,7 +153,7 @@ for lib_name in lib_names:
     plugin_infos.append(plugin_info)
 
 
-with open("plugins_generated/plugin_infos.hpp", "w") as infos_header:
+with open(f"{GENERATED_HEADERS_DIR}/plugin_infos.hpp", "w") as infos_header:
 
     infos_header.write(f"//! WARNING: this file is auto-generated (by `{os.path.relpath(__file__)}`).\n")
 
@@ -198,7 +196,8 @@ struct PluginReloadInfo {
     u32fast proc_count;
     const PluginProcInfo* p_proc_infos;
 
-    const char* compile_command;
+    const char* compile_script;
+    const char* link_script;
 };
 
 //
@@ -247,7 +246,8 @@ struct PluginReloadInfo {
         infos_header.write(f'        .shared_object_path = "{plugin_info.shared_object_path}",\n')
         infos_header.write(f'        .proc_count = PROC_COUNT_{plugin_info.lib_name.upper()},\n')
         infos_header.write(f'        .p_proc_infos = PROC_INFOS_{plugin_info.lib_name.upper()},\n')
-        infos_header.write(f'        .compile_command = "plugins_src/stage2_compile.sh",\n')
+        infos_header.write(f'        .compile_script = "build_scripts/C_compilePluginSources.py",\n')
+        infos_header.write(f'        .link_script = "build_scripts/D_linkPlugins_dependsOn_BC.py",\n')
         infos_header.write("    },\n")
 
     infos_header.write("};\n")
@@ -277,7 +277,7 @@ struct PluginReloadInfo {
     )
 
 
-with open("plugins_generated/plugin_ids.hpp", "w") as ids_header:
+with open(f"{GENERATED_HEADERS_DIR}/plugin_ids.hpp", "w") as ids_header:
     ids_header.write(
 """
 #ifndef _PLUGIN_IDS

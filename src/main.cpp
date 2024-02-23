@@ -23,8 +23,8 @@
 #include "defer.hpp"
 
 #include "plugin.hpp"
-#include "../plugins_generated/fluid_sim/plugin_fluid_sim.hpp"
 #include "../plugins_src/fluid_sim/fluid_sim_types.hpp"
+#include "../build/A_generatePluginHeaders/fluid_sim/plugin_fluid_sim.hpp"
 
 #include "main_internal.hpp"
 

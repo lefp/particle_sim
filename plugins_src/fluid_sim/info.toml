@@ -1,9 +1,10 @@
-source_files = [
-  "dynamic/fluid_sim/fluid_sim.cpp",
+plugin_source_files = [
+  "fluid_sim.cpp",
 ]
 
-lib_files = [
-  "libs/loguru/loguru.cpp"
+other_source_files = [
+  "libs/loguru/loguru.cpp",
+  "src/error_util.cpp",
 ]
 
 [[procedures]]
