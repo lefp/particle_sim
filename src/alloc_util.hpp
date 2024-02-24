@@ -129,6 +129,20 @@ struct ArrayList {
         return this->ptr + old_size;
     }
 
+    T* pushZeroed(void) {
+
+        const u32 old_size = this->size;
+
+        if (old_size == this->capacity) this->reserveAdditional(math::max(1, old_size / 2));
+
+        this->size++;
+        T* new_ptr = this->ptr + old_size;
+
+        memset(new_ptr, 0, sizeof(T));
+
+        return new_ptr;
+    }
+
     void push(const T& val) {
 
         const u32 sz = this->size;
@@ -142,6 +156,10 @@ struct ArrayList {
     void resetSize() {
         this->size = 0;
     }
+
+    void pop() {
+        this->size--;
+    };
 };
 
 //

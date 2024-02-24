@@ -722,6 +722,8 @@ int main(int argc, char** argv) {
     }
 
 
+    plugin::init();
+
     PLUGIN_LOAD(fluid_sim_procs_, FluidSim);
     alwaysAssert(fluid_sim_procs_ != NULL);
     fluid_sim::SimData sim_data = initFluidSim(&fluid_sim_params_);
@@ -1056,11 +1058,17 @@ int main(int argc, char** argv) {
                 if (ImGui::Button("Reload")) {
                     LOG_F(INFO, "Reloading fluid sim plugin.");
 
-                    success = plugin::reload(PluginID_FluidSim);
-                    last_fluid_sim_plugin_reload_failed_ = !success;
+                    const FluidSimProcs* new_procs = NULL;
+                    PLUGIN_RELOAD(new_procs, FluidSim);
+                    last_fluid_sim_plugin_reload_failed_ = new_procs == NULL;
 
-                    if (success) LOG_F(INFO, "Fluid sim plugin reloaded.");
-                    else LOG_F(ERROR, "Failed to reload fluid sim plugin.");
+                    if (last_fluid_sim_plugin_reload_failed_) {
+                        LOG_F(ERROR, "Failed to reload fluid sim plugin.");
+                    }
+                    else {
+                        LOG_F(INFO, "Fluid sim plugin reloaded.");
+                        fluid_sim_procs_ = new_procs;
+                    }
                 }
             }
             ImGui::End();
