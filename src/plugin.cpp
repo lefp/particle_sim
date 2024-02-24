@@ -6,6 +6,7 @@
 
 #include <glm/glm.hpp>
 #include <loguru/loguru.hpp>
+#include <tracy/tracy/Tracy.hpp>
 
 #include "types.hpp"
 #include "defer.hpp"
@@ -31,6 +32,8 @@ static u16 lib_versions_[PluginID_COUNT] {};
 //
 
 [[nodiscard]] static bool loadLib(PluginID plugin_id) {
+
+    ZoneScoped;
 
     alwaysAssert(0 <= plugin_id and plugin_id < PluginID_COUNT);
 
@@ -107,6 +110,8 @@ static u16 lib_versions_[PluginID_COUNT] {};
 ///     E.g. fluid sim would be FluidSimProcs
 extern const void* load(PluginID plugin_id) {
 
+    ZoneScoped;
+
     alwaysAssert(0 <= plugin_id and plugin_id < PluginID_COUNT);
 
     const plugin_infos::PluginProcStructInfo* proc_struct_info = &plugin_infos::PLUGIN_PROC_STRUCT_INFOS[plugin_id];
@@ -121,6 +126,8 @@ extern const void* load(PluginID plugin_id) {
 }
 
 static bool runCommand(const char* command) {
+
+    ZoneScoped;
 
     errno = 0;
     // TODO replace `system` with something that doesn't involve a shell.
@@ -176,6 +183,8 @@ static char* allocSprintf(const char *__restrict format, ...) {
 
 extern bool reload(PluginID plugin_id) {
 
+    ZoneScoped;
+
     alwaysAssert(0 <= plugin_id and plugin_id < PluginID_COUNT);
 
     if (dl_handles_[plugin_id] == NULL) {
@@ -189,6 +198,8 @@ extern bool reload(PluginID plugin_id) {
     lib_versions_[plugin_id] = new_version_number;
 
     {
+        ZoneScopedN("Compile plugin");
+
         char* command = allocSprintf("%s %s", plugin_info->compile_script, plugin_info->name);
         defer(free(command));
 
@@ -202,6 +213,8 @@ extern bool reload(PluginID plugin_id) {
         }
     }
     {
+        ZoneScopedN("Link plugin");
+
         char* command = allocSprintf(
             "%s %s %u", plugin_info->link_script, plugin_info->name, new_version_number
         );
