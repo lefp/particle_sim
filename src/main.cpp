@@ -1066,7 +1066,7 @@ int main(int argc, char** argv) {
                         LOG_F(ERROR, "Failed to reload fluid sim plugin.");
                     }
                     else {
-                        LOG_F(INFO, "Fluid sim plugin reloaded.");
+                        LOG_F(INFO, "Fluid sim plugin reloaded."); // TODO log how long it took
                         fluid_sim_procs_ = new_procs;
                     }
                 }
