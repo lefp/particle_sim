@@ -773,9 +773,16 @@ int main(int argc, char** argv) {
         //     (and in general, imagine if the computer freezes for whatever reason).
         //     This breaks the simulation.
         //     We can probably fix this via a CFL condition or something.
-        if (!fluid_sim_paused_) fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
-        for (u32fast i = 0; i < sim_data.particle_count; i++) {
-            p_particles[i].coord = sim_data.p_positions[i];
+        if (!fluid_sim_paused_) {
+            {
+                ZoneScopedN("fluid_sim::advance");
+                fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
+            }
+
+            // TODO FIXME OPTIMIZE this is kinda dumb
+            for (u32fast i = 0; i < sim_data.particle_count; i++) {
+                p_particles[i].coord = sim_data.p_positions[i];
+            }
         }
 
         if (shader_autoreload_enabled_ and shader_file_tracking_enabled_) {

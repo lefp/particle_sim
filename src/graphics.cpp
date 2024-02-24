@@ -1859,6 +1859,7 @@ static Result createSwapchain(
      VkSwapchainKHR* swapchain_out,
      VkExtent2D* extent_out
 ) {
+    ZoneScoped;
 
     #ifndef NDEBUG
     {
@@ -1967,8 +1968,12 @@ static Result createSwapchain(
     };
 
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-    result = vk_dev_procs.CreateSwapchainKHR(device, &swapchain_info, NULL, &swapchain);
-    assertVk(result);
+    {
+        ZoneScopedN("vkCreateSwapchainKHR");
+
+        result = vk_dev_procs.CreateSwapchainKHR(device, &swapchain_info, NULL, &swapchain);
+        assertVk(result);
+    }
 
     LOG_F(INFO, "Built swapchain %p.", swapchain);
     *swapchain_out = swapchain;
@@ -2906,8 +2911,12 @@ extern Result updateSurfaceResources(
     // Destory out-of-date resources.
     {
         // Make sure they're not in use.
-        VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
-        assertVk(result);
+        {
+            ZoneScopedN("vkQueueWaitIdle");
+
+            VkResult result = vk_dev_procs.QueueWaitIdle(queue_);
+            assertVk(result);
+        }
 
         destroyPerSwapchainImageSurfaceResources(
             p_surface_resources->swapchain_image_count,
