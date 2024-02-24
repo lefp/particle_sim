@@ -198,6 +198,8 @@ struct PluginReloadInfo {
 
     const char* compile_script;
     const char* link_script;
+
+    const char* name;
 };
 
 //
@@ -248,6 +250,7 @@ struct PluginReloadInfo {
         infos_header.write(f'        .p_proc_infos = PROC_INFOS_{plugin_info.lib_name.upper()},\n')
         infos_header.write(f'        .compile_script = "build_scripts/C_compilePluginSources.py",\n')
         infos_header.write(f'        .link_script = "build_scripts/D_linkPlugins_dependsOn_BC.py",\n')
+        infos_header.write(f'        .name = "{lib_name}",\n')
         infos_header.write("    },\n")
 
     infos_header.write("};\n")

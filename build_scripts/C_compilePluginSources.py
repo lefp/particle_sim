@@ -25,7 +25,24 @@ os.mkdir(STAGE_DIR)
 is_release_build: bool = common.isReleaseBuild()
 
 
-lib_names = common.getLibNames()
+lib_names: list[str]
+if (len(sys.argv) == 0):
+    sys.exit("len(argv) is 0. It's not technically bad but it's weird, maybe something is wrong?")
+elif (len(sys.argv) == 1):
+    lib_names = common.getLibNames()
+else:
+    lib_names = sys.argv[1:]
+
+    all_libs = common.getLibNames()
+    nonexistent_lib: bool = False
+
+    for lib_name in lib_names:
+        if not (lib_name in all_libs):
+            print(f"Error: No plugin named `{lib_name}`.", file=sys.stderr)
+            nonexistent_lib = True
+    if (nonexistent_lib): sys.exit("Error: Not all requested plugins exist.")
+
+
 for lib_name in lib_names:
 
     plugin_compiled_objects_dir = STAGE_DIR + '/' + lib_name

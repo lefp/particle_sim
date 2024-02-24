@@ -145,6 +145,35 @@ static bool runCommand(const char* command) {
     }
 }
 
+static char* allocSprintf(const char *__restrict format, ...) __attribute__((__format__(__printf__, 1, 2)));
+static char* allocSprintf(const char *__restrict format, ...) {
+
+    int len_without_null_terminator = 0;
+    {
+        va_list args;
+        va_start(args, format);
+        len_without_null_terminator = vsnprintf(NULL, 0, format, args);
+        va_end(args);
+    }
+    assert(len_without_null_terminator != 0);
+    alwaysAssert(len_without_null_terminator > 0);
+
+    size_t buffer_size = (size_t)(len_without_null_terminator + 1);
+    char* buffer = mallocArray(buffer_size, char);
+
+    {
+        va_list args;
+        va_start(args, format);
+        len_without_null_terminator = vsnprintf(buffer, buffer_size, format, args);
+        va_end(args);
+    }
+    assert(len_without_null_terminator != 0);
+    alwaysAssert(len_without_null_terminator > 0);
+    assert(len_without_null_terminator < (int)buffer_size);
+
+    return buffer;
+}
+
 extern bool reload(PluginID plugin_id) {
 
     alwaysAssert(0 <= plugin_id and plugin_id < PluginID_COUNT);
@@ -159,24 +188,35 @@ extern bool reload(PluginID plugin_id) {
     // TODO FIXME: temporarily disabled until I reimplement versioning in the compile script
     // lib_versions_[plugin_id]++;
 
-    LOG_F(INFO, "Compiling plugin with ID %i using command `%s`.", plugin_id, plugin_info->compile_script);
     {
-        bool success = runCommand(plugin_info->compile_script);
-        if (!success) {
-            LOG_F(ERROR, "Failed to compile plugin with ID %i.", plugin_id);
-            return false;
+        char* command = allocSprintf("%s %s", plugin_info->compile_script, plugin_info->name);
+        defer(free(command));
+
+        LOG_F(INFO, "Compiling plugin with ID %i using command `%s`.", plugin_id, command);
+        {
+            bool success = runCommand(command);
+            if (!success) {
+                LOG_F(ERROR, "Failed to compile plugin with ID %i.", plugin_id);
+                return false;
+            }
         }
     }
-    LOG_F(INFO, "Linking plugin with ID %i using command `%s`.", plugin_id, plugin_info->link_script);
     {
-        bool success = runCommand(plugin_info->link_script);
-        if (!success) {
-            LOG_F(ERROR, "Failed to link plugin with ID %i.", plugin_id);
-            return false;
+        char* command = allocSprintf("%s %s", plugin_info->link_script, plugin_info->name);
+        defer(free(command));
+
+        LOG_F(INFO, "Linking plugin with ID %i using command `%s`.", plugin_id, command);
+        {
+            bool success = runCommand(command);
+            if (!success) {
+                LOG_F(ERROR, "Failed to link plugin with ID %i.", plugin_id);
+                return false;
+            }
         }
     }
 
 
+    // TODO FIXME: remove this `dlclose` when you implement plugin versioning.
     int result = dlclose(dl_handles_[plugin_id]);
     alwaysAssert(result == 0);
     dl_handles_[plugin_id] = NULL;
