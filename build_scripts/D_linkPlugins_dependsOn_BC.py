@@ -26,12 +26,29 @@ is_release_build: bool = common.isReleaseBuild()
 
 
 lib_names: list[str]
+lib_versions: list[int]
 if (len(sys.argv) == 0):
     sys.exit("len(argv) is 0. It's not technically bad but it's weird, maybe something is wrong?")
 elif (len(sys.argv) == 1):
     lib_names = common.getLibNames()
+    lib_versions = [0] * len(lib_names)
 else:
-    lib_names = sys.argv[1:]
+
+    args = sys.argv[1:]
+    lib_names = []
+    lib_versions = []
+
+    # Expecting libs in format: `name1 version1 name2 version2 ...`
+    #     E.g. `<script_filepath> fluid_sim 4 audio 2`.
+
+    assert(len(args) % 2 == 0)
+    for i in range(len(args) // 2):
+        name = args[2*i]
+        version = (int(args[2*i + 1]))
+        assert(version >= 0)
+
+        lib_names.append(name)
+        lib_versions.append(version)
 
     all_libs = common.getLibNames()
     nonexistent_lib: bool = False
@@ -43,7 +60,7 @@ else:
     if (nonexistent_lib): sys.exit("Error: Not all requested plugins exist.")
 
 
-for lib_name in lib_names:
+for (lib_name, lib_version) in zip(lib_names, lib_versions):
 
     plugin_objects_dir = f"build/C_compilePluginSources/{lib_name}"
     other_objects_dir = f"build/B_compileNonPluginSourcesForPlugins"
@@ -60,7 +77,7 @@ for lib_name in lib_names:
         assert(fpath[-2:] == '.o')
         assert(os.path.isfile(fpath))
 
-    shared_object_filename = f'{lib_name}.so.0'
+    shared_object_filename = f'{lib_name}.so.{lib_version}'
 
     link_command = (
         [

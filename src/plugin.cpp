@@ -185,8 +185,8 @@ extern bool reload(PluginID plugin_id) {
 
     const plugin_infos::PluginReloadInfo* plugin_info = &plugin_infos::PLUGIN_RELOAD_INFOS[plugin_id];
 
-    // TODO FIXME: temporarily disabled until I reimplement versioning in the compile script
-    // lib_versions_[plugin_id]++;
+    u16 new_version_number = lib_versions_[plugin_id] + 1;
+    lib_versions_[plugin_id] = new_version_number;
 
     {
         char* command = allocSprintf("%s %s", plugin_info->compile_script, plugin_info->name);
@@ -202,7 +202,9 @@ extern bool reload(PluginID plugin_id) {
         }
     }
     {
-        char* command = allocSprintf("%s %s", plugin_info->link_script, plugin_info->name);
+        char* command = allocSprintf(
+            "%s %s %u", plugin_info->link_script, plugin_info->name, new_version_number
+        );
         defer(free(command));
 
         LOG_F(INFO, "Linking plugin with ID %i using command `%s`.", plugin_id, command);
@@ -216,7 +218,7 @@ extern bool reload(PluginID plugin_id) {
     }
 
 
-    // TODO FIXME: remove this `dlclose` when you implement plugin versioning.
+    // TODO FIXME: remove this `dlclose` when you implement keeping multiple plugin version loaded.
     int result = dlclose(dl_handles_[plugin_id]);
     alwaysAssert(result == 0);
     dl_handles_[plugin_id] = NULL;
