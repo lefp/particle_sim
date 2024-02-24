@@ -1389,6 +1389,6 @@ int main(int argc, char** argv) {
     LABEL_EXIT_MAIN_LOOP: {}
 
 
-    glfwTerminate(); // TODO delet this; it sometimes adds (unnecessary, I think?) significant shutdown time.
+    // glfwTerminate(); // commented out because this sometimes adds significant shutdown time
     exit(0);
 }
