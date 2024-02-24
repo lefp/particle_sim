@@ -180,7 +180,61 @@ fluid_sim::SimParameters fluid_sim_params_ = FLUID_SIM_PARAMS_DEFAULT;
 bool fluid_sim_paused_ = false;
 
 // TODO maybe the `fluid_sim` namespace should be a subspace of `plugin`?
-const fluid_sim::FluidSimProcs* fluid_sim_procs_ = NULL;
+const FluidSimProcs* fluid_sim_procs_ = NULL;
+
+struct FluidSimPluginVersionUiElement {
+    const FluidSimProcs* procs;
+    char* user_annotation;
+
+    char radio_button_label[4];
+    char textinput_label[6];
+
+    static constexpr u32fast USER_ANNOTATION_BUFFER_SIZE = 64;
+
+    static FluidSimPluginVersionUiElement create(const FluidSimProcs* new_procs, u32fast version) {
+        FluidSimPluginVersionUiElement element {};
+
+        element.procs = new_procs;
+
+
+        element.user_annotation = mallocArray(USER_ANNOTATION_BUFFER_SIZE, char);
+
+        // NOTE If you make the default annotation empty, make sure to write a '\0' to the first byte.
+        const char* default_annotation = "no annotation";
+        assert(strlen(default_annotation) < USER_ANNOTATION_BUFFER_SIZE);
+        strcpy(element.user_annotation, default_annotation);
+
+
+        // Within a window, for any given widget type,
+        //     ImGui requires each instance of that widget type to have a unique label.
+        alwaysAssert(version <= 10 * (sizeof(radio_button_label)-1) - 1); // e.g. (sizeof == 4) -> (v <= 999)
+        {
+            int sz = snprintf(
+                element.radio_button_label, sizeof(element.radio_button_label), "%" PRIuFAST32, version
+            );
+            alwaysAssert(sz > 0);
+            assert((size_t)sz < sizeof(element.radio_button_label));
+
+
+            assert(sizeof(element.textinput_label) >= 2 + sizeof(element.radio_button_label));
+
+            char* ptr = element.textinput_label;
+            *ptr = '#';
+            ptr++;
+            *ptr = '#';
+            ptr++;
+            strcpy(ptr, element.radio_button_label);
+        }
+
+
+        return element;
+    }
+};
+
+ArrayList<FluidSimPluginVersionUiElement> fluid_sim_plugin_versions_
+    = ArrayList<FluidSimPluginVersionUiElement>::create();
+
+u32fast fluid_sim_selected_plugin_version_ = 0;
 
 bool last_fluid_sim_plugin_reload_failed_ = false;
 
@@ -726,6 +780,10 @@ int main(int argc, char** argv) {
 
     PLUGIN_LOAD(fluid_sim_procs_, FluidSim);
     alwaysAssert(fluid_sim_procs_ != NULL);
+
+    fluid_sim_plugin_versions_.push(FluidSimPluginVersionUiElement::create(fluid_sim_procs_, 0));
+
+
     fluid_sim::SimData sim_data = initFluidSim(&fluid_sim_params_);
 
     gfx::Particle* p_particles = callocArray(sim_data.particle_count, gfx::Particle);
@@ -1066,9 +1124,48 @@ int main(int argc, char** argv) {
                         LOG_F(ERROR, "Failed to reload fluid sim plugin.");
                     }
                     else {
-                        LOG_F(INFO, "Fluid sim plugin reloaded."); // TODO log how long it took
+
+                        u32fast new_version = fluid_sim_plugin_versions_.size;
+                        assert(new_version == plugin::getLatestVersionNumber(PluginID_FluidSim));
+                            
+                        auto ui_element = FluidSimPluginVersionUiElement::create(new_procs, new_version);
+
+                        fluid_sim_plugin_versions_.push(ui_element);
                         fluid_sim_procs_ = new_procs;
+                        fluid_sim_selected_plugin_version_ = new_version;
+
+                        LOG_F(
+                            INFO, "Fluid sim plugin reloaded (now on version %" PRIuFAST32").",
+                            fluid_sim_selected_plugin_version_
+                        ); // TODO log how long it took
                     }
+                }
+
+
+                ImGui::Text("Versions");
+
+                bool selected_version_changed = false;
+                int selected_version = (int)fluid_sim_selected_plugin_version_;
+
+                for (u32fast version = 0; version < fluid_sim_plugin_versions_.size; version++) {
+
+                    // TODO FIXME print a proper label, containing the version number
+                    selected_version_changed |= ImGui::RadioButton(
+                        fluid_sim_plugin_versions_.ptr[version].radio_button_label,
+                        &selected_version, (int)version
+                    );
+                    ImGui::SameLine();
+                    ImGui::InputText(
+                        fluid_sim_plugin_versions_.ptr[version].textinput_label,
+                        fluid_sim_plugin_versions_.ptr[version].user_annotation,
+                        fluid_sim_plugin_versions_.ptr[version].USER_ANNOTATION_BUFFER_SIZE
+                    );
+                }
+
+                if (selected_version_changed) {
+                    LOG_F(INFO, "Switching to fluid sim plugin version %i due to user selection.", selected_version);
+                    fluid_sim_selected_plugin_version_ = (u32fast)selected_version;
+                    fluid_sim_procs_ = fluid_sim_plugin_versions_.ptr[selected_version].procs;
                 }
             }
             ImGui::End();
