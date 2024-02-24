@@ -123,6 +123,12 @@ extern const void* load(PluginID plugin_id) {
 static bool runCommand(const char* command) {
 
     errno = 0;
+    // TODO replace `system` with something that doesn't involve a shell.
+    //     You can't use `popen` because it also spawns a shell.
+    //     You probably want:
+    //         1. fork
+    //         2. execve ; make sure to pass the environment variable ANGAME_RELEASE=1 when appropriate
+    //         3. waitpid
     int ret = system(command);
 
     if (ret == 0) return true;
