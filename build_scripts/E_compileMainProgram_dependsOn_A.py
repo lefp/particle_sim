@@ -20,7 +20,7 @@ SPIRV_DIR_PATH = BUILD_DIR_PATH + '/shaders'
 COMMON_COMPILE_FLAGS: list[str] = (
     (['-g3'] if debug_build else ['-O3', '-DNDEBUG']) +
     ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES'] +
-    (['-DTRACY_ENABLE'] if TRACY else [])
+    (['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND', '-DTRACY_NO_BROADCAST'] if TRACY else [])
 )
 
 glfw_link_flags_str, stderr = (
