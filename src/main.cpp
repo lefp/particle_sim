@@ -847,13 +847,18 @@ int main(int argc, char** argv) {
             }
         }
 
-        // TODO FIXME: delta_t gets huge when, e.g., reloading the module
-        //     (and in general, imagine if the computer freezes for whatever reason).
-        //     This breaks the simulation.
-        //     We can probably fix this via a CFL condition or something.
         if (!fluid_sim_paused_) {
-            ZoneScopedN("fluid_sim::advance");
-            fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
+            // TODO FIXME:
+            //     This if-statement a hack to handle lag spikes.
+            //     This assumes that any dt over an 8th of a second is an anomaly.
+            //     If the dt is consistently that large, this will just freeze the sim, which is bad.
+            if (delta_t_seconds > (1.0 / 8.0)) {
+                LOG_F(WARNING, "Lag spike detected; not advancing fluid sim for this frame. This is a hack and you should find another solution.");
+            }
+            else {
+                ZoneScopedN("fluid_sim::advance");
+                fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
+            }
         }
         // TODO FIXME OPTIMIZE this is kinda dumb
         for (u32fast i = 0; i < sim_data.particle_count; i++) {
