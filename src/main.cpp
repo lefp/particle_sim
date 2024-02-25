@@ -188,6 +188,10 @@ struct FluidSimPluginVersionUiElement {
 
     char radio_button_label[4];
     char textinput_label[6];
+    char button_label[7];
+
+    bool hidden;
+
 
     static constexpr u32fast USER_ANNOTATION_BUFFER_SIZE = 64;
 
@@ -195,6 +199,7 @@ struct FluidSimPluginVersionUiElement {
         FluidSimPluginVersionUiElement element {};
 
         element.procs = new_procs;
+        element.hidden = false;
 
 
         element.user_annotation = mallocArray(USER_ANNOTATION_BUFFER_SIZE, char);
@@ -224,6 +229,14 @@ struct FluidSimPluginVersionUiElement {
             *ptr = '#';
             ptr++;
             strcpy(ptr, element.radio_button_label);
+
+
+            assert(sizeof(element.button_label) >= 1 + sizeof(element.textinput_label));
+
+            ptr = element.button_label;
+            *ptr = 'X';
+            ptr++;
+            strcpy(ptr, element.textinput_label);
         }
 
 
@@ -233,6 +246,7 @@ struct FluidSimPluginVersionUiElement {
 
 ArrayList<FluidSimPluginVersionUiElement> fluid_sim_plugin_versions_
     = ArrayList<FluidSimPluginVersionUiElement>::create();
+u32fast fluid_sim_plugin_version_ui_element_hidden_count_ = 0;
 
 u32fast fluid_sim_selected_plugin_version_ = 0;
 bool last_fluid_sim_plugin_reload_failed_ = false;
@@ -1175,16 +1189,27 @@ int main(int argc, char** argv) {
 
                 for (u32fast version = 0; version < fluid_sim_plugin_versions_.size; version++) {
 
+                    FluidSimPluginVersionUiElement* p_ui_element = &fluid_sim_plugin_versions_.ptr[version];
+                    if (p_ui_element->hidden) continue;
+
                     selected_version_changed |= ImGui::RadioButton(
-                        fluid_sim_plugin_versions_.ptr[version].radio_button_label,
-                        &selected_version, (int)version
+                        p_ui_element->radio_button_label, &selected_version, (int)version
                     );
                     ImGui::SameLine();
                     ImGui::InputText(
-                        fluid_sim_plugin_versions_.ptr[version].textinput_label,
-                        fluid_sim_plugin_versions_.ptr[version].user_annotation,
-                        fluid_sim_plugin_versions_.ptr[version].USER_ANNOTATION_BUFFER_SIZE
+                        p_ui_element->textinput_label,
+                        p_ui_element->user_annotation,
+                        p_ui_element->USER_ANNOTATION_BUFFER_SIZE
                     );
+                    if (
+                        fluid_sim_plugin_versions_.size - fluid_sim_plugin_version_ui_element_hidden_count_ > 1
+                    ) {
+                        ImGui::SameLine();
+                        if (ImGui::Button(p_ui_element->button_label)) {
+                            p_ui_element->hidden = true;
+                            fluid_sim_plugin_version_ui_element_hidden_count_++;
+                        }
+                    }
                 }
 
                 if (selected_version_changed) {
