@@ -218,6 +218,7 @@ extern const void* reload(PluginID plugin_id) {
 
         LOG_F(INFO, "Compiling plugin with ID %i using command `%s`.", plugin_id, command);
         {
+            // TODO Capture stdout+stderr so you can properly log the compiler errors in case of failure.
             bool success = runCommand(command);
             if (!success) {
                 LOG_F(ERROR, "Failed to compile plugin with ID %i.", plugin_id);
@@ -235,6 +236,7 @@ extern const void* reload(PluginID plugin_id) {
 
         LOG_F(INFO, "Linking plugin with ID %i using command `%s`.", plugin_id, command);
         {
+            // TODO Capture stdout+stderr so you can properly log the linker errors in case of failure.
             bool success = runCommand(command);
             if (!success) {
                 LOG_F(ERROR, "Failed to link plugin with ID %i.", plugin_id);
