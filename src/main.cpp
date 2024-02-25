@@ -1136,15 +1136,18 @@ int main(int argc, char** argv) {
 
                 if (ImGui::Button("Reload")) {
 
-                    LOG_F(INFO, "Reloading fluid sim plugin.");
+                    LOG_F(INFO, "Reloading fluid sim plugin due to GUI button pressed.");
 
+                    f64 reload_start_time = glfwGetTime();
                     PLUGIN_RELOAD(new_plugin_procs, FluidSim);
+                    f64 reload_duration = glfwGetTime() - reload_start_time;
+
                     fluid_sim_plugin_last_reload_failed_ = new_plugin_procs == NULL;
 
                     if (fluid_sim_plugin_last_reload_failed_) {
                         LOG_F(ERROR, "Failed to reload fluid sim plugin.");
                     }
-                    else LOG_F(INFO, "Fluid sim plugin reloaded due to GUI button pressed.");
+                    else LOG_F(INFO, "Fluid sim plugin reloaded (%.1lf s).", reload_duration);
                 }
 
                 if (fluid_sim_plugin_filewatch_enabled_) {
@@ -1159,10 +1162,17 @@ int main(int argc, char** argv) {
                 if (fluid_sim_plugin_autoreload_enabled_) {
 
                     bool success_bool = false;
-                    PLUGIN_RELOAD_IF_MODIFIED(new_plugin_procs, FluidSim, &success_bool);
 
-                    if (!success_bool) LOG_F(ERROR, "Fluid sim plugin auto-reload failed.");
-                    else if (new_plugin_procs != NULL) LOG_F(INFO, "Fluid sim plugin auto-reloaded.");
+                    f64 reload_start_time = glfwGetTime();
+                    PLUGIN_RELOAD_IF_MODIFIED(new_plugin_procs, FluidSim, &success_bool);
+                    f64 reload_duration = glfwGetTime() - reload_start_time;
+
+                    if (!success_bool) {
+                        LOG_F(ERROR, "Fluid sim plugin auto-reload failed.");
+                    }
+                    else if (new_plugin_procs != NULL) {
+                        LOG_F(INFO, "Fluid sim plugin auto-reloaded (%.1lf s).", reload_duration);
+                    }
                 }
 
                 if (new_plugin_procs != NULL) {
@@ -1176,7 +1186,7 @@ int main(int argc, char** argv) {
                     fluid_sim_selected_plugin_version_ = new_version;
 
                     LOG_F(
-                        INFO, "Newly loaded fluid sim plugin version is %" PRIuFAST32").",
+                        INFO, "Newly loaded fluid sim plugin version is %" PRIuFAST32 ".",
                         fluid_sim_selected_plugin_version_
                     ); // TODO log how long it took
                 }
