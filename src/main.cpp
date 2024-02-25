@@ -1171,9 +1171,11 @@ int main(int argc, char** argv) {
 
                     if (!success_bool) {
                         LOG_F(ERROR, "Fluid sim plugin auto-reload failed.");
+                        fluid_sim_plugin_last_reload_failed_ = true;
                     }
                     else if (new_plugin_procs != NULL) {
                         LOG_F(INFO, "Fluid sim plugin auto-reloaded (%.1lf s).", reload_duration);
+                        fluid_sim_plugin_last_reload_failed_ = false;
                     }
                 }
 
