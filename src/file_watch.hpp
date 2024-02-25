@@ -21,6 +21,7 @@ void destroyWatchlist(Watchlist watchlist);
 FileID addFileToModificationWatchlist(Watchlist watchlist, const char* filepath);
 
 void poll(Watchlist watchlist, u32* event_count_out, const FileID** events_out);
+void clearEvents(Watchlist watchlist);
 
 
 //

@@ -15,6 +15,7 @@
 #include "math_util.hpp"
 #include "alloc_util.hpp"
 #include "str_util.hpp"
+#include "file_watch.hpp"
 #include "plugin.hpp"
 
 #include "../build/A_generatePluginHeaders/plugin_infos.hpp"
@@ -32,7 +33,8 @@ struct DynamicLibrary {
 
 /// The elements of each plugin's ArrayList are indexed by the versions of that plugin.
 static ArrayList<DynamicLibrary> plugins_[PluginID_COUNT] {};
-bool initialized_ = false;
+static filewatch::Watchlist plugin_watchlists_[PluginID_COUNT] {};
+static bool initialized_ = false;
 
 //
 // ===========================================================================================================
@@ -197,6 +199,13 @@ extern const void* reload(PluginID plugin_id) {
     }
 
 
+    // Clear pending modification events, because we'll be up-to-date after this reload.
+    {
+        filewatch::Watchlist watchlist = plugin_watchlists_[plugin_id];
+        if (watchlist != NULL) filewatch::clearEvents(watchlist);
+    }
+
+
     u32fast new_version_number = plugins_[plugin_id].size;
 
     const plugin_infos::PluginReloadInfo* plugin_info = &plugin_infos::PLUGIN_RELOAD_INFOS[plugin_id];
@@ -267,6 +276,59 @@ extern void* getProcsVersioned(PluginID plugin_id, u32fast version) {
     alwaysAssert(version < plugins_[plugin_id].size);
 
     return plugins_[plugin_id].ptr[version].p_procs_struct;
+};
+
+extern bool setFilewatchEnabled(PluginID plugin_id, bool enable) {
+
+    alwaysAssert(0 <= plugin_id and plugin_id < PluginID_COUNT);
+
+    filewatch::Watchlist current_watchlist = plugin_watchlists_[plugin_id];
+    if ((current_watchlist != NULL) == enable) return true; // already set to the correct setting
+
+    if (enable) {
+
+        filewatch::Watchlist new_watchlist = filewatch::createWatchlist();
+        if (new_watchlist == NULL) return false;
+
+        const plugin_infos::PluginReloadInfo* plugin_info = &plugin_infos::PLUGIN_RELOAD_INFOS[plugin_id];
+        for (u32fast i = 0; i < plugin_info->watch_filepath_count; i++) {
+            filewatch::addFileToModificationWatchlist(new_watchlist, plugin_info->p_watch_filepaths[i]);
+        }
+
+        plugin_watchlists_[plugin_id] = new_watchlist;
+    }
+    else {
+        filewatch::destroyWatchlist(current_watchlist);
+        plugin_watchlists_[plugin_id] = NULL;
+    }
+
+    return true;
+};
+
+extern const void* reloadIfModified(PluginID plugin_id, bool* p_success_out) {
+
+    assert(initialized_);
+    assert(0 <= plugin_id and plugin_id < PluginID_COUNT);
+
+    filewatch::Watchlist watchlist = plugin_watchlists_[plugin_id];
+    CHECK_F(
+        watchlist != NULL,
+        "reloadIfModified() called on plugin ID %i, but source file watching is not enabled for that plugin.",
+        plugin_id
+    );
+
+    u32 event_count = 0;
+    const filewatch::FileID* _p_events;
+    filewatch::poll(watchlist, &event_count, &_p_events);
+
+    if (event_count == 0) {
+        *p_success_out = true;
+        return NULL;
+    };
+
+    const void* ptr = reload(plugin_id);
+    *p_success_out = ptr != NULL;
+    return ptr;
 };
 
 //

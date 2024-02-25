@@ -235,8 +235,9 @@ ArrayList<FluidSimPluginVersionUiElement> fluid_sim_plugin_versions_
     = ArrayList<FluidSimPluginVersionUiElement>::create();
 
 u32fast fluid_sim_selected_plugin_version_ = 0;
-
 bool last_fluid_sim_plugin_reload_failed_ = false;
+bool fluid_sim_plugin_filewatch_enabled_ = false;
+bool fluid_sim_plugin_autoreload_enabled_ = false;
 
 
 //
@@ -777,6 +778,9 @@ int main(int argc, char** argv) {
 
 
     plugin::init();
+    success = plugin::setFilewatchEnabled(PluginID_FluidSim, true);
+    fluid_sim_plugin_filewatch_enabled_ = success;
+    LOG_IF_F(ERROR, !success, "Failed to enable filewatch for fluid sim plugin.");
 
     PLUGIN_LOAD(fluid_sim_procs_, FluidSim);
     alwaysAssert(fluid_sim_procs_ != NULL);
@@ -1113,32 +1117,54 @@ int main(int argc, char** argv) {
                 if (last_fluid_sim_plugin_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
                 else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
 
+
+                const FluidSimProcs* new_plugin_procs = NULL;
+
                 if (ImGui::Button("Reload")) {
+
                     LOG_F(INFO, "Reloading fluid sim plugin.");
 
-                    const FluidSimProcs* new_procs = NULL;
-                    PLUGIN_RELOAD(new_procs, FluidSim);
-                    last_fluid_sim_plugin_reload_failed_ = new_procs == NULL;
+                    PLUGIN_RELOAD(new_plugin_procs, FluidSim);
+                    last_fluid_sim_plugin_reload_failed_ = new_plugin_procs == NULL;
 
                     if (last_fluid_sim_plugin_reload_failed_) {
                         LOG_F(ERROR, "Failed to reload fluid sim plugin.");
                     }
-                    else {
+                    else LOG_F(INFO, "Fluid sim plugin reloaded due to GUI button pressed.");
+                }
 
-                        u32fast new_version = fluid_sim_plugin_versions_.size;
-                        assert(new_version == plugin::getLatestVersionNumber(PluginID_FluidSim));
-                            
-                        auto ui_element = FluidSimPluginVersionUiElement::create(new_procs, new_version);
+                if (fluid_sim_plugin_filewatch_enabled_) {
+                    ImGui::Checkbox("Auto-reload", &fluid_sim_plugin_autoreload_enabled_);
+                }
+                else {
+                    ImGui::BeginDisabled();
+                    ImGui::Checkbox("Auto-reload (unavailable)", &fluid_sim_plugin_autoreload_enabled_);
+                    ImGui::EndDisabled();
+                }
 
-                        fluid_sim_plugin_versions_.push(ui_element);
-                        fluid_sim_procs_ = new_procs;
-                        fluid_sim_selected_plugin_version_ = new_version;
+                if (fluid_sim_plugin_autoreload_enabled_) {
 
-                        LOG_F(
-                            INFO, "Fluid sim plugin reloaded (now on version %" PRIuFAST32").",
-                            fluid_sim_selected_plugin_version_
-                        ); // TODO log how long it took
-                    }
+                    bool success_bool = false;
+                    PLUGIN_RELOAD_IF_MODIFIED(new_plugin_procs, FluidSim, &success_bool);
+
+                    if (!success_bool) LOG_F(ERROR, "Fluid sim plugin auto-reload failed.");
+                    else if (new_plugin_procs != NULL) LOG_F(INFO, "Fluid sim plugin auto-reloaded.");
+                }
+
+                if (new_plugin_procs != NULL) {
+                    u32fast new_version = fluid_sim_plugin_versions_.size;
+                    assert(new_version == plugin::getLatestVersionNumber(PluginID_FluidSim));
+                        
+                    auto ui_element = FluidSimPluginVersionUiElement::create(new_plugin_procs, new_version);
+
+                    fluid_sim_plugin_versions_.push(ui_element);
+                    fluid_sim_procs_ = new_plugin_procs;
+                    fluid_sim_selected_plugin_version_ = new_version;
+
+                    LOG_F(
+                        INFO, "Newly loaded fluid sim plugin version is %" PRIuFAST32").",
+                        fluid_sim_selected_plugin_version_
+                    ); // TODO log how long it took
                 }
 
 

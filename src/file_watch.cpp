@@ -128,6 +128,34 @@ void poll(Watchlist watchlist, u32* event_count_out, const FileID** events_out) 
     *events_out = watchlist->modified_files.ptr;
 }
 
+void clearEvents(Watchlist watchlist) {
+
+    assert(watchlist->inotify_fd >= 0 && "Watchlist is invalid. Did you forget to initialize it by calling createWatchlist()?");
+
+    watchlist->modified_files.resetSize();
+
+    while (true) {
+
+        // The last member of `struct inotify_event` is a variable-length `char name[]`.
+        // `man 7 inotify` says that "`sizeof(struct inotify_event) + NAME_MAX + 1` will be sufficient".
+        constexpr size_t event_buffer_size = sizeof(inotify_event) + NAME_MAX + 1;
+        alignas(inotify_event) u8 event_buffer[event_buffer_size];
+
+        const ssize_t bytes_read_count = read(
+            watchlist->inotify_fd,
+            &event_buffer,
+            sizeof(inotify_event) + NAME_MAX + 1
+        );
+
+        if (bytes_read_count < 0) {
+            // EAGAIN means that the fd is marked nonblocking and the read would block. See `man 2 read`.
+            if (errno == EAGAIN) return;
+            // TODO deal with EINTR?
+            else assertErrno(false);
+        }
+    }
+}
+
 //
 // ===========================================================================================================
 //

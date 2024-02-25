@@ -4,6 +4,7 @@ import tomllib
 import os
 import shutil as sh
 from dataclasses import dataclass
+import sys
 
 import common
 
@@ -39,6 +40,20 @@ class PluginInfo:
     proc_names: list[str]
     procs_struct_name: str
     lib_name: str
+    watch_filepaths: list[str]
+
+
+def appendNonDirFilesRecursive(list_append_out: list[str], dirpath: str) -> None:
+
+    paths: list[str] = os.listdir(dirpath)
+    paths = [dirpath + '/' + p for p in paths]
+
+    for path in paths:
+        if (path == '.' or path == '..'): continue
+
+        if (os.path.isfile(path)): list_append_out.append(path)
+        elif (os.path.isdir(path)): appendNonDirFilesRecursive(list_append_out, path)
+        else: sys.exit(f"Error: `{path}` is not a regular file or directory.")
 
 
 plugin_infos: list[PluginInfo] = []
@@ -56,6 +71,10 @@ for lib_name in lib_names:
 
 
     plugin_info_shared_object_path = f"build/D_linkPlugins_dependsOn_BC/{lib_name}.so"
+
+
+    plugin_info_watch_filepaths: list[str] = []
+    appendNonDirFilesRecursive(plugin_info_watch_filepaths, plugin_info_src_dir)
 
 
     os.mkdir(f"{GENERATED_HEADERS_DIR}/{lib_name}")
@@ -148,7 +167,8 @@ for lib_name in lib_names:
         shared_object_path=plugin_info_shared_object_path,
         proc_names=plugin_info_proc_names,
         procs_struct_name=plugin_info_procs_struct_name,
-        lib_name=lib_name
+        lib_name=lib_name,
+        watch_filepaths = plugin_info_watch_filepaths
     )
     plugin_infos.append(plugin_info)
 
@@ -190,7 +210,6 @@ struct PluginProcInfo {
 
 struct PluginReloadInfo {
 
-    const char* src_dir;
     const char* shared_object_path;
 
     u32fast proc_count;
@@ -200,6 +219,9 @@ struct PluginReloadInfo {
     const char* link_script;
 
     const char* name;
+
+    u32fast watch_filepath_count;
+    const char *const *p_watch_filepaths;
 };
 
 //
@@ -223,13 +245,29 @@ struct PluginReloadInfo {
 
         infos_header.write("};\n")
 
-        if (plugin_idx != plugin_count - 1):
-            infos_header.write(
+        if (plugin_idx != plugin_count - 1): infos_header.write("\n")
+
+    infos_header.write(
 """
-// -----------------------------------------------------------------------------------------------------------
+//
+// ===========================================================================================================
+//
 
 """
-            )
+    )
+
+    plugin_count = len(plugin_infos)
+    for plugin_idx, plugin_info in enumerate(plugin_infos):
+
+        infos_header.write(f"constexpr u32fast WATCH_FILEPATH_COUNT_{lib_name.upper()} = {len(plugin_info.watch_filepaths)};\n")
+        infos_header.write(f"const char *const WATCH_FILEPATHS_{lib_name.upper()}[WATCH_FILEPATH_COUNT_{plugin_info.lib_name.upper()}]" " {\n")
+
+        for path in plugin_info.watch_filepaths:
+            infos_header.write(f'    "{path}",\n')
+
+        infos_header.write("};\n")
+
+        if (plugin_idx != plugin_count - 1): infos_header.write("\n")
 
     infos_header.write(
 """
@@ -244,13 +282,14 @@ struct PluginReloadInfo {
 
     for plugin_idx, plugin_info in enumerate(plugin_infos):
         infos_header.write("    PluginReloadInfo {\n")
-        infos_header.write(f'        .src_dir = "plugins_src/{plugin_info.lib_name}",\n')
         infos_header.write(f'        .shared_object_path = "{plugin_info.shared_object_path}",\n')
         infos_header.write(f'        .proc_count = PROC_COUNT_{plugin_info.lib_name.upper()},\n')
         infos_header.write(f'        .p_proc_infos = PROC_INFOS_{plugin_info.lib_name.upper()},\n')
         infos_header.write(f'        .compile_script = "build_scripts/C_compilePluginSources.py",\n')
         infos_header.write(f'        .link_script = "build_scripts/D_linkPlugins_dependsOn_BC.py",\n')
         infos_header.write(f'        .name = "{lib_name}",\n')
+        infos_header.write(f'        .watch_filepath_count = WATCH_FILEPATH_COUNT_{lib_name.upper()},\n')
+        infos_header.write(f'        .p_watch_filepaths = WATCH_FILEPATHS_{lib_name.upper()},\n')
         infos_header.write("    },\n")
 
     infos_header.write("};\n")
