@@ -1175,7 +1175,6 @@ int main(int argc, char** argv) {
 
                 for (u32fast version = 0; version < fluid_sim_plugin_versions_.size; version++) {
 
-                    // TODO FIXME print a proper label, containing the version number
                     selected_version_changed |= ImGui::RadioButton(
                         fluid_sim_plugin_versions_.ptr[version].radio_button_label,
                         &selected_version, (int)version
