@@ -249,7 +249,7 @@ ArrayList<FluidSimPluginVersionUiElement> fluid_sim_plugin_versions_
 u32fast fluid_sim_plugin_version_ui_element_hidden_count_ = 0;
 
 u32fast fluid_sim_selected_plugin_version_ = 0;
-bool last_fluid_sim_plugin_reload_failed_ = false;
+bool fluid_sim_plugin_last_reload_failed_ = false;
 bool fluid_sim_plugin_filewatch_enabled_ = false;
 bool fluid_sim_plugin_autoreload_enabled_ = false;
 
@@ -1128,7 +1128,7 @@ int main(int argc, char** argv) {
 
                 ImGui::Text("Last reload:");
                 ImGui::SameLine();
-                if (last_fluid_sim_plugin_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
+                if (fluid_sim_plugin_last_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
                 else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
 
 
@@ -1139,9 +1139,9 @@ int main(int argc, char** argv) {
                     LOG_F(INFO, "Reloading fluid sim plugin.");
 
                     PLUGIN_RELOAD(new_plugin_procs, FluidSim);
-                    last_fluid_sim_plugin_reload_failed_ = new_plugin_procs == NULL;
+                    fluid_sim_plugin_last_reload_failed_ = new_plugin_procs == NULL;
 
-                    if (last_fluid_sim_plugin_reload_failed_) {
+                    if (fluid_sim_plugin_last_reload_failed_) {
                         LOG_F(ERROR, "Failed to reload fluid sim plugin.");
                     }
                     else LOG_F(INFO, "Fluid sim plugin reloaded due to GUI button pressed.");
