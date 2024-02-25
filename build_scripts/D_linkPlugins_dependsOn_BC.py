@@ -9,15 +9,10 @@ import sys
 import common
 
 
-# TODO FIXME:
-#     Take the plugin names as a list of args.
-#          If empty, do all plugins.
-#          Otherwise do the listed plugins (after asserting that they exist).
-#     Also, take an optional -o argument.
-
-
 STAGE_DIR = "build/D_linkPlugins_dependsOn_BC"
 if (os.path.exists(STAGE_DIR)):
+    # TODO FIXME you shouldn't do this, because you are deleting all the linked plugins; even the ones you
+    # aren't about to relink.
     sh.rmtree(STAGE_DIR)
 os.mkdir(STAGE_DIR)
 
