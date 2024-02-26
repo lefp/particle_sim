@@ -9,6 +9,13 @@ from dataclasses import dataclass
 import common
 
 
+TIME_COMMAND: list[str]
+if (os.environ.get('ANGAME_PROFILE_BUILD') is not None):
+    TIME_COMMAND = ['time', '-f', 'real %e user %U sys %S command %C']
+else:
+    TIME_COMMAND = []
+
+
 TRACY = True
 
 BUILD_DIR_PATH = 'build/E_compileMainProgram_dependsOn_A'
@@ -22,6 +29,8 @@ COMMON_COMPILE_FLAGS: list[str] = (
     ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES'] +
     (['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND', '-DTRACY_NO_BROADCAST'] if TRACY else [])
 )
+
+IMPLOT_CUSTOM_NUMERIC_TYPES_FLAG = '-DIMPLOT_CUSTOM_NUMERIC_TYPES=(float)'
 
 glfw_link_flags_str, stderr = (
     sp.Popen(['pkg-config', '--static', '--libs', 'glfw3'], stdout=sp.PIPE, stderr=sp.PIPE).communicate()
@@ -86,11 +95,14 @@ shader_source_files = filter(
 )
 
 for shader_source_file in shader_source_files:
-    glslc_process = sp.Popen([
-        'glslc',
-        'src/' + shader_source_file,
-        '-o', SPIRV_DIR_PATH + '/' + shader_source_file + '.spv'
-    ])
+    glslc_process = sp.Popen(
+         TIME_COMMAND
+         + [
+            'glslc',
+            'src/' + shader_source_file,
+            '-o', SPIRV_DIR_PATH + '/' + shader_source_file + '.spv'
+        ]
+    )
     compilation_processes.append(glslc_process)
 
 # compile cpp files ------------------------------------------------------------------------------------------
@@ -119,7 +131,7 @@ lib_implot = Library(
         'libs/implot/' + s
         for s in filesInDirWithSuffix('libs/implot', '.cpp')
     ],
-    additional_compile_flags = ['-isystem', 'libs/imgui']
+    additional_compile_flags = ['-isystem', 'libs/imgui', IMPLOT_CUSTOM_NUMERIC_TYPES_FLAG]
 )
 lib_tracy = Library(
     source_file_paths = [
@@ -140,7 +152,8 @@ if TRACY: libs.append(lib_tracy)
 for lib in libs:
     for source_file_path in lib.source_file_paths:
         gcc_process = sp.Popen(
-            [
+            TIME_COMMAND
+            + [
                 'g++',
                 '-c',
                 '-o', INTERMEDIATE_OBJECTS_PATH + '/' + source_file_path.replace('/', '_') + '.o',
@@ -155,7 +168,6 @@ a_compilation_failed: bool = False
 for p in compilation_processes:
     p.communicate()
     if p.returncode != 0: a_compilation_failed = True
-
 if a_compilation_failed:
     print('A compilation failed; aborting build.')
     exit(1);
@@ -163,7 +175,8 @@ if a_compilation_failed:
 # link -------------------------------------------------------------------------------------------------------
 
 gcc_process = sp.Popen(
-    [
+    TIME_COMMAND
+    + [
         'g++',
         '-o', BUILD_DIR_PATH + '/angame',
     ]
@@ -176,5 +189,6 @@ gcc_process = sp.Popen(
 gcc_process.communicate()
 if gcc_process.returncode != 0:
     print('Link failed; aborting build.')
+    print(f'Note: if the linker error is implot-related, keep in mind that `{IMPLOT_CUSTOM_NUMERIC_TYPES_FLAG}` is defined.')
     exit(1)
 

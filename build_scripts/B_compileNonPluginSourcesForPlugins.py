@@ -16,6 +16,8 @@ if (os.path.exists(STAGE_DIR)):
 os.mkdir(STAGE_DIR)
 
 
+compilation_processes: list[sp.Popen] = []
+
 lib_names: list[str] = common.getLibNames()
 for lib_name in lib_names:
 
@@ -54,7 +56,14 @@ for lib_name in lib_names:
             + additional_flags
         )
 
-        # TODO OPTIMIZE: do this in parallel for all files, using Popen
-        result: sp.CompletedProcess = sp.run(compile_command)
-        if (result.returncode != 0): sys.exit(f"Error: Failed to compile file `{src_filepath}`.")
+        process = sp.Popen(compile_command)
+        compilation_processes.append(process)
+
+a_compilation_failed: bool = False
+for p in compilation_processes:
+    p.communicate()
+    if p.returncode != 0: a_compilation_failed = True
+if a_compilation_failed:
+    print('A compilation failed; aborting build.')
+    exit(1);
 
