@@ -266,6 +266,15 @@ struct GridPipelineFragmentShaderPushConstants {
     alignas( 8) vec2 viewport_size_in_window;
 };
 
+struct ParticlePipelineFragmentShaderPushConstants {
+    alignas(16) mat4 world_to_screen_transform_inverse;
+    alignas(16) vec2 viewport_offset_in_window;
+    alignas( 8) vec2 viewport_size_in_window;
+    alignas( 8) uint particle_count;
+    alignas( 4) float particle_radius;
+    alignas( 4) float max_travel_distance;
+};
+
 struct UniformBuffer {
     alignas(16) mat4 world_to_screen_transform;
 };
@@ -1180,19 +1189,6 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
     VkResult result;
 
 
-    VkSpecializationMapEntry vertex_shader_specialization_map_entry {
-        .constantID = 0,
-        .offset = 0,
-        .size = sizeof(f32),
-    };
-    VkSpecializationInfo vertex_shader_specialization_info {
-        .mapEntryCount = 1,
-        .pMapEntries = &vertex_shader_specialization_map_entry,
-        .dataSize = sizeof(f32),
-        .pData = &PARTICLE_RADIUS,
-    };
-    static_assert(sizeof(PARTICLE_RADIUS) == sizeof(f32));
-
     constexpr u32 shader_stage_info_count = 2;
     const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
         {
@@ -1200,7 +1196,6 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
             .module = vertex_shader_module,
             .pName = "main",
-            .pSpecializationInfo = &vertex_shader_specialization_info
         },
         {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -1211,34 +1206,12 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
     };
 
 
-    VkVertexInputBindingDescription vertex_binding_description {
-        .binding = 0,
-        .stride = sizeof(Particle),
-        .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE,
-    };
-
-    constexpr u32 vertex_attribute_description_count = 2;
-    VkVertexInputAttributeDescription vertex_attribute_descriptions[vertex_attribute_description_count] {
-        {
-            .location = 0,
-            .binding = 0,
-            .format = VK_FORMAT_R32G32B32_SFLOAT,
-            .offset = offsetof(Particle, coord),
-        },
-        {
-            .location = 1,
-            .binding = 0,
-            .format = VK_FORMAT_R8G8B8A8_UNORM,
-            .offset = offsetof(Particle, color),
-        },
-    };
-
     const VkPipelineVertexInputStateCreateInfo vertex_input_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 1,
-        .pVertexBindingDescriptions = &vertex_binding_description,
-        .vertexAttributeDescriptionCount = vertex_attribute_description_count,
-        .pVertexAttributeDescriptions = vertex_attribute_descriptions,
+        .vertexBindingDescriptionCount = 0,
+        .pVertexBindingDescriptions = NULL,
+        .vertexAttributeDescriptionCount = 0,
+        .pVertexAttributeDescriptions = NULL,
     };
 
 
@@ -1332,8 +1305,14 @@ static VkRenderPass createSimpleRenderPass(VkDevice device) {
     };
 
 
-    constexpr u32 push_constant_range_count = 0;
-    VkPushConstantRange* push_constant_ranges = NULL;
+    constexpr u32 push_constant_range_count = 1;
+    VkPushConstantRange push_constant_ranges[push_constant_range_count] {
+        VkPushConstantRange {
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .offset = 0,
+            .size = sizeof(ParticlePipelineFragmentShaderPushConstants),
+        },
+    };
 
     const VkPipelineLayoutCreateInfo pipeline_layout_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -2123,6 +2102,7 @@ static bool recordCommandBuffer(
     VkExtent2D swapchain_extent,
     VkRect2D swapchain_roi,
     const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants,
+    const ParticlePipelineFragmentShaderPushConstants* particle_pipeline_push_constants,
     ImDrawData* imgui_draw_data
 ) {
     ZoneScoped;
@@ -2195,12 +2175,12 @@ static bool recordCommandBuffer(
 
         vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_pipeline->pipeline);
 
-        VkDeviceSize offset_in_particles_vertex_buf = 0;
-        vk_dev_procs.CmdBindVertexBuffers(
-            command_buffer, 0, 1, &p_frame_resources->particles_buffer, &offset_in_particles_vertex_buf
+        vk_dev_procs.CmdPushConstants(
+            command_buffer, p_pipeline->layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+            sizeof(*particle_pipeline_push_constants), particle_pipeline_push_constants
         );
 
-        vk_dev_procs.CmdDraw(command_buffer, 36, particle_count, 0, 0);
+        vk_dev_procs.CmdDraw(command_buffer, 6, 1, 0, 0);
     }
     {
         PipelineAndLayout* p_pipeline = &pipelines_[PIPELINE_INDEX_CUBE_OUTLINE_PIPELINE];
@@ -2356,7 +2336,7 @@ extern void init(const char* app_name, const char* specific_named_device_request
     simple_render_pass_ = render_pass;
 
 
-    constexpr u32 descriptor_set_layout_binding_count = 2;
+    constexpr u32 descriptor_set_layout_binding_count = 3;
     VkDescriptorSetLayoutBinding descriptor_set_layout_bindings[descriptor_set_layout_binding_count] {
         {
             .binding = 0,
@@ -2371,6 +2351,14 @@ extern void init(const char* app_name, const char* specific_named_device_request
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = NULL,
+        },
+        // particles
+        {
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = NULL,
         },
     };
@@ -3152,7 +3140,10 @@ extern Result createRenderer(RenderResources* render_resources_out) {
     }
 
 
-    constexpr u32 descriptors_per_frame_count = 2;
+    // TODO instead of hardcoding 3 here and other places, you can create an enum Descriptor where you encode
+    // this info, with descriptors_per_frame_count = Descriptor_COUNT.
+    // Then you can use the descriptor enum names as indices intead of hardcoding 0, 1, 2 here and elsewhere.
+    constexpr u32 descriptors_per_frame_count = 3;
     constexpr u32 descriptor_write_count = MAX_FRAMES_IN_FLIGHT * descriptors_per_frame_count;
 
     VkDescriptorBufferInfo descriptor_buffer_infos[descriptor_write_count] {};
@@ -3191,6 +3182,27 @@ extern Result createRenderer(RenderResources* render_resources_out) {
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 .dstSet = p_render_resources->frame_resources_array[frame_idx].descriptor_set,
                 .dstBinding = 1,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pImageInfo = NULL,
+                .pBufferInfo = &descriptor_buffer_infos[descriptor_write_idx],
+                .pTexelBufferView = NULL,
+            };
+        }
+        descriptor_write_idx++;
+
+        {
+            descriptor_buffer_infos[descriptor_write_idx] = VkDescriptorBufferInfo {
+                .buffer = p_render_resources->frame_resources_array[frame_idx].particles_buffer,
+                .offset = 0,
+                // TODO FIXME create a constant MAX_PARTICLE_COUNT and use it here and other places.
+                .range = MAX_VOXEL_COUNT * sizeof(Particle),
+            };
+            descriptor_writes[descriptor_write_idx] = VkWriteDescriptorSet {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = p_render_resources->frame_resources_array[frame_idx].descriptor_set,
+                .dstBinding = 2,
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -3377,6 +3389,8 @@ RenderResult render(
     VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
     const mat4* world_to_screen_transform_inverse,
+    f32 particle_radius,
+    f32 raymarch_max_travel_distance,
     ImDrawData* imgui_draw_data,
     u32 voxel_count,
     const Voxel* p_voxels,
@@ -3577,6 +3591,14 @@ RenderResult render(
         .viewport_offset_in_window = vec2(window_subregion.offset.x, window_subregion.offset.y),
         .viewport_size_in_window = vec2(window_subregion.extent.width, window_subregion.extent.height),
     };
+    ParticlePipelineFragmentShaderPushConstants particle_pipeline_frag_shader_push_constants {
+        .world_to_screen_transform_inverse = *world_to_screen_transform_inverse, // OPTIMIZE this is a 64-byte copy, is that a lot?
+        .viewport_offset_in_window = vec2(window_subregion.offset.x, window_subregion.offset.y),
+        .viewport_size_in_window = vec2(window_subregion.extent.width, window_subregion.extent.height),
+        .particle_count = particle_count,
+        .particle_radius = particle_radius,
+        .max_travel_distance = raymarch_max_travel_distance,
+    };
 
 
     VkCommandBufferBeginInfo begin_info {
@@ -3600,6 +3622,7 @@ RenderResult render(
             p_surface_resources->swapchain_extent,
             window_subregion,
             &grid_pipeline_frag_shader_push_constants,
+            &particle_pipeline_frag_shader_push_constants,
             imgui_draw_data
         );
         alwaysAssert(success);

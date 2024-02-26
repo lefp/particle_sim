@@ -633,7 +633,7 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
 
     fluid_sim::SimData sim_data {};
     {
-        u32fast particle_count = 1000;
+        u32fast particle_count = 100;
 
         vec3* p_initial_particles = mallocArray(particle_count, vec3);
         defer(free(p_initial_particles));
@@ -646,7 +646,7 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
                 (f32)rand() / (f32)RAND_MAX,
             };
 
-            p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 1.f;
+            p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 0.5f;
         }
 
         sim_data = fluid_sim_procs_->create(params, particle_count, p_initial_particles);
@@ -852,13 +852,13 @@ int main(int argc, char** argv) {
             //     This if-statement a hack to handle lag spikes.
             //     This assumes that any dt over an 8th of a second is an anomaly.
             //     If the dt is consistently that large, this will just freeze the sim, which is bad.
-            if (delta_t_seconds > (1.0 / 8.0)) {
-                LOG_F(WARNING, "Lag spike detected; not advancing fluid sim for this frame. This is a hack and you should find another solution.");
-            }
-            else {
-                ZoneScopedN("fluid_sim::advance");
-                fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
-            }
+            // if (delta_t_seconds > (1.0 / 8.0)) {
+            //     LOG_F(WARNING, "Lag spike detected; not advancing fluid sim for this frame. This is a hack and you should find another solution.");
+            // }
+            // else {
+            ZoneScopedN("fluid_sim::advance");
+            fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
+            // }
         }
         // TODO FIXME OPTIMIZE this is kinda dumb
         for (u32fast i = 0; i < sim_data.particle_count; i++) {
@@ -1538,6 +1538,8 @@ int main(int argc, char** argv) {
             window_draw_region_,
             &world_to_screen_transform,
             &world_to_screen_transform_inverse,
+            (1.f / 32.f), // particle_radius
+            (f32)(VIEW_FRUSTUM_FAR_SIDE_DISTANCE - VIEW_FRUSTUM_NEAR_SIDE_DISTANCE), // raymarch_max_travel_distance
             imgui_draw_data,
             (u32)voxel_count_,
             p_voxels_,

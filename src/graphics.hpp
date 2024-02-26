@@ -24,8 +24,6 @@ constexpr u32 MAX_OUTLINED_VOXEL_COUNT = 1'000'000;
 constexpr f32 VOXEL_RADIUS = 1. / 16.;
 constexpr f32 VOXEL_DIAMETER = 2. * VOXEL_RADIUS;
 
-constexpr f32 PARTICLE_RADIUS = 1. / 128.; // TODO user should be able to specify this
-
 //
 // ===========================================================================================================
 //
@@ -138,6 +136,8 @@ RenderResult render(
     VkRect2D window_subregion,
     const mat4* world_to_screen_transform,
     const mat4* world_to_screen_transform_inverse,
+    f32 particle_radius,
+    f32 raymarch_max_travel_distance,
     ImDrawData* imgui_draw_data,
     u32 voxel_count,
     const Voxel* p_voxels,
