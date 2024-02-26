@@ -525,9 +525,11 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
         assertGlfw(extensions_required_by_glfw != NULL);
 
         #ifndef NDEBUG
+            LOG_F(INFO, "Will enable validation layers.");
             const u32 instance_layer_count = 1;
             const char* instance_layers[instance_layer_count] = {"VK_LAYER_KHRONOS_validation"};
         #else
+            LOG_F(INFO, "Not enabling validation layers.");
             const u32 instance_layer_count = 0;
             const char* instance_layers[instance_layer_count] = {};
         #endif

@@ -662,9 +662,9 @@ int main(int argc, char** argv) {
 
     loguru::init(argc, argv);
     #ifndef NDEBUG
-        LOG_F(INFO, "Debug build.");
+        LOG_F(INFO, "NDEBUG is not defined.");
     #else
-        LOG_F(INFO, "Release build.");
+        LOG_F(INFO, "NDEBUG is defined.");
     #endif
 
     int success = glfwInit();
