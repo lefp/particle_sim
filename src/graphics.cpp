@@ -2200,7 +2200,7 @@ static bool recordCommandBuffer(
             command_buffer, 0, 1, &p_frame_resources->particles_buffer, &offset_in_particles_vertex_buf
         );
 
-        vk_dev_procs.CmdDraw(command_buffer, 36, voxel_count, 0, 0);
+        vk_dev_procs.CmdDraw(command_buffer, 36, particle_count, 0, 0);
     }
     {
         PipelineAndLayout* p_pipeline = &pipelines_[PIPELINE_INDEX_CUBE_OUTLINE_PIPELINE];
