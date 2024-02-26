@@ -16,9 +16,6 @@ if (os.path.exists(STAGE_DIR)):
 os.mkdir(STAGE_DIR)
 
 
-is_release_build: bool = common.isReleaseBuild()
-
-
 lib_names: list[str] = common.getLibNames()
 for lib_name in lib_names:
 
@@ -51,7 +48,9 @@ for lib_name in lib_names:
                 src_filepath,
                 '-o', f'{STAGE_DIR}/{compiled_object_filename}',
             ]
-            + (['-O3', '-DNDEBUG'] if is_release_build else ['-g3'])
+            + common.getCompilerFlag_DNDEBUG()
+            + common.getCompilerFlag_g()
+            + common.getCompilerFlag_O()
             + additional_flags
         )
 

@@ -9,8 +9,6 @@ from dataclasses import dataclass
 import common
 
 
-debug_build = not common.isReleaseBuild()
-
 TRACY = True
 
 BUILD_DIR_PATH = 'build/E_compileMainProgram_dependsOn_A'
@@ -18,7 +16,9 @@ INTERMEDIATE_OBJECTS_PATH = BUILD_DIR_PATH + '/intermediate_objects'
 SPIRV_DIR_PATH = BUILD_DIR_PATH + '/shaders'
 
 COMMON_COMPILE_FLAGS: list[str] = (
-    (['-g3'] if debug_build else ['-O3', '-DNDEBUG']) +
+    common.getCompilerFlag_DNDEBUG() +
+    common.getCompilerFlag_g() +
+    common.getCompilerFlag_O() +
     ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES'] +
     (['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND', '-DTRACY_NO_BROADCAST'] if TRACY else [])
 )
@@ -50,6 +50,7 @@ def filesInDirWithSuffix(dir: str, suffix: str):
     return list(filter(lambda s: s.endswith(suffix), all_files))
 
 
+# TODO FIXME: this should be in `build.py` and include `plugins_src`
 nocompile_list: list[FileAndLocation] = []
 for filename in os.listdir('src'):
 

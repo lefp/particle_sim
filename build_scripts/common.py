@@ -12,11 +12,25 @@ def getLibNames() -> list[str]:
     return lib_names
 
 
-def isReleaseBuild() -> bool:
-    environ_str_release = os.environ.get("ANGAME_RELEASE")
-    if environ_str_release is not None and int(environ_str_release) == 1:
-        return True
-    return False
+def getCompilerFlag_O() -> list[str]:
+    env_str = os.environ.get("ANGAME_NO_OPTIMIZE")
+    if (env_str is not None and int(env_str) == 1):
+        return ['-O0']
+    return ['-O3']
+
+
+def getCompilerFlag_DNDEBUG() -> list[str]:
+    env_str = os.environ.get("ANGAME_NDEBUG")
+    if (env_str is not None and int(env_str) == 1):
+        return ['-DNDEBUG']
+    return []
+
+
+def getCompilerFlag_g() -> list[str]:
+    env_str = os.environ.get("ANGAME_NO_DEBUG_SYMBOLS")
+    if (env_str is not None and int(env_str) == 1):
+        return ['-g0']
+    return ['-g3']
 
 
 WARNING_FLAGS: list[str] = [

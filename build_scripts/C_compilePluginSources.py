@@ -22,9 +22,6 @@ if (os.path.exists(STAGE_DIR)):
 os.mkdir(STAGE_DIR)
 
 
-is_release_build: bool = common.isReleaseBuild()
-
-
 lib_names: list[str]
 if (len(sys.argv) == 0):
     sys.exit("len(argv) is 0. It's not technically bad but it's weird, maybe something is wrong?")
@@ -81,7 +78,9 @@ for lib_name in lib_names:
                 '-o', f'{plugin_compiled_objects_dir}/{compiled_object_filename}',
             ]
             + warning_flags
-            + (['-O3', '-DNDEBUG'] if is_release_build else ['-g3'])
+            + common.getCompilerFlag_DNDEBUG()
+            + common.getCompilerFlag_g()
+            + common.getCompilerFlag_O()
         )
 
         # TODO OPTIMIZE: do this in parallel for all files, using Popen

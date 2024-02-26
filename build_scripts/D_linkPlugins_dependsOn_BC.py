@@ -17,9 +17,6 @@ if (os.path.exists(STAGE_DIR)):
 os.mkdir(STAGE_DIR)
 
 
-is_release_build: bool = common.isReleaseBuild()
-
-
 lib_names: list[str]
 lib_versions: list[int]
 if (len(sys.argv) == 0):
@@ -80,6 +77,9 @@ for (lib_name, lib_version) in zip(lib_names, lib_versions):
             '-o', f'{STAGE_DIR}/{shared_object_filename}',
         ]
         + object_filepaths
+        + common.getCompilerFlag_DNDEBUG()
+        + common.getCompilerFlag_g()
+        + common.getCompilerFlag_O()
     )
 
     # TODO OPTIMIZE: do this in parallel for all files, using Popen

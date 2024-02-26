@@ -1,5 +1,7 @@
 #!/bin/python3
 
+# NOTE: Use of `ccache` is highly recommended.
+
 
 from time import time
 start_time: float = time()
