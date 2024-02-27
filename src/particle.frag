@@ -19,16 +19,35 @@ layout(push_constant, std140) uniform PushConstants {
 };
 
 
-float getNearestParticleDistance(vec3 center) {
+float getParticleIntersectionDistance(vec3 ray_origin, vec3 ray_direction_unit, vec3 particle_pos) {
 
-    float min_distance = max_travel_distance_;
+    const float r = particle_radius_;
+
+    vec3 p = particle_pos - ray_origin;
+    float projected_dot = dot(ray_direction_unit, p);
+    vec3 projected = projected_dot * ray_direction_unit;
+    float a = length(projected - p);
+
+    if (a >= particle_radius_ || projected_dot < 0.0f) {
+        return (1.0f / 0.0f); // TODO is this guaranteed to produce INF?
+    }
+
+    float b = sqrt(r*r - a*a);
+    float d = length(projected) - b;
+
+    return d;
+}
+
+float getNearestParticleIntersection(vec3 ray_origin, vec3 ray_direction_unit) {
+
+    float min_distance = (1.0f / 0.0f); // TODO is this guaranteed to produce INF?
 
     for (uint i = 0; i < particle_count_; i++) {
-        float dist = length(particles_[i] - center) - particle_radius_;
+        float dist = getParticleIntersectionDistance(ray_origin, ray_direction_unit, particles_[i]);
         min_distance = min(dist, min_distance);
     }
 
-    return max(min_distance, 0.0f);
+    return min_distance;
 }
 
 void main(void) {
@@ -50,37 +69,12 @@ void main(void) {
     const vec3 direction_unit = normalize(point_on_far_plane - point_on_near_plane);
     const vec3 start_pos = point_on_near_plane;
 
-    vec3 pos = start_pos;
-    float dist_traveled = 0;
+    const float dist = getNearestParticleIntersection(start_pos, direction_unit);
+    if (dist < 0 || dist > max_travel_distance_) discard;
 
-    uint iteration_count = 0; // @debug
-    bool hit = false;
+    fragment_color_out_ = vec4(0.0, 0.5, 1.0, 1.0);
 
-    while (true) {
-
-        const float dist = getNearestParticleDistance(pos);
-
-        if (dist < 1e-5) {
-            hit = true;
-            break;
-        }
-
-        pos += dist * direction_unit;
-        dist_traveled += dist;
-
-        if (dist_traveled > max_travel_distance_) break;
-        if (iteration_count > 100) break; // @debug
-        iteration_count++;
-    }
-
-    if (hit) {
-        fragment_color_out_ = vec4(0.0, 0.5, 1.0, 1.0);
-
-        vec4 projected_back_into_clip_space = world_to_screen_transform_ * vec4(pos, 1.0);
-        gl_FragDepth = projected_back_into_clip_space.z / projected_back_into_clip_space.w;
-    }
-    else {
-        fragment_color_out_ = vec4(0.0, 0.0, 0.0, 1.0);
-        gl_FragDepth = 1.1;
-    }
+    vec3 intersection_point = start_pos + dist * direction_unit;
+    vec4 projected_back_into_clip_space = world_to_screen_transform_ * vec4(intersection_point, 1.0);
+    gl_FragDepth = projected_back_into_clip_space.z / projected_back_into_clip_space.w;
 }

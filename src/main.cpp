@@ -633,7 +633,7 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
 
     fluid_sim::SimData sim_data {};
     {
-        u32fast particle_count = 100;
+        u32fast particle_count = 1000;
 
         vec3* p_initial_particles = mallocArray(particle_count, vec3);
         defer(free(p_initial_particles));
@@ -646,7 +646,7 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
                 (f32)rand() / (f32)RAND_MAX,
             };
 
-            p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 0.5f;
+            p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 1.0f;
         }
 
         sim_data = fluid_sim_procs_->create(params, particle_count, p_initial_particles);
@@ -1538,7 +1538,7 @@ int main(int argc, char** argv) {
             window_draw_region_,
             &world_to_screen_transform,
             &world_to_screen_transform_inverse,
-            (1.f / 32.f), // particle_radius
+            (1.f / 128.f), // particle_radius
             (f32)(VIEW_FRUSTUM_FAR_SIDE_DISTANCE - VIEW_FRUSTUM_NEAR_SIDE_DISTANCE), // raymarch_max_travel_distance
             imgui_draw_data,
             (u32)voxel_count_,
