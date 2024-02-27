@@ -209,9 +209,6 @@ static u32 queue_family_ = INVALID_QUEUE_FAMILY_IDX;
 static VkDevice device_ = VK_NULL_HANDLE;
 static VkQueue queue_ = VK_NULL_HANDLE;
 
-static VkRenderPass simple_render_pass_ = VK_NULL_HANDLE;
-static u32 the_only_subpass_ = INVALID_SUBPASS_IDX;
-
 static PipelineAndLayout pipelines_[PIPELINE_INDEX_COUNT] {};
 static GraphicsPipelineShaderModules shader_modules_[PIPELINE_INDEX_COUNT] {};
 
@@ -317,8 +314,6 @@ struct RenderResourcesImpl {
         // In theory, we only need to destroy them when we attach to a surface of different size than these
         // resources; but we can destroy them for simplicity.
 
-        VkFramebuffer framebuffer;
-
         VkImage render_target;
         VkImageView render_target_view;
         VmaAllocation render_target_allocation;
@@ -328,7 +323,6 @@ struct RenderResourcesImpl {
         VmaAllocation depth_buffer_allocation;
     };
 
-    VkRenderPass render_pass;
     VkCommandPool command_pool;
 
     VkBuffer voxels_staging_buffer;
@@ -472,6 +466,7 @@ static void selectPhysicalDeviceAndQueueFamily(
     const VkPhysicalDevice* devices,
     const VkPhysicalDeviceProperties* device_properties_list,
     const QueueFamilyRequirements* queue_family_requirements,
+    bool require_dynamic_rendering,
     PhysicalDeviceTypePriorities device_type_priorities,
     u32 specific_device_request
 ) {
@@ -484,10 +479,29 @@ static void selectPhysicalDeviceAndQueueFamily(
         const VkPhysicalDevice device = devices[dev_idx];
 
 
-        const VkPhysicalDeviceProperties device_props = device_properties_list[dev_idx];
+        const VkPhysicalDeviceProperties* device_props = &device_properties_list[dev_idx];
 
-        const u8 device_priority = device_type_priorities.getPriority(device_props.deviceType);
+
+        const u8 device_priority = device_type_priorities.getPriority(device_props->deviceType);
         if (device_priority <= current_best_device_priority and dev_idx != specific_device_request) continue;
+
+
+        if (require_dynamic_rendering) {
+
+            VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_features {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+            };
+            VkPhysicalDeviceFeatures2 features {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                .pNext = &dynamic_rendering_features,
+            };
+            vk_inst_procs.GetPhysicalDeviceFeatures2(device, &features);
+
+            if (!dynamic_rendering_features.dynamicRendering) {
+                LOG_F(INFO, "Physical device %" PRIu32 " does not support dynamic rendering.", dev_idx);
+                continue;
+            }
+        };
 
 
         u32 family_count = 0;
@@ -502,7 +516,7 @@ static void selectPhysicalDeviceAndQueueFamily(
             instance, device, family_count, family_props_list, queue_family_requirements
         );
         if (fam == INVALID_QUEUE_FAMILY_IDX) {
-            LOG_F(INFO, "Physical device %" PRIu32 "has no satisfactory queue family.", dev_idx);
+            LOG_F(INFO, "Physical device %" PRIu32 " has no satisfactory queue family.", dev_idx);
             continue;
         }
 
@@ -624,10 +638,12 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
             instance_,
             &physical_device_idx, &queue_family_,
             physical_device_count, physical_devices, physical_device_properties_list,
-            &queue_family_requirements, device_type_priorities,
+            &queue_family_requirements,
+            true, // require_dynamic_rendering
+            device_type_priorities,
             requested_device_idx
         );
-        alwaysAssert(physical_device_idx != INVALID_PHYSICAL_DEVICE_IDX);
+        CHECK_F(physical_device_idx != INVALID_PHYSICAL_DEVICE_IDX, "Found no satisfactory physical device.");
         physical_device_ = physical_devices[physical_device_idx];
 
         vk_inst_procs.GetPhysicalDeviceProperties(physical_device_, &physical_device_properties_);
@@ -655,8 +671,17 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
         const u32 device_extension_count = 1;
         const char* device_extensions[] = { "VK_KHR_swapchain" };
 
+        VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_features {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+            .dynamicRendering = VK_TRUE,
+        };
+        VkPhysicalDeviceFeatures2 features {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &dynamic_rendering_features,
+        };
         VkDeviceCreateInfo device_cinfo {
             .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+            .pNext = &features,
             .queueCreateInfoCount = 1,
             .pQueueCreateInfos = &queue_cinfo,
             .enabledExtensionCount = device_extension_count,
@@ -871,79 +896,6 @@ static void hotReloadShadersAndPipeline(
     );
 }
 */
-
-
-static VkRenderPass createSimpleRenderPass(VkDevice device) {
-    constexpr u32 attachment_count = 2;
-    const VkAttachmentDescription attachment_descriptions[attachment_count] {
-        // color attachment
-        {
-            .format = SWAPCHAIN_FORMAT,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
-            .finalLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT,
-        },
-        // depth attachment
-        {
-            .format = DEPTH_FORMAT,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = DEPTH_IMAGE_LAYOUT,
-            .finalLayout = DEPTH_IMAGE_LAYOUT,
-        }
-    };
-
-    constexpr u32 color_attachment_count = 1;
-    const VkAttachmentReference color_attachments[color_attachment_count] {
-        {
-            .attachment = 0,
-            .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        }
-    };
-
-    const VkAttachmentReference depth_attachment {
-        .attachment = 1,
-        .layout = DEPTH_IMAGE_LAYOUT,
-    };
-
-    constexpr u32 subpass_count = 1;
-    const VkSubpassDescription subpass_descriptions[subpass_count] {
-        {
-            .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-            .inputAttachmentCount = 0,
-            .pInputAttachments = NULL,
-            .colorAttachmentCount = color_attachment_count,
-            .pColorAttachments = color_attachments,
-            .pResolveAttachments = NULL,
-            .pDepthStencilAttachment = &depth_attachment,
-            .preserveAttachmentCount = 0,
-            .pPreserveAttachments = NULL,
-        }
-    };
-
-    const VkRenderPassCreateInfo render_pass_info {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = attachment_count,
-        .pAttachments = attachment_descriptions,
-        .subpassCount = subpass_count,
-        .pSubpasses = subpass_descriptions,
-        .dependencyCount = 0,
-        .pDependencies = NULL,
-    };
-
-    VkRenderPass render_pass = VK_NULL_HANDLE;
-    VkResult result = vk_dev_procs.CreateRenderPass(device, &render_pass_info, NULL, &render_pass);
-    assertVk(result);
-
-    return render_pass;
-}
 
 
 [[nodiscard]] static bool createVoxelPipeline(
@@ -2098,7 +2050,6 @@ static bool recordCommandBuffer(
     u32 voxel_count,
     u32 outlined_voxel_count,
     u32 particle_count,
-    VkRenderPass render_pass,
     VkExtent2D swapchain_extent,
     VkRect2D swapchain_roi,
     const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants,
@@ -2109,24 +2060,38 @@ static bool recordCommandBuffer(
 
     VkCommandBuffer command_buffer = p_frame_resources->command_buffer;
 
-    // TODO replace magic number with some named constant (it's the number of render pass attachments with
-    // loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
-    constexpr u32 clear_value_count = 2;
-    VkClearValue clear_values[clear_value_count] {
-        { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
-        { .depthStencil = VkClearDepthStencilValue { .depth = 1 } },
+    VkRenderingAttachmentInfo rendering_color_attachment_info {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = p_frame_resources->render_target_view,
+        .imageLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+        .resolveMode = VK_RESOLVE_MODE_NONE,
+        .resolveImageView = NULL,
+        .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = VkClearValue { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
     };
-    VkRenderPassBeginInfo render_pass_begin_info {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass = render_pass,
-        .framebuffer = p_frame_resources->framebuffer,
+    VkRenderingAttachmentInfo rendering_depth_attachment_info {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = p_frame_resources->depth_buffer_view,
+        .imageLayout = DEPTH_IMAGE_LAYOUT,
+        .resolveMode = VK_RESOLVE_MODE_NONE,
+        .resolveImageView = NULL,
+        .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = VkClearValue { .depthStencil = VkClearDepthStencilValue { .depth = 1 } },
+    };
+    VkRenderingInfo rendering_info {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
-        .clearValueCount = clear_value_count,
-        .pClearValues = clear_values,
+        .layerCount = 1,
+        .viewMask = 0,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &rendering_color_attachment_info,
+        .pDepthAttachment = &rendering_depth_attachment_info,
     };
-    vk_dev_procs.CmdBeginRenderPass(
-        command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE
-    );
+    vk_dev_procs.CmdBeginRendering(command_buffer, &rendering_info);
 
     const VkViewport viewport {
         .x = (f32)swapchain_roi.offset.x,
@@ -2230,7 +2195,7 @@ static bool recordCommandBuffer(
         ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
     }
 
-    vk_dev_procs.CmdEndRenderPass(command_buffer);
+    vk_dev_procs.CmdEndRendering(command_buffer);
 
     return true;
 }
@@ -2291,15 +2256,16 @@ extern bool initImGuiVulkanBackend(void) {
         .Queue = queue_,
         .PipelineCache = VK_NULL_HANDLE,
         .DescriptorPool = descriptor_pool,
-        .Subpass = the_only_subpass_,
         // Imgui asserts >= 2. Pretty sure the actual number doesn't matter, because
         // Imgui doesn't even use this, as long as we don't use its swapchain creation helpers.
         .MinImageCount = 2,
         .ImageCount = MAX_FRAMES_IN_FLIGHT, // NOTE I _think_ this is right, but not sure
         .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+        .UseDynamicRendering = true,
+        .ColorAttachmentFormat = SWAPCHAIN_FORMAT,
         .CheckVkResultFn = imguiVkResultCheckCallback,
     };
-    bool imgui_result = ImGui_ImplVulkan_Init(&imgui_vk_init_info, simple_render_pass_);
+    bool imgui_result = ImGui_ImplVulkan_Init(&imgui_vk_init_info, VK_NULL_HANDLE);
     return imgui_result;
 }
 
@@ -2329,11 +2295,6 @@ extern void init(const char* app_name, const char* specific_named_device_request
     };
     VkResult result = vmaCreateAllocator(&vma_allocator_info, &vma_allocator_);
     assertVk(result);
-
-
-    VkRenderPass render_pass = createSimpleRenderPass(device_);
-    alwaysAssert(render_pass != VK_NULL_HANDLE);
-    simple_render_pass_ = render_pass;
 
 
     constexpr u32 descriptor_set_layout_binding_count = 3;
@@ -2372,8 +2333,6 @@ extern void init(const char* app_name, const char* specific_named_device_request
     );
     assertVk(result);
 
-
-    the_only_subpass_ = 0;
 
     {
         ZoneScopedN("pipeline init");
@@ -2432,7 +2391,9 @@ extern void init(const char* app_name, const char* specific_named_device_request
             bool success = p_build_info->pfn_createPipeline(
                 device_,
                 vertex_shader_module, fragment_shader_module,
-                render_pass, the_only_subpass_, descriptor_set_layout_,
+                VK_NULL_HANDLE, // render pass
+                0, // subpass
+                descriptor_set_layout_,
                 &p_pipeline->pipeline, &p_pipeline->layout
             );
             alwaysAssert(success);
@@ -2777,25 +2738,6 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
             &this_frame_resources->depth_buffer_view
         );
         assertVk(result);
-
-
-        constexpr u32 attachment_count = 2;
-        const VkImageView attachments[attachment_count] {
-            this_frame_resources->render_target_view,
-            this_frame_resources->depth_buffer_view,
-        };
-        const VkFramebufferCreateInfo framebuffer_info {
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .renderPass = p_render_resources->render_pass,
-            .attachmentCount = 2,
-            .pAttachments = attachments,
-            .width = swapchain_extent.width,
-            .height = swapchain_extent.height,
-            .layers = 1,
-        };
-        VkFramebuffer* p_framebuffer = &this_frame_resources->framebuffer;
-        result = vk_dev_procs.CreateFramebuffer(device_, &framebuffer_info, NULL, p_framebuffer);
-        assertVk(result);
     }
 
     // wait for any command buffers we just submitted, such as barriers for image layout transitions
@@ -2822,9 +2764,6 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
 
         RenderResourcesImpl::PerFrameResources* this_frame_resources =
             &p_render_resources->frame_resources_array[frame_idx];
-
-        vk_dev_procs.DestroyFramebuffer(device_, this_frame_resources->framebuffer, NULL);
-        this_frame_resources->framebuffer = VK_NULL_HANDLE;
 
         vk_dev_procs.DestroyImageView(device_, this_frame_resources->render_target_view, NULL);
         vmaDestroyImage(
@@ -2949,9 +2888,6 @@ extern Result createRenderer(RenderResources* render_resources_out) {
 
     RenderResourcesImpl* p_render_resources = (RenderResourcesImpl*)calloc(1, sizeof(RenderResourcesImpl));
     assertErrno(p_render_resources != NULL);
-
-
-    p_render_resources->render_pass = simple_render_pass_;
 
 
     constexpr u32 descriptor_pool_size_count = 2;
@@ -3341,8 +3277,8 @@ bool reloadAllShaders(RenderResources renderer) {
             device_,
             new_shader_modules[pipeline_idx].vertex_shader_module,
             new_shader_modules[pipeline_idx].fragment_shader_module,
-            p_render_resources->render_pass,
-            the_only_subpass_,
+            VK_NULL_HANDLE, // render pass
+            0, // subpass
             descriptor_set_layout_,
             &new_pipelines[pipeline_idx].pipeline,
             &new_pipelines[pipeline_idx].layout
@@ -3618,7 +3554,6 @@ RenderResult render(
             voxel_count,
             outlined_voxel_index_count,
             particle_count,
-            p_render_resources->render_pass,
             p_surface_resources->swapchain_extent,
             window_subregion,
             &grid_pipeline_frag_shader_push_constants,
@@ -3628,8 +3563,37 @@ RenderResult render(
         alwaysAssert(success);
 
 
-        // transition swapchain image layout to transfer_dst
         {
+            VkImageMemoryBarrier color_image_barrier {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+                .oldLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+                .newLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT,
+                .srcQueueFamilyIndex = queue_family_,
+                .dstQueueFamilyIndex = queue_family_,
+                .image = this_frame_resources->render_target,
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            };
+            vk_dev_procs.CmdPipelineBarrier(
+                command_buffer,
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // srcStageMask
+                VK_PIPELINE_STAGE_TRANSFER_BIT, // dstStageMask
+                0, // dependencyFlags
+                0, // memoryBarrierCount
+                NULL, // pMemoryBarriers
+                0, // bufferMemoryBarrierCount
+                NULL, // pBufferMemoryBarriers
+                1, // imageMemoryBarrierCount
+                &color_image_barrier // pImageMemoryBarriers
+            );
+
             VkImageMemoryBarrier swapchain_image_barrier {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_NONE,
@@ -3949,8 +3913,8 @@ extern ShaderReloadResult reloadModifiedShaderSourceFiles(RenderResources render
                 device_,
                 new_shader_modules[pipeline_idx].vertex_shader_module,
                 new_shader_modules[pipeline_idx].fragment_shader_module,
-                p_render_resources->render_pass,
-                the_only_subpass_,
+                VK_NULL_HANDLE, // render pass
+                0, // subpass
                 descriptor_set_layout_,
                 &new_pipelines[pipeline_idx].pipeline,
                 &new_pipelines[pipeline_idx].layout

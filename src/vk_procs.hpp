@@ -20,6 +20,7 @@
     X(CreateDevice) \
     X(EnumeratePhysicalDevices) \
     X(GetDeviceProcAddr) \
+    X(GetPhysicalDeviceFeatures2) \
     X(GetPhysicalDeviceProperties) \
     X(GetPhysicalDeviceQueueFamilyProperties) \
     X(GetPhysicalDeviceSurfaceCapabilitiesKHR) \
@@ -30,7 +31,7 @@
     X(AllocateCommandBuffers) \
     X(AllocateDescriptorSets) \
     X(BeginCommandBuffer) \
-    X(CmdBeginRenderPass) \
+    X(CmdBeginRendering) \
     X(CmdBindDescriptorSets) \
     X(CmdBindPipeline) \
     X(CmdBindIndexBuffer) \
@@ -38,7 +39,7 @@
     X(CmdCopyImage) \
     X(CmdDraw) \
     X(CmdDrawIndexed) \
-    X(CmdEndRenderPass) \
+    X(CmdEndRendering) \
     X(CmdPipelineBarrier) \
     X(CmdPushConstants) \
     X(CmdSetScissor) \
@@ -47,16 +48,13 @@
     X(CreateDescriptorPool) \
     X(CreateDescriptorSetLayout) \
     X(CreateFence) \
-    X(CreateFramebuffer) \
     X(CreateGraphicsPipelines) \
     X(CreateImageView) \
     X(CreatePipelineLayout) \
-    X(CreateRenderPass) \
     X(CreateSemaphore) \
     X(CreateShaderModule) \
     X(CreateSwapchainKHR) \
     X(DestroyFence) \
-    X(DestroyFramebuffer) \
     X(DestroyImageView) \
     X(DestroyPipeline) \
     X(DestroyPipelineLayout) \
