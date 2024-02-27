@@ -38,3 +38,8 @@ Some ideas:
     a. Render to an image. Copy image to swapchain image, copy image to disk.
     b. Render to both swapchain image and image at the same time, by setting two color attachments in the
        framebuffer. Copy the image to disk.
+
+
+render depth and normals to storage image
+gaussian-blur storage image
+render to framebuffer

@@ -38,15 +38,20 @@ float getParticleIntersectionDistance(vec3 ray_origin, vec3 ray_direction_unit, 
     return d;
 }
 
-float getNearestParticleIntersection(vec3 ray_origin, vec3 ray_direction_unit) {
+float getNearestParticleIntersection(vec3 ray_origin, vec3 ray_direction_unit, out uint particle_idx_out) {
 
     float min_distance = (1.0f / 0.0f); // TODO is this guaranteed to produce INF?
+    uint min_particle = particle_count_;
 
     for (uint i = 0; i < particle_count_; i++) {
         float dist = getParticleIntersectionDistance(ray_origin, ray_direction_unit, particles_[i]);
-        min_distance = min(dist, min_distance);
+        if (dist < min_distance) {
+            min_distance = dist;
+            min_particle = i;
+        }
     }
 
+    particle_idx_out = min_particle;
     return min_distance;
 }
 
@@ -69,12 +74,18 @@ void main(void) {
     const vec3 direction_unit = normalize(point_on_far_plane - point_on_near_plane);
     const vec3 start_pos = point_on_near_plane;
 
-    const float dist = getNearestParticleIntersection(start_pos, direction_unit);
-    if (dist < 0 || dist > max_travel_distance_) discard;
+    uint particle_idx = particle_count_;
+    const float dist = getNearestParticleIntersection(start_pos, direction_unit, particle_idx);
+    if (dist < 0 || dist > max_travel_distance_ || particle_idx >= particle_count_) discard;
 
-    fragment_color_out_ = vec4(0.0, 0.5, 1.0, 1.0);
-
+    vec3 particle = particles_[particle_idx];
     vec3 intersection_point = start_pos + dist * direction_unit;
+
+    vec3 normal_unit = (intersection_point - particle) / particle_radius_;
+
+    vec3 color = dot(normal_unit, vec3(1.0f)) * vec3(0.0, 0.5, 1.0);
+    fragment_color_out_ = vec4(color, 1.0);
+
     vec4 projected_back_into_clip_space = world_to_screen_transform_ * vec4(intersection_point, 1.0);
     gl_FragDepth = projected_back_into_clip_space.z / projected_back_into_clip_space.w;
 }
