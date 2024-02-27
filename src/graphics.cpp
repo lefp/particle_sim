@@ -71,8 +71,6 @@ using FN_CreatePipeline = bool (
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
-    VkRenderPass render_pass,
-    u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
     VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
@@ -902,8 +900,6 @@ static void hotReloadShadersAndPipeline(
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
-    VkRenderPass render_pass,
-    u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
     VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
@@ -1080,8 +1076,21 @@ static void hotReloadShadersAndPipeline(
     assertVk(result);
 
 
+    constexpr u32 color_attachment_count = 1;
+    VkFormat color_attachment_formats[color_attachment_count] { SWAPCHAIN_FORMAT };
+
+    const VkPipelineRenderingCreateInfo pipeline_rendering_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .viewMask = 0, // TODO FIXME verify that this can be 0
+        .colorAttachmentCount = color_attachment_count,
+        .pColorAttachmentFormats = color_attachment_formats,
+        .depthAttachmentFormat = DEPTH_FORMAT,
+    };
+
+
     const VkGraphicsPipelineCreateInfo pipeline_info {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext = &pipeline_rendering_info,
         .stageCount = shader_stage_info_count,
         .pStages = shader_stage_infos,
         .pVertexInputState = &vertex_input_info,
@@ -1094,8 +1103,6 @@ static void hotReloadShadersAndPipeline(
         .pColorBlendState = &color_blend_info,
         .pDynamicState = &dynamic_state_info,
         .layout = pipeline_layout,
-        .renderPass = render_pass,
-        .subpass = subpass,
         .basePipelineHandle = VK_NULL_HANDLE,
         .basePipelineIndex = -1,
     };
@@ -1131,8 +1138,6 @@ static void hotReloadShadersAndPipeline(
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
-    VkRenderPass render_pass,
-    u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
     VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
@@ -1279,8 +1284,21 @@ static void hotReloadShadersAndPipeline(
     assertVk(result);
 
 
+    constexpr u32 color_attachment_count = 1;
+    VkFormat color_attachment_formats[color_attachment_count] { SWAPCHAIN_FORMAT };
+
+    const VkPipelineRenderingCreateInfo pipeline_rendering_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .viewMask = 0, // TODO FIXME verify that this can be 0
+        .colorAttachmentCount = color_attachment_count,
+        .pColorAttachmentFormats = color_attachment_formats,
+        .depthAttachmentFormat = DEPTH_FORMAT,
+    };
+
+
     const VkGraphicsPipelineCreateInfo pipeline_info {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext = &pipeline_rendering_info,
         .stageCount = shader_stage_info_count,
         .pStages = shader_stage_infos,
         .pVertexInputState = &vertex_input_info,
@@ -1293,8 +1311,6 @@ static void hotReloadShadersAndPipeline(
         .pColorBlendState = &color_blend_info,
         .pDynamicState = &dynamic_state_info,
         .layout = pipeline_layout,
-        .renderPass = render_pass,
-        .subpass = subpass,
         .basePipelineHandle = VK_NULL_HANDLE,
         .basePipelineIndex = -1,
     };
@@ -1330,8 +1346,6 @@ static void hotReloadShadersAndPipeline(
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
-    VkRenderPass render_pass,
-    u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
     VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
@@ -1481,8 +1495,21 @@ static void hotReloadShadersAndPipeline(
     assertVk(result);
 
 
+    constexpr u32 color_attachment_count = 1;
+    VkFormat color_attachment_formats[color_attachment_count] { SWAPCHAIN_FORMAT };
+
+    const VkPipelineRenderingCreateInfo pipeline_rendering_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .viewMask = 0, // TODO FIXME verify that this can be 0
+        .colorAttachmentCount = color_attachment_count,
+        .pColorAttachmentFormats = color_attachment_formats,
+        .depthAttachmentFormat = DEPTH_FORMAT,
+    };
+
+
     const VkGraphicsPipelineCreateInfo pipeline_info {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext = &pipeline_rendering_info,
         .stageCount = shader_stage_info_count,
         .pStages = shader_stage_infos,
         .pVertexInputState = &vertex_input_info,
@@ -1495,8 +1522,6 @@ static void hotReloadShadersAndPipeline(
         .pColorBlendState = &color_blend_info,
         .pDynamicState = &dynamic_state_info,
         .layout = pipeline_layout,
-        .renderPass = render_pass,
-        .subpass = subpass,
         .basePipelineHandle = VK_NULL_HANDLE,
         .basePipelineIndex = -1,
     };
@@ -1532,8 +1557,6 @@ static void hotReloadShadersAndPipeline(
     VkDevice device,
     VkShaderModule vertex_shader_module,
     VkShaderModule fragment_shader_module,
-    VkRenderPass render_pass,
-    u32 subpass,
     VkDescriptorSetLayout descriptor_set_layout,
     VkPipeline* pipeline_out,
     VkPipelineLayout* pipeline_layout_out
@@ -1699,8 +1722,21 @@ static void hotReloadShadersAndPipeline(
     assertVk(result);
 
 
+    constexpr u32 color_attachment_count = 1;
+    VkFormat color_attachment_formats[color_attachment_count] { SWAPCHAIN_FORMAT };
+
+    const VkPipelineRenderingCreateInfo pipeline_rendering_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .viewMask = 0, // TODO FIXME verify that this can be 0
+        .colorAttachmentCount = color_attachment_count,
+        .pColorAttachmentFormats = color_attachment_formats,
+        .depthAttachmentFormat = DEPTH_FORMAT,
+    };
+
+
     const VkGraphicsPipelineCreateInfo pipeline_info {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext = &pipeline_rendering_info,
         .stageCount = shader_stage_info_count,
         .pStages = shader_stage_infos,
         .pVertexInputState = &vertex_input_info,
@@ -1713,8 +1749,6 @@ static void hotReloadShadersAndPipeline(
         .pColorBlendState = &color_blend_info,
         .pDynamicState = &dynamic_state_info,
         .layout = pipeline_layout,
-        .renderPass = render_pass,
-        .subpass = subpass,
         .basePipelineHandle = VK_NULL_HANDLE,
         .basePipelineIndex = -1,
     };
@@ -2060,38 +2094,40 @@ static bool recordCommandBuffer(
 
     VkCommandBuffer command_buffer = p_frame_resources->command_buffer;
 
-    VkRenderingAttachmentInfo rendering_color_attachment_info {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = p_frame_resources->render_target_view,
-        .imageLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
-        .resolveMode = VK_RESOLVE_MODE_NONE,
-        .resolveImageView = NULL,
-        .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue = VkClearValue { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
-    };
-    VkRenderingAttachmentInfo rendering_depth_attachment_info {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = p_frame_resources->depth_buffer_view,
-        .imageLayout = DEPTH_IMAGE_LAYOUT,
-        .resolveMode = VK_RESOLVE_MODE_NONE,
-        .resolveImageView = NULL,
-        .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue = VkClearValue { .depthStencil = VkClearDepthStencilValue { .depth = 1 } },
-    };
-    VkRenderingInfo rendering_info {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
-        .layerCount = 1,
-        .viewMask = 0,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &rendering_color_attachment_info,
-        .pDepthAttachment = &rendering_depth_attachment_info,
-    };
-    vk_dev_procs.CmdBeginRendering(command_buffer, &rendering_info);
+    {
+        VkRenderingAttachmentInfo rendering_color_attachment_info {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .imageView = p_frame_resources->render_target_view,
+            .imageLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = NULL,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = VkClearValue { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
+        };
+        VkRenderingAttachmentInfo rendering_depth_attachment_info {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .imageView = p_frame_resources->depth_buffer_view,
+            .imageLayout = DEPTH_IMAGE_LAYOUT,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = NULL,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = VkClearValue { .depthStencil = VkClearDepthStencilValue { .depth = 1 } },
+        };
+        VkRenderingInfo rendering_info {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &rendering_color_attachment_info,
+            .pDepthAttachment = &rendering_depth_attachment_info,
+        };
+        vk_dev_procs.CmdBeginRendering(command_buffer, &rendering_info);
+    }
 
     const VkViewport viewport {
         .x = (f32)swapchain_roi.offset.x,
@@ -2190,12 +2226,38 @@ static bool recordCommandBuffer(
     }
 
 
+    vk_dev_procs.CmdEndRendering(command_buffer);
+
     if (imgui_draw_data != NULL) {
-        ZoneScopedN("ImGui_ImplVulkan_RenderDrawData");
-        ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
+
+        VkRenderingAttachmentInfo rendering_color_attachment_info {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .imageView = p_frame_resources->render_target_view,
+            .imageLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = NULL,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = VkClearValue { .color = VkClearColorValue { .float32 = {0, 0, 0, 1} } },
+        };
+        VkRenderingInfo rendering_info {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &rendering_color_attachment_info,
+            .pDepthAttachment = NULL,
+        };
+        vk_dev_procs.CmdBeginRendering(command_buffer, &rendering_info);
+        {
+            ZoneScopedN("ImGui_ImplVulkan_RenderDrawData");
+            ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, command_buffer);
+        }
+        vk_dev_procs.CmdEndRendering(command_buffer);
     }
 
-    vk_dev_procs.CmdEndRendering(command_buffer);
 
     return true;
 }
@@ -2391,12 +2453,13 @@ extern void init(const char* app_name, const char* specific_named_device_request
             bool success = p_build_info->pfn_createPipeline(
                 device_,
                 vertex_shader_module, fragment_shader_module,
-                VK_NULL_HANDLE, // render pass
-                0, // subpass
                 descriptor_set_layout_,
                 &p_pipeline->pipeline, &p_pipeline->layout
             );
             alwaysAssert(success);
+            LOG_F(
+                INFO, "Created pipeline index %" PRIuFAST32 ", handle %p.", pipeline_idx, p_pipeline->pipeline
+            );
         }
     }
 
@@ -3277,8 +3340,6 @@ bool reloadAllShaders(RenderResources renderer) {
             device_,
             new_shader_modules[pipeline_idx].vertex_shader_module,
             new_shader_modules[pipeline_idx].fragment_shader_module,
-            VK_NULL_HANDLE, // render pass
-            0, // subpass
             descriptor_set_layout_,
             &new_pipelines[pipeline_idx].pipeline,
             &new_pipelines[pipeline_idx].layout
@@ -3913,8 +3974,6 @@ extern ShaderReloadResult reloadModifiedShaderSourceFiles(RenderResources render
                 device_,
                 new_shader_modules[pipeline_idx].vertex_shader_module,
                 new_shader_modules[pipeline_idx].fragment_shader_module,
-                VK_NULL_HANDLE, // render pass
-                0, // subpass
                 descriptor_set_layout_,
                 &new_pipelines[pipeline_idx].pipeline,
                 &new_pipelines[pipeline_idx].layout
