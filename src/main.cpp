@@ -987,6 +987,8 @@ int main(int argc, char** argv) {
             ImGui::End();
 
 
+            bool present_mode_button_pressed = false;
+            int selected_present_mode = present_mode_;
             ImGui::Begin("Graphics", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
 
             ImGui::SeparatorText("Shaders");
@@ -1017,8 +1019,6 @@ int main(int argc, char** argv) {
             ImGui::SeparatorText("Present mode");
             {
                 gfx::PresentModeFlags supported_present_modes = gfx::getSupportedPresentModes(gfx_surface);
-                bool present_mode_button_pressed = false;
-                int selected_present_mode = present_mode_;
                 {
                     ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_MAILBOX_BIT));
                     present_mode_button_pressed |= ImGui::RadioButton(
@@ -1038,24 +1038,24 @@ int main(int argc, char** argv) {
                     );
                     ImGui::EndDisabled();
                 }
-
-                if (present_mode_button_pressed and selected_present_mode != present_mode_) {
-
-                    memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
-                    assert(0 <= selected_present_mode and selected_present_mode < gfx::PRESENT_MODE_ENUM_COUNT);
-                    present_mode_priorities_[selected_present_mode] = UINT8_MAX;
-
-                    gfx::Result gfx_result = gfx::updateSurfaceResources(
-                        gfx_surface, present_mode_priorities_, DEFAULT_WINDOW_EXTENT, &present_mode_
-                    );
-                    assertGraphics(gfx_result);
-
-                    ImGui::EndFrame();
-                    continue; // main loop
-                }
             }
 
             ImGui::End();
+
+            if (present_mode_button_pressed and selected_present_mode != present_mode_) {
+
+                memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
+                assert(0 <= selected_present_mode and selected_present_mode < gfx::PRESENT_MODE_ENUM_COUNT);
+                present_mode_priorities_[selected_present_mode] = UINT8_MAX;
+
+                gfx::Result gfx_result = gfx::updateSurfaceResources(
+                    gfx_surface, present_mode_priorities_, DEFAULT_WINDOW_EXTENT, &present_mode_
+                );
+                assertGraphics(gfx_result);
+
+                ImGui::EndFrame();
+                continue; // main loop
+            }
 
 
             ImGui::Begin("Performance", NULL, common_imgui_window_flags);
