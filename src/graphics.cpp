@@ -2953,10 +2953,17 @@ extern Result createRenderer(RenderResources* render_resources_out) {
     assertErrno(p_render_resources != NULL);
 
 
-    constexpr u32 descriptor_pool_size_count = 2;
+    // TODO find a way to couple this to other parts of descriptor creation and updating, so that you don't
+    // have to run around updating the code in 3-4 different places after forgetting and getting validation
+    // errors.
+    constexpr u32 descriptor_pool_size_count = 3;
     VkDescriptorPoolSize descriptor_pool_sizes[descriptor_pool_size_count] {
         {
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = MAX_FRAMES_IN_FLIGHT,
+        },
+        {
+            .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = MAX_FRAMES_IN_FLIGHT,
         },
         {
