@@ -1229,6 +1229,23 @@ int main(int argc, char** argv) {
             else {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
+                // If the cursor was outside the window when we disabled the cursor and enabled raw mouse
+                // motion, the cursor position jumps to the center of the window.
+                // At least, this was true in my (X11 + i3wm) environment.
+                // The resulting cursor delta-position calculation causes the camera to change direction,
+                // which is annoying because you lose track of what you were looking at.
+                //
+                // I solve the problem by overwriting the mouse pos and restarting the frame, so that our
+                // delta pos calculation in the next frame does not use the out-of-window position.
+                //
+                // We might not have to restart the frame, but I'm doing so for simplicity; I don't want to
+                // think about potential state consistency issues caused by calling glfwPollEvents() at
+                // different times in the same frame.
+                glfwPollEvents();
+                checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
+                ImGui::EndFrame();
+                continue; // main loop
             }
         }
 
