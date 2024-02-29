@@ -132,12 +132,11 @@ vec2 selection_point2_windowspace_;
 
 bool shader_autoreload_enabled_ = true;
 bool shader_file_tracking_enabled_ = false;
-bool shader_reload_all_button_is_pressed_ = false;
 bool last_shader_reload_failed_ = false;
 
 bool grid_shader_enabled_ = true;
 
-struct {
+struct FrametimePlot {
     u32fast first_sample_index = 0;
     u32fast sample_count = 0;
     f32 samples_avg_milliseconds[FRAMETIME_PLOT_MAX_SAMPLE_COUNT];
@@ -195,12 +194,10 @@ struct FluidSimPluginVersionUiElement {
 
     static constexpr u32fast USER_ANNOTATION_BUFFER_SIZE = 64;
 
-    static FluidSimPluginVersionUiElement create(const FluidSimProcs* new_procs, u32fast version) {
+    static FluidSimPluginVersionUiElement create(u32fast version) {
         FluidSimPluginVersionUiElement element {};
 
-        element.procs = new_procs;
         element.hidden = false;
-
 
         element.user_annotation = mallocArray(USER_ANNOTATION_BUFFER_SIZE, char);
 
@@ -244,9 +241,21 @@ struct FluidSimPluginVersionUiElement {
     }
 };
 
-ArrayList<FluidSimPluginVersionUiElement> fluid_sim_plugin_versions_
-    = ArrayList<FluidSimPluginVersionUiElement>::create();
-u32fast fluid_sim_plugin_version_ui_element_hidden_count_ = 0;
+static struct {
+    ArrayList<const FluidSimProcs*> procs = ArrayList<const FluidSimProcs*>::create();
+    ArrayList<FluidSimPluginVersionUiElement> ui_elements = ArrayList<FluidSimPluginVersionUiElement>::create();
+    u32fast hidden_ui_element_count = 0;
+
+    void push(const FluidSimProcs* new_procs) {
+
+        u32fast version = this->procs.size;
+        auto new_ui_element = FluidSimPluginVersionUiElement::create(version);
+
+        this->procs.push(new_procs);
+        this->ui_elements.push(new_ui_element);
+        assert(this->procs.size == this->ui_elements.size);
+    }
+} fluid_sim_plugin_versions_;
 
 u32fast fluid_sim_selected_plugin_version_ = 0;
 bool fluid_sim_plugin_last_reload_failed_ = false;
@@ -655,6 +664,254 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
     return sim_data;
 }
 
+//
+// ImGui windows =============================================================================================
+//
+
+static inline int guiGetCommonWindowFlags(void) {
+    int flags = ImGuiWindowFlags_NoFocusOnAppearing;
+    if (!cursor_visible_) flags |= ImGuiWindowFlags_NoInputs;
+    return flags;
+}
+
+static void guiWindow_camera(vec3* p_camera_pos, vec2* p_camera_angles, f32* p_camera_speed) {
+
+    int window_flags = guiGetCommonWindowFlags() | ImGuiWindowFlags_AlwaysAutoResize;
+    ImGui::Begin("Camera", NULL, window_flags);
+    defer(ImGui::End());
+
+
+    f32 user_pos_input[3] { p_camera_pos->x, p_camera_pos->y, p_camera_pos->z };
+    if (ImGui::DragFloat3("Position", user_pos_input, 0.1f, 0.0, 0.0, "%.1f")) {
+        p_camera_pos->x = user_pos_input[0];
+        p_camera_pos->y = user_pos_input[1];
+        p_camera_pos->z = user_pos_input[2];
+    };
+
+    ImGui::SliderAngle("Rotation X", &p_camera_angles->x, 0.0, 360.0);
+    ImGui::SliderAngle("Rotation Y", &p_camera_angles->y, -90.0, 90.0);
+
+    ImGui::DragFloat("Movement speed", p_camera_speed, 1.0f, 0.0f, FLT_MAX / (f32)INT_MAX);
+}
+
+static void guiWindow_selection(void) {
+
+    int window_flags = guiGetCommonWindowFlags() | ImGuiWindowFlags_AlwaysAutoResize;
+    ImGui::Begin("Selection", NULL, window_flags);
+    defer(ImGui::End());
+
+
+    ImGui::Text("Selected voxels: %" PRIuFAST32, selected_voxel_index_count_);
+}
+
+struct GuiWindowGraphicsResult {
+    bool button_pressed_reload_all_shaders;
+};
+[[nodiscard]] static GuiWindowGraphicsResult guiWindow_graphics(
+    const bool last_shader_reload_failed,
+    const bool shader_file_tracking_enabled,
+    bool* p_shader_autoreload_enabled,
+    bool* p_grid_shader_enabled,
+    const gfx::PresentModeFlags supported_present_modes,
+    gfx::PresentMode* p_selected_present_mode
+) {
+
+    int window_flags = guiGetCommonWindowFlags() | ImGuiWindowFlags_AlwaysAutoResize;
+    ImGui::Begin("Graphics", NULL, window_flags);
+    defer(ImGui::End());
+
+
+    GuiWindowGraphicsResult ret {};
+
+    ImGui::SeparatorText("Shaders");
+    {
+        ImGui::Text("Last reload:");
+        ImGui::SameLine();
+        if (last_shader_reload_failed) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
+        else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
+
+        ret.button_pressed_reload_all_shaders = ImGui::Button("Reload all");
+
+        if (shader_file_tracking_enabled) ImGui::Checkbox("Auto-reload", p_shader_autoreload_enabled);
+        else {
+            ImGui::BeginDisabled();
+            ImGui::Checkbox("Auto-reload (unavailable)", p_shader_autoreload_enabled);
+            ImGui::EndDisabled();
+        }
+
+        ImGui::Checkbox("Grid", p_grid_shader_enabled);
+    }
+    ImGui::SeparatorText("Present mode");
+    {
+        int selected_present_mode = (int)*p_selected_present_mode;
+        {
+            ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_MAILBOX_BIT));
+            ImGui::RadioButton(
+                "Mailbox", &selected_present_mode, gfx::PRESENT_MODE_MAILBOX
+            );
+            ImGui::EndDisabled();
+
+            ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_FIFO_BIT));
+            ImGui::RadioButton(
+                "FIFO", &selected_present_mode, gfx::PRESENT_MODE_FIFO
+            );
+            ImGui::EndDisabled();
+
+            ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_IMMEDIATE_BIT));
+            ImGui::RadioButton(
+                "Immediate", &selected_present_mode, gfx::PRESENT_MODE_IMMEDIATE
+            );
+            ImGui::EndDisabled();
+        }
+        *p_selected_present_mode = (gfx::PresentMode)selected_present_mode;
+    }
+
+    return ret;
+}
+
+static void guiWindow_performance(
+    const char* axis_label,
+    const FrametimePlot* frametime_plot_data,
+    bool* p_plot_paused
+) {
+
+    int window_flags = guiGetCommonWindowFlags();
+    ImGui::Begin("Performance", NULL, window_flags);
+    defer(ImGui::End());
+
+    ImGui::Checkbox("Pause plot", p_plot_paused);
+
+    if (ImPlot::BeginPlot(axis_label, ImVec2(-1,-1))) {
+        defer(ImPlot::EndPlot());
+
+        ImPlot::SetupAxis(ImAxis_X1, NULL, ImPlotAxisFlags_Lock);
+        ImPlot::SetupAxisLimits(ImAxis_X1, -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, 0.0);
+        ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
+
+        ImPlot::SetupAxis(ImAxis_Y1, NULL, ImPlotAxisFlags_LockMin);
+        ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, 3.0);
+
+        ImPlot::PlotShaded<f32>(
+            "Avg",
+            (const f32*)&frametime_plot_data->samples_avg_milliseconds,
+            (int)frametime_plot_data->sample_count,
+            0.0, // yref
+            FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS, // xscale
+            -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, // xstart
+            ImPlotShadedFlags_None, // flags
+            (int)frametime_plot_data->first_sample_index // offset
+        );
+
+        ImPlot::PlotLine<f32>(
+            "Max",
+            (const f32*)&frametime_plot_data->samples_max_milliseconds,
+            (int)frametime_plot_data->sample_count,
+            FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS, // xscale
+            -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, // xstart
+            ImPlotShadedFlags_None, // flags
+            (int)frametime_plot_data->first_sample_index // offset
+        );
+    }
+}
+
+struct GuiWindowFluidSimResult {
+    bool sim_params_modified;
+    bool button_pressed_reset_state;
+    bool button_pressed_reload;
+};
+[[nodiscard]] static GuiWindowFluidSimResult guiWindow_fluidSim(
+    const bool last_sim_plugin_reload_failed,
+    const bool filewatch_enabled,
+    bool* p_sim_paused,
+    bool* p_autoreload_enabled,
+    ArrayList<FluidSimPluginVersionUiElement>* p_ui_elements,
+    u32fast *const p_hidden_ui_element_count,
+    u32fast *const p_selected_plugin_version,
+    fluid_sim::SimParameters* p_sim_params
+) {
+
+    int window_flags = guiGetCommonWindowFlags() | ImGuiWindowFlags_AlwaysAutoResize;
+    ImGui::Begin("Fluid sim", NULL, window_flags);
+    defer(ImGui::End());
+
+
+    GuiWindowFluidSimResult ret {};
+
+    {
+        const char* pause_button_label = *p_sim_paused ? "Resume" : "Pause";
+        if (ImGui::Button(pause_button_label)) *p_sim_paused = !*p_sim_paused;
+
+        ret.button_pressed_reset_state = ImGui::Button("Reset state");
+    }
+    ImGui::SeparatorText("Parameters");
+    {
+        bool params_modified = false;
+
+        if (ImGui::Button("Reset params")) {
+            params_modified = true;
+            *p_sim_params = FLUID_SIM_PARAMS_DEFAULT;
+        }
+
+        params_modified |= ImGui::DragFloat("Rest particle density", &p_sim_params->rest_particle_density, 10.0f, 1.0f, FLT_MAX / (f32)INT_MAX);
+        params_modified |= ImGui::DragFloat("Rest interaction count", &p_sim_params->rest_particle_interaction_count_approx, 2.0f, 1.0f, FLT_MAX / (f32)INT_MAX);
+        params_modified |= ImGui::DragFloat("Spring stiffness", &p_sim_params->spring_stiffness, 0.01f, 0.0f, FLT_MAX / (f32)INT_MAX);
+
+        ret.sim_params_modified = params_modified;
+    }
+    ImGui::SeparatorText("Plugin");
+    {
+        ImGui::Text("Last reload:");
+        ImGui::SameLine();
+        if (last_sim_plugin_reload_failed) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
+        else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
+
+
+        ret.button_pressed_reload = ImGui::Button("Reload");
+
+        if (filewatch_enabled) {
+            ImGui::Checkbox("Auto-reload", p_autoreload_enabled);
+        }
+        else {
+            ImGui::BeginDisabled();
+            ImGui::Checkbox("Auto-reload (unavailable)", p_autoreload_enabled);
+            ImGui::EndDisabled();
+        }
+
+
+        ImGui::Text("Versions");
+
+        for (u32fast version = 0; version < p_ui_elements->size; version++) {
+
+            FluidSimPluginVersionUiElement* p_ui_element = &p_ui_elements->ptr[version];
+            if (p_ui_element->hidden) continue;
+
+            int selected_plugin_version = (int)*p_selected_plugin_version;
+            ImGui::RadioButton(p_ui_element->radio_button_label, &selected_plugin_version, (int)version);
+            *p_selected_plugin_version = (u32fast)selected_plugin_version;
+
+            ImGui::SameLine();
+            ImGui::InputText(
+                p_ui_element->textinput_label,
+                p_ui_element->user_annotation,
+                p_ui_element->USER_ANNOTATION_BUFFER_SIZE
+            );
+
+            if (p_ui_elements->size - *p_hidden_ui_element_count > 1) {
+                ImGui::SameLine();
+                if (ImGui::Button(p_ui_element->button_label)) {
+                    p_ui_element->hidden = true;
+                    (*p_hidden_ui_element_count)++;
+                }
+            }
+        }
+    }
+
+    return ret;
+}
+
+//
+// ===========================================================================================================
+//
 
 int main(int argc, char** argv) {
 
@@ -682,8 +939,8 @@ int main(int argc, char** argv) {
 
 
     gfx::RenderResources gfx_renderer {};
-    gfx::Result res = gfx::createRenderer(&gfx_renderer);
-    assertGraphics(res);
+    gfx::Result result_gfx = gfx::createRenderer(&gfx_renderer);
+    assertGraphics(result_gfx);
 
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // don't initialize OpenGL, because we're using Vulkan
@@ -723,7 +980,7 @@ int main(int argc, char** argv) {
     memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
 
     gfx::SurfaceResources gfx_surface {};
-    res = gfx::createSurfaceResources(
+    result_gfx = gfx::createSurfaceResources(
         vk_surface,
         present_mode_priorities_,
         VkExtent2D { .width = (u32)window_size_.x, .height = (u32)window_size_.y },
@@ -731,7 +988,7 @@ int main(int argc, char** argv) {
         &present_mode_
     );
     // TODO handle error_window_size_zero
-    assertGraphics(res);
+    assertGraphics(result_gfx);
 
     window_draw_region_ = centeredSubregion_16x9((u32)window_size_.x, (u32)window_size_.y);
 
@@ -799,7 +1056,7 @@ int main(int argc, char** argv) {
     PLUGIN_LOAD(fluid_sim_procs_, FluidSim);
     alwaysAssert(fluid_sim_procs_ != NULL);
 
-    fluid_sim_plugin_versions_.push(FluidSimPluginVersionUiElement::create(fluid_sim_procs_, 0));
+    fluid_sim_plugin_versions_.push(fluid_sim_procs_);
 
 
     fluid_sim::SimData sim_data = initFluidSim(&fluid_sim_params_);
@@ -948,10 +1205,6 @@ int main(int argc, char** argv) {
 
             ZoneScopedN("Imgui");
 
-            ImGuiWindowFlags common_imgui_window_flags = ImGuiWindowFlags_NoFocusOnAppearing;
-            if (!cursor_visible_) common_imgui_window_flags |= ImGuiWindowFlags_NoInputs;
-
-
             // Crosshair.
             // TODO Should we do this in our own renderer?
             ImGui::GetBackgroundDrawList()->AddCircleFilled(
@@ -964,179 +1217,90 @@ int main(int argc, char** argv) {
                 0 // num_segments
             );
 
+            guiWindow_camera(&camera_pos_, &camera_angles_, &camera_speed_);
+            guiWindow_selection();
 
-            ImGui::Begin("Camera", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
-
-            f32 user_pos_input[3] { camera_pos_.x, camera_pos_.y, camera_pos_.z };
-            if (ImGui::DragFloat3("Position", user_pos_input, 0.1f, 0.0, 0.0, "%.1f")) {
-                camera_pos_.x = user_pos_input[0];
-                camera_pos_.y = user_pos_input[1];
-                camera_pos_.z = user_pos_input[2];
-            };
-
-            ImGui::SliderAngle("Rotation X", &camera_angles_.x, 0.0, 360.0);
-            ImGui::SliderAngle("Rotation Y", &camera_angles_.y, -90.0, 90.0);
-
-            ImGui::DragFloat("Movement speed", &camera_speed_, 1.0f, 0.0f, FLT_MAX / (f32)INT_MAX);
-
-            ImGui::End();
-
-
-            ImGui::Begin("Selection", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
-            ImGui::Text("Selected voxels: %" PRIuFAST32, selected_voxel_index_count_);
-            ImGui::End();
-
-
-            bool present_mode_button_pressed = false;
-            int selected_present_mode = present_mode_;
-            ImGui::Begin("Graphics", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
-
-            ImGui::SeparatorText("Shaders");
             {
-                ImGui::Text("Last reload:");
-                ImGui::SameLine();
-                if (last_shader_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
-                else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
+                bool grid_shader_enabled = grid_shader_enabled_;
+                gfx::PresentModeFlags supported_present_modes = gfx::getSupportedPresentModes(gfx_surface);
+                gfx::PresentMode selected_present_mode = present_mode_;
 
-                bool shader_reload_all_button_was_pressed = shader_reload_all_button_is_pressed_;
-                shader_reload_all_button_is_pressed_ = ImGui::Button("Reload all");
+                GuiWindowGraphicsResult res = guiWindow_graphics(
+                    last_shader_reload_failed_,
+                    shader_file_tracking_enabled_,
+                    &shader_autoreload_enabled_,
+                    &grid_shader_enabled,
+                    supported_present_modes,
+                    &selected_present_mode
+                );
+                assert(shader_file_tracking_enabled_ or !shader_autoreload_enabled_);
 
-                if (shader_file_tracking_enabled_) ImGui::Checkbox("Auto-reload", &shader_autoreload_enabled_);
-                else {
-                    ImGui::BeginDisabled();
-                    ImGui::Checkbox("Auto-reload (unavailable)", &shader_autoreload_enabled_);
-                    ImGui::EndDisabled();
+                if (grid_shader_enabled != grid_shader_enabled_) {
+                    grid_shader_enabled_ = grid_shader_enabled;
+                    gfx::setGridEnabled(grid_shader_enabled_);
                 }
 
-                if (ImGui::Checkbox("Grid", &grid_shader_enabled_)) gfx::setGridEnabled(grid_shader_enabled_);
-
-                if (!shader_reload_all_button_was_pressed and shader_reload_all_button_is_pressed_) {
+                if (res.button_pressed_reload_all_shaders) {
                     LOG_F(INFO, "Reload-all-shaders button pressed. Triggering reload.");
                     success = gfx::reloadAllShaders(gfx_renderer);
                     last_shader_reload_failed_ = !success;
                 }
-            }
-            ImGui::SeparatorText("Present mode");
-            {
-                gfx::PresentModeFlags supported_present_modes = gfx::getSupportedPresentModes(gfx_surface);
-                {
-                    ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_MAILBOX_BIT));
-                    present_mode_button_pressed |= ImGui::RadioButton(
-                        "Mailbox", &selected_present_mode, gfx::PRESENT_MODE_MAILBOX
-                    );
-                    ImGui::EndDisabled();
 
-                    ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_FIFO_BIT));
-                    present_mode_button_pressed |= ImGui::RadioButton(
-                        "FIFO", &selected_present_mode, gfx::PRESENT_MODE_FIFO
-                    );
-                    ImGui::EndDisabled();
+                if (selected_present_mode != present_mode_) {
 
-                    ImGui::BeginDisabled(!(supported_present_modes & gfx::PRESENT_MODE_IMMEDIATE_BIT));
-                    present_mode_button_pressed |= ImGui::RadioButton(
-                        "Immediate", &selected_present_mode, gfx::PRESENT_MODE_IMMEDIATE
+                    memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
+                    assert(0 <= selected_present_mode and selected_present_mode < gfx::PRESENT_MODE_ENUM_COUNT);
+                    present_mode_priorities_[selected_present_mode] = UINT8_MAX;
+
+                    gfx::Result gfx_result = gfx::updateSurfaceResources(
+                        gfx_surface, present_mode_priorities_, DEFAULT_WINDOW_EXTENT, &present_mode_
                     );
-                    ImGui::EndDisabled();
+                    assertGraphics(gfx_result);
+
+                    ImGui::EndFrame();
+                    continue; // main loop
                 }
             }
 
-            ImGui::End();
-
-            if (present_mode_button_pressed and selected_present_mode != present_mode_) {
-
-                memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
-                assert(0 <= selected_present_mode and selected_present_mode < gfx::PRESENT_MODE_ENUM_COUNT);
-                present_mode_priorities_[selected_present_mode] = UINT8_MAX;
-
-                gfx::Result gfx_result = gfx::updateSurfaceResources(
-                    gfx_surface, present_mode_priorities_, DEFAULT_WINDOW_EXTENT, &present_mode_
+            {
+                bool pause = frametimeplot_paused_;
+                guiWindow_performance(
+                    frametimeplot_axis_label, &frametimeplot_samples_scrolling_buffer_, &pause
                 );
-                assertGraphics(gfx_result);
-
-                ImGui::EndFrame();
-                continue; // main loop
+                if (frametimeplot_paused_ and !pause) frametimeplot_samples_scrolling_buffer_.reset();
+                frametimeplot_paused_ = pause;
             }
-
-
-            ImGui::Begin("Performance", NULL, common_imgui_window_flags);
 
             {
-                bool checkbox_clicked = ImGui::Checkbox("Pause plot", &frametimeplot_paused_);
-                if (checkbox_clicked and !frametimeplot_paused_) {
-                    frametimeplot_samples_scrolling_buffer_.reset();
-                }
-            }
 
-            if (ImPlot::BeginPlot(frametimeplot_axis_label, ImVec2(-1,-1))) {
-
-                ImPlot::SetupAxis(ImAxis_X1, NULL, ImPlotAxisFlags_Lock);
-                ImPlot::SetupAxisLimits(ImAxis_X1, -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, 0.0);
-                ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
-
-                ImPlot::SetupAxis(ImAxis_Y1, NULL, ImPlotAxisFlags_LockMin);
-                ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, 3.0);
-
-                ImPlot::PlotShaded<f32>(
-                    "Avg",
-                    (const f32*)&frametimeplot_samples_scrolling_buffer_.samples_avg_milliseconds,
-                    (int)frametimeplot_samples_scrolling_buffer_.sample_count,
-                    0.0, // yref
-                    FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS, // xscale
-                    -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, // xstart
-                    ImPlotShadedFlags_None, // flags
-                    (int)frametimeplot_samples_scrolling_buffer_.first_sample_index // offset
+                u32fast selected_plugin_version = fluid_sim_selected_plugin_version_;
+                GuiWindowFluidSimResult res = guiWindow_fluidSim(
+                    fluid_sim_plugin_last_reload_failed_,
+                    fluid_sim_plugin_filewatch_enabled_,
+                    &fluid_sim_paused_,
+                    &fluid_sim_plugin_autoreload_enabled_,
+                    &fluid_sim_plugin_versions_.ui_elements,
+                    &fluid_sim_plugin_versions_.hidden_ui_element_count,
+                    &selected_plugin_version,
+                    &fluid_sim_params_
                 );
 
-                ImPlot::PlotLine<f32>(
-                    "Max",
-                    (const f32*)&frametimeplot_samples_scrolling_buffer_.samples_max_milliseconds,
-                    (int)frametimeplot_samples_scrolling_buffer_.sample_count,
-                    FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS, // xscale
-                    -FRAMETIME_PLOT_DISPLAY_DOMAIN_SECONDS, // xstart
-                    ImPlotShadedFlags_None, // flags
-                    (int)frametimeplot_samples_scrolling_buffer_.first_sample_index // offset
-                );
+                if (res.sim_params_modified) fluid_sim_procs_->setParams(&sim_data, &fluid_sim_params_);
 
-                ImPlot::EndPlot();
-            }
-
-            ImGui::End();
-
-
-            bool sim_params_modified = false;
-            ImGui::Begin("Fluid sim", NULL, common_imgui_window_flags | ImGuiWindowFlags_AlwaysAutoResize);
-            {
-                const char* pause_button_label = fluid_sim_paused_ ? "Resume" : "Pause";
-                if (ImGui::Button(pause_button_label)) fluid_sim_paused_ = !fluid_sim_paused_;
-
-                if (ImGui::Button("Reset state")) {
+                if (res.button_pressed_reset_state) {
                     fluid_sim_procs_->destroy(&sim_data);
                     sim_data = initFluidSim(&fluid_sim_params_);
                 }
 
-                ImGui::SeparatorText("Parameters");
-
-                if (ImGui::Button("Reset params")) {
-                    sim_params_modified = true;
-                    fluid_sim_params_ = FLUID_SIM_PARAMS_DEFAULT;
+                if (selected_plugin_version != fluid_sim_selected_plugin_version_) {
+                    LOG_F(INFO, "Switching to fluid sim plugin version %" PRIuFAST32 " due to user selection.", selected_plugin_version);
+                    fluid_sim_selected_plugin_version_ = selected_plugin_version;
+                    fluid_sim_procs_ = fluid_sim_plugin_versions_.procs.ptr[selected_plugin_version];
                 }
-
-                sim_params_modified |= ImGui::DragFloat("Rest particle density", &fluid_sim_params_.rest_particle_density, 10.0f, 1.0f, FLT_MAX / (f32)INT_MAX);
-                sim_params_modified |= ImGui::DragFloat("Rest interaction count", &fluid_sim_params_.rest_particle_interaction_count_approx, 2.0f, 1.0f, FLT_MAX / (f32)INT_MAX);
-                sim_params_modified |= ImGui::DragFloat("Spring stiffness", &fluid_sim_params_.spring_stiffness, 0.01f, 0.0f, FLT_MAX / (f32)INT_MAX);
-
-
-                ImGui::SeparatorText("Plugin");
-
-                ImGui::Text("Last reload:");
-                ImGui::SameLine();
-                if (fluid_sim_plugin_last_reload_failed_) ImGui::TextColored(ImVec4 { 1., 0., 0., 1. }, "failed");
-                else ImGui::TextColored(ImVec4 { 0., 1., 0., 1.}, "success");
-
 
                 const FluidSimProcs* new_plugin_procs = NULL;
 
-                if (ImGui::Button("Reload")) {
+                if (res.button_pressed_reload) {
 
                     LOG_F(INFO, "Reloading fluid sim plugin due to GUI button pressed.");
 
@@ -1151,16 +1315,8 @@ int main(int argc, char** argv) {
                     }
                     else LOG_F(INFO, "Fluid sim plugin reloaded (%.1lf s).", reload_duration);
                 }
-
-                if (fluid_sim_plugin_filewatch_enabled_) {
-                    ImGui::Checkbox("Auto-reload", &fluid_sim_plugin_autoreload_enabled_);
-                }
-                else {
-                    ImGui::BeginDisabled();
-                    ImGui::Checkbox("Auto-reload (unavailable)", &fluid_sim_plugin_autoreload_enabled_);
-                    ImGui::EndDisabled();
-                }
-
+                // TODO FIXME: this code should be elsewhere, because we're currently inside the condition
+                // `if (imgui_overlay_visible_)`, which would prevent autoreload when the overlay is hidden.
                 if (fluid_sim_plugin_autoreload_enabled_) {
 
                     bool success_bool = false;
@@ -1178,63 +1334,20 @@ int main(int argc, char** argv) {
                         fluid_sim_plugin_last_reload_failed_ = false;
                     }
                 }
-
                 if (new_plugin_procs != NULL) {
-                    u32fast new_version = fluid_sim_plugin_versions_.size;
+                    u32fast new_version = fluid_sim_plugin_versions_.procs.size;
                     assert(new_version == plugin::getLatestVersionNumber(PluginID_FluidSim));
-                        
-                    auto ui_element = FluidSimPluginVersionUiElement::create(new_plugin_procs, new_version);
-
-                    fluid_sim_plugin_versions_.push(ui_element);
+    
+                    fluid_sim_plugin_versions_.push(new_plugin_procs);
                     fluid_sim_procs_ = new_plugin_procs;
                     fluid_sim_selected_plugin_version_ = new_version;
 
                     LOG_F(
                         INFO, "Newly loaded fluid sim plugin version is %" PRIuFAST32 ".",
                         fluid_sim_selected_plugin_version_
-                    ); // TODO log how long it took
-                }
-
-
-                ImGui::Text("Versions");
-
-                bool selected_version_changed = false;
-                int selected_version = (int)fluid_sim_selected_plugin_version_;
-
-                for (u32fast version = 0; version < fluid_sim_plugin_versions_.size; version++) {
-
-                    FluidSimPluginVersionUiElement* p_ui_element = &fluid_sim_plugin_versions_.ptr[version];
-                    if (p_ui_element->hidden) continue;
-
-                    selected_version_changed |= ImGui::RadioButton(
-                        p_ui_element->radio_button_label, &selected_version, (int)version
                     );
-                    ImGui::SameLine();
-                    ImGui::InputText(
-                        p_ui_element->textinput_label,
-                        p_ui_element->user_annotation,
-                        p_ui_element->USER_ANNOTATION_BUFFER_SIZE
-                    );
-                    if (
-                        fluid_sim_plugin_versions_.size - fluid_sim_plugin_version_ui_element_hidden_count_ > 1
-                    ) {
-                        ImGui::SameLine();
-                        if (ImGui::Button(p_ui_element->button_label)) {
-                            p_ui_element->hidden = true;
-                            fluid_sim_plugin_version_ui_element_hidden_count_++;
-                        }
-                    }
-                }
-
-                if (selected_version_changed) {
-                    LOG_F(INFO, "Switching to fluid sim plugin version %i due to user selection.", selected_version);
-                    fluid_sim_selected_plugin_version_ = (u32fast)selected_version;
-                    fluid_sim_procs_ = fluid_sim_plugin_versions_.ptr[selected_version].procs;
                 }
             }
-            ImGui::End();
-
-            if (sim_params_modified) fluid_sim_procs_->setParams(&sim_data, &fluid_sim_params_);
         }
 
 
@@ -1259,13 +1372,13 @@ int main(int argc, char** argv) {
 
         if (window_or_surface_out_of_date_) {
 
-            res = gfx::updateSurfaceResources(
+            result_gfx = gfx::updateSurfaceResources(
                 gfx_surface,
                 present_mode_priorities_,
                 VkExtent2D { (u32)window_size_.x, (u32)window_size_.y },
                 &present_mode_
             );
-            assertGraphics(res);
+            assertGraphics(result_gfx);
 
             window_draw_region_ = centeredSubregion_16x9((u32)window_size_.x, (u32)window_size_.y);
 
