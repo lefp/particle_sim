@@ -125,11 +125,6 @@ static FN_CreatePipeline createParticlePipeline;
 const VkFormat SWAPCHAIN_FORMAT = VK_FORMAT_B8G8R8A8_SRGB;
 const VkColorSpaceKHR SWAPCHAIN_COLOR_SPACE = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 
-const VkImageLayout SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT =
-    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-const VkImageLayout SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT =
-    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; // we'll copy the image into a swapchain image
-
 // TODO FIXME:
 //     Implement a check to verify that this format is supported. If it isn't, either pick a different format
 //     or abort.
@@ -312,10 +307,6 @@ struct RenderResourcesImpl {
         // In theory, we only need to destroy them when we attach to a surface of different size than these
         // resources; but we can destroy them for simplicity.
 
-        VkImage render_target;
-        VkImageView render_target_view;
-        VmaAllocation render_target_allocation;
-
         VkImage depth_buffer;
         VkImageView depth_buffer_view;
         VmaAllocation depth_buffer_allocation;
@@ -345,8 +336,8 @@ struct SurfaceResourcesImpl {
 
     // per-image resources
     VkImage* swapchain_images;
+    VkImageView* swapchain_image_views;
     VkSemaphore* swapchain_image_acquired_semaphores;
-    VkSemaphore* swapchain_image_in_use_semaphores;
 
     VkExtent2D swapchain_extent;
     u32 swapchain_image_count;
@@ -1803,9 +1794,6 @@ static Result createSwapchain(
     }
 
 
-    alwaysAssert(surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-
-
     LOG_F(
         INFO, "Requesting minImageCount=%" PRIu32 ", presentMode=%i for swapchain creation.",
         min_image_count_request, present_mode
@@ -1818,7 +1806,7 @@ static Result createSwapchain(
         .imageColorSpace = SWAPCHAIN_COLOR_SPACE,
         .imageExtent = extent,
         .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 1,
         .pQueueFamilyIndices = &queue_family_index,
@@ -1828,6 +1816,7 @@ static Result createSwapchain(
         .clipped = VK_FALSE,
         .oldSwapchain = old_swapchain,
     };
+    alwaysAssert(surface_capabilities.supportedUsageFlags & swapchain_info.imageUsage);
 
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     {
@@ -1848,8 +1837,8 @@ static void createPerSwapchainImageSurfaceResources(
     VkSwapchainKHR swapchain,
     u32* image_count_out,
     VkImage** images_out,
-    VkSemaphore** image_acquired_semaphores_out,
-    VkSemaphore** image_in_use_semaphores_out
+    VkImageView** image_views_out,
+    VkSemaphore** image_acquired_semaphores_out
 ) {
 
     u32 image_count = 0;
@@ -1864,6 +1853,36 @@ static void createPerSwapchainImageSurfaceResources(
     assertVk(result);
 
 
+    VkImageView* swapchain_image_views = mallocArray(image_count, VkImageView);
+
+    for (u32fast im_idx = 0; im_idx < image_count; im_idx++) {
+
+        VkImageViewCreateInfo image_view_info {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = swapchain_images[im_idx],
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = SWAPCHAIN_FORMAT,
+            .components = VkComponentMapping {
+                .r = VK_COMPONENT_SWIZZLE_R,
+                .g = VK_COMPONENT_SWIZZLE_G,
+                .b = VK_COMPONENT_SWIZZLE_B,
+                .a = VK_COMPONENT_SWIZZLE_A,
+            },
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+        result = vk_dev_procs.CreateImageView(
+            device_, &image_view_info, NULL, &swapchain_image_views[im_idx]
+        );
+        assertVk(result);
+    }
+
+
     VkSemaphore* swapchain_image_acquired_semaphores = mallocArray(image_count, VkSemaphore);
     {
         VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -1875,64 +1894,36 @@ static void createPerSwapchainImageSurfaceResources(
         }
     }
 
-    VkSemaphore* swapchain_image_in_use_semaphores = mallocArray(image_count, VkSemaphore);
-    {
-        VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-        for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
-            result = vk_dev_procs.CreateSemaphore(
-                device_, &semaphore_info, NULL, &swapchain_image_in_use_semaphores[im_idx]
-            );
-            assertVk(result);
-        }
-    }
-
-    // set the image_in_use semaphores to signalled, so that we don't deadlock on the first frame
-    {
-        VkFence fence = VK_NULL_HANDLE;
-        VkFenceCreateInfo fence_info = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-        result = vk_dev_procs.CreateFence(device_, &fence_info, NULL, &fence);
-        assertVk(result);
-
-        VkSubmitInfo submit_info {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .commandBufferCount = 0,
-            .pCommandBuffers = NULL,
-            .signalSemaphoreCount = image_count,
-            .pSignalSemaphores = swapchain_image_in_use_semaphores,
-        };
-        result = vk_dev_procs.QueueSubmit(queue_, 1, &submit_info, fence);
-        assertVk(result);
-
-        result = vk_dev_procs.WaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
-        assertVk(result);
-        vk_dev_procs.DestroyFence(device_, fence, NULL);
-    }
-
 
     *image_count_out = image_count;
     *images_out = swapchain_images;
+    *image_views_out = swapchain_image_views;
     *image_acquired_semaphores_out = swapchain_image_acquired_semaphores;
-    *image_in_use_semaphores_out = swapchain_image_in_use_semaphores;
 }
 
 /// Does not synchronize.
 /// You are responsible for ensuring the resources are not in use (e.g. via vkDeviceWaitIdle).
 static void destroyPerSwapchainImageSurfaceResources(
     u32 image_count,
-    VkImage** pp_images,
-    VkSemaphore** pp_image_acquired_semaphores
+    VkImage* p_images,
+    VkImageView* p_image_views,
+    VkSemaphore* p_image_acquired_semaphores
 ) {
-    assert(pp_images != NULL);
-    assert(pp_image_acquired_semaphores != NULL);
-
-    VkSemaphore* p_image_acquired_semaphores = *pp_image_acquired_semaphores;
+    assert(p_images != NULL);
+    assert(p_image_views != NULL);
+    assert(p_image_acquired_semaphores != NULL);
 
     for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
         vk_dev_procs.DestroySemaphore(device_, p_image_acquired_semaphores[im_idx], NULL);
     }
-    free(*pp_image_acquired_semaphores);
+    free(p_image_acquired_semaphores);
 
-    free(*pp_images);
+    for (u32 im_idx = 0; im_idx < image_count; im_idx++) {
+        vk_dev_procs.DestroyImageView(device_, p_image_views[im_idx], NULL);
+    }
+    free(p_image_views);
+
+    free(p_images);
 }
 
 
@@ -1943,8 +1934,10 @@ static bool recordCommandBuffer(
     u32 voxel_count,
     u32 outlined_voxel_count,
     u32 particle_count,
-    VkExtent2D swapchain_extent,
-    VkRect2D swapchain_roi,
+    VkExtent2D dst_image_extent,
+    VkRect2D dst_image_roi,
+    VkImageView dst_image_view,
+    VkImageLayout dst_image_layout,
     const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants,
     const ParticlePipelineFragmentShaderPushConstants* particle_pipeline_push_constants,
     ImDrawData* imgui_draw_data
@@ -1956,8 +1949,8 @@ static bool recordCommandBuffer(
     {
         VkRenderingAttachmentInfo rendering_color_attachment_info {
             .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-            .imageView = p_frame_resources->render_target_view,
-            .imageLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+            .imageView = dst_image_view,
+            .imageLayout = dst_image_layout,
             .resolveMode = VK_RESOLVE_MODE_NONE,
             .resolveImageView = NULL,
             .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1978,7 +1971,7 @@ static bool recordCommandBuffer(
         };
         VkRenderingInfo rendering_info {
             .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-            .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
+            .renderArea = VkRect2D { .offset = {0, 0}, .extent = dst_image_extent },
             .layerCount = 1,
             .viewMask = 0,
             .colorAttachmentCount = 1,
@@ -1989,15 +1982,15 @@ static bool recordCommandBuffer(
     }
 
     const VkViewport viewport {
-        .x = (f32)swapchain_roi.offset.x,
-        .y = (f32)swapchain_roi.offset.y,
-        .width = (f32)swapchain_roi.extent.width,
-        .height = (f32)swapchain_roi.extent.height,
+        .x = (f32)dst_image_roi.offset.x,
+        .y = (f32)dst_image_roi.offset.y,
+        .width = (f32)dst_image_roi.extent.width,
+        .height = (f32)dst_image_roi.extent.height,
         .minDepth = 0,
         .maxDepth = 1,
     };
     vk_dev_procs.CmdSetViewport(command_buffer, 0, 1, &viewport);
-    vk_dev_procs.CmdSetScissor(command_buffer, 0, 1, &swapchain_roi);
+    vk_dev_procs.CmdSetScissor(command_buffer, 0, 1, &dst_image_roi);
 
 
     {
@@ -2091,8 +2084,8 @@ static bool recordCommandBuffer(
 
         VkRenderingAttachmentInfo rendering_color_attachment_info {
             .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-            .imageView = p_frame_resources->render_target_view,
-            .imageLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
+            .imageView = dst_image_view,
+            .imageLayout = dst_image_layout,
             .resolveMode = VK_RESOLVE_MODE_NONE,
             .resolveImageView = NULL,
             .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -2102,7 +2095,7 @@ static bool recordCommandBuffer(
         };
         VkRenderingInfo rendering_info {
             .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-            .renderArea = VkRect2D { .offset = {0, 0}, .extent = swapchain_extent },
+            .renderArea = VkRect2D { .offset = {0, 0}, .extent = dst_image_extent },
             .layerCount = 1,
             .viewMask = 0,
             .colorAttachmentCount = 1,
@@ -2433,8 +2426,8 @@ extern Result createSurfaceResources(
         swapchain,
         &p_resources->swapchain_image_count,
         &p_resources->swapchain_images,
-        &p_resources->swapchain_image_acquired_semaphores,
-        &p_resources->swapchain_image_in_use_semaphores
+        &p_resources->swapchain_image_views,
+        &p_resources->swapchain_image_acquired_semaphores
     );
 
 
@@ -2477,32 +2470,6 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
             &p_render_resources->frame_resources_array[frame_idx];
 
 
-        VkImageCreateInfo color_image_info {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .imageType = VK_IMAGE_TYPE_2D,
-            .format = SWAPCHAIN_FORMAT,
-            .extent = VkExtent3D { swapchain_extent.width, swapchain_extent.height, 1 },
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .tiling = VK_IMAGE_TILING_OPTIMAL,
-            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 1,
-            .pQueueFamilyIndices = &queue_family_,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        };
-        VmaAllocationCreateInfo color_image_alloc_info {
-            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        };
-        result = vmaCreateImage(
-            vma_allocator_, &color_image_info, &color_image_alloc_info,
-            &this_frame_resources->render_target, &this_frame_resources->render_target_allocation,
-            NULL // pAllocationInfo, an output parameter
-        );
-        assertVk(result);
-
         VkImageCreateInfo depth_image_info {
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = VK_IMAGE_TYPE_2D,
@@ -2540,26 +2507,8 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
         result = vk_dev_procs.BeginCommandBuffer(command_buffer, &cmd_buf_begin_info);
         assertVk(result);
 
-        constexpr u32 image_barrier_count = 2;
+        constexpr u32 image_barrier_count = 1;
         VkImageMemoryBarrier image_barriers[image_barrier_count] {
-            // color image
-            {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_NONE,
-                .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .newLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
-                .srcQueueFamilyIndex = queue_family_,
-                .dstQueueFamilyIndex = queue_family_,
-                .image = this_frame_resources->render_target,
-                .subresourceRange = {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .baseMipLevel = 0,
-                    .levelCount = 1,
-                    .baseArrayLayer = 0,
-                    .layerCount = 1,
-                },
-            },
             // depth image
             {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -2606,33 +2555,6 @@ extern void attachSurfaceToRenderer(SurfaceResources surface, RenderResources re
         result = vk_dev_procs.QueueSubmit(queue_, 1, &submit_info, VK_NULL_HANDLE);
         assertVk(result);
 
-
-        VkImageViewCreateInfo color_image_view_info {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = this_frame_resources->render_target,
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = SWAPCHAIN_FORMAT,
-            .components = {
-                .r = VK_COMPONENT_SWIZZLE_R,
-                .g = VK_COMPONENT_SWIZZLE_G,
-                .b = VK_COMPONENT_SWIZZLE_B,
-                .a = VK_COMPONENT_SWIZZLE_A,
-            },
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-        };
-        result = vk_dev_procs.CreateImageView(
-            device_,
-            &color_image_view_info,
-            NULL,
-            &this_frame_resources->render_target_view
-        );
-        assertVk(result);
 
         VkImageViewCreateInfo depth_image_view_info {
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -2686,15 +2608,6 @@ extern void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources 
 
         RenderResourcesImpl::PerFrameResources* this_frame_resources =
             &p_render_resources->frame_resources_array[frame_idx];
-
-        vk_dev_procs.DestroyImageView(device_, this_frame_resources->render_target_view, NULL);
-        vmaDestroyImage(
-            vma_allocator_,
-            this_frame_resources->render_target,
-            this_frame_resources->render_target_allocation
-        );
-        this_frame_resources->render_target_view = VK_NULL_HANDLE;
-        this_frame_resources->render_target_allocation = VMA_NULL;
 
         vk_dev_procs.DestroyImageView(device_, this_frame_resources->depth_buffer_view, NULL);
         vmaDestroyImage(
@@ -2771,8 +2684,9 @@ extern Result updateSurfaceResources(
 
         destroyPerSwapchainImageSurfaceResources(
             p_surface_resources->swapchain_image_count,
-            &p_surface_resources->swapchain_images,
-            &p_surface_resources->swapchain_image_acquired_semaphores
+            p_surface_resources->swapchain_images,
+            p_surface_resources->swapchain_image_views,
+            p_surface_resources->swapchain_image_acquired_semaphores
         );
 
         vk_dev_procs.DestroySwapchainKHR(device_, old_swapchain, NULL);
@@ -2784,8 +2698,8 @@ extern Result updateSurfaceResources(
             new_swapchain,
             &p_surface_resources->swapchain_image_count,
             &p_surface_resources->swapchain_images,
-            &p_surface_resources->swapchain_image_acquired_semaphores,
-            &p_surface_resources->swapchain_image_in_use_semaphores
+            &p_surface_resources->swapchain_image_views,
+            &p_surface_resources->swapchain_image_acquired_semaphores
         );
 
         p_surface_resources->last_used_swapchain_image_acquired_semaphore_idx = 0;
@@ -3473,60 +3387,21 @@ RenderResult render(
     {
         ZoneScopedN("cmd buf record");
 
-        // TODO maybe we shouldn't hardcode this, if we're doing the whole "attached renderer" thing?
-        // Maybe have a function pointer in the renderer or something to the appropriate Render function. Idk,
-        // this is getting kinda weird. Maybe we should just ditch the whole generic crap.
-        bool success = recordCommandBuffer(
-            this_frame_resources,
-            voxel_count,
-            outlined_voxel_index_count,
-            particle_count,
-            p_surface_resources->swapchain_extent,
-            window_subregion,
-            &grid_pipeline_frag_shader_push_constants,
-            &particle_pipeline_frag_shader_push_constants,
-            imgui_draw_data
-        );
-        alwaysAssert(success);
-
-
         {
+            // Vk spec 1.3.259, vkQueuePresentKHR:
+            //     Any writes to memory backing the images referenced by the pImageIndices and pSwapchains
+            //     members of pPresentInfo, that are available before vkQueuePresentKHR is executed, are
+            //     automatically made visible to the read access performed by the presentation engine. This
+            //     automatic visibility operation for an image happens-after the semaphore signal operation,
+            //     and happens-before the presentation engine accesses the image.
+            // I take this to mean that we can set `dstAccessMask = VK_ACCESS_NONE`.
+
             VkImageMemoryBarrier color_image_barrier {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-                .oldLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
-                .newLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT,
-                .srcQueueFamilyIndex = queue_family_,
-                .dstQueueFamilyIndex = queue_family_,
-                .image = this_frame_resources->render_target,
-                .subresourceRange = {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .baseMipLevel = 0,
-                    .levelCount = 1,
-                    .baseArrayLayer = 0,
-                    .layerCount = 1,
-                },
-            };
-            vk_dev_procs.CmdPipelineBarrier(
-                command_buffer,
-                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // srcStageMask
-                VK_PIPELINE_STAGE_TRANSFER_BIT, // dstStageMask
-                0, // dependencyFlags
-                0, // memoryBarrierCount
-                NULL, // pMemoryBarriers
-                0, // bufferMemoryBarrierCount
-                NULL, // pBufferMemoryBarriers
-                1, // imageMemoryBarrierCount
-                &color_image_barrier // pImageMemoryBarriers
-            );
-
-            VkImageMemoryBarrier swapchain_image_barrier {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_NONE,
-                .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                 .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 .srcQueueFamilyIndex = queue_family_,
                 .dstQueueFamilyIndex = queue_family_,
                 .image = p_surface_resources->swapchain_images[acquired_swapchain_image_idx],
@@ -3540,59 +3415,52 @@ RenderResult render(
             };
             vk_dev_procs.CmdPipelineBarrier(
                 command_buffer,
+                // Vk spec 1.3.259: VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT [...] specifies
+                // no stage of execution when specified in the first scope.
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, // srcStageMask
-                VK_PIPELINE_STAGE_TRANSFER_BIT, // dstStageMask
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // dstStageMask
                 0, // dependencyFlags
                 0, // memoryBarrierCount
                 NULL, // pMemoryBarriers
                 0, // bufferMemoryBarrierCount
                 NULL, // pBufferMemoryBarriers
                 1, // imageMemoryBarrierCount
-                &swapchain_image_barrier // pImageMemoryBarriers
+                &color_image_barrier // pImageMemoryBarriers
             );
         }
 
-        {
-            VkExtent2D swapchain_extent = p_surface_resources->swapchain_extent;
-            VkImageCopy image_copy_regions {
-                .srcSubresource = VkImageSubresourceLayers {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .mipLevel = 0,
-                    .baseArrayLayer = 0,
-                    .layerCount = 1,
-                },
-                .srcOffset = VkOffset3D { 0, 0, 0 },
-                .dstSubresource = VkImageSubresourceLayers {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .mipLevel = 0,
-                    .baseArrayLayer = 0,
-                    .layerCount = 1,
-                },
-                .dstOffset = VkOffset3D { 0, 0, 0 },
-                .extent = VkExtent3D {
-                    .width = swapchain_extent.width,
-                    .height = swapchain_extent.height,
-                    .depth = 1,
-                },
-            };
-            vk_dev_procs.CmdCopyImage(
-                command_buffer,
-                this_frame_resources->render_target, // srcImage
-                SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT, // srcImageLayout
-                p_surface_resources->swapchain_images[acquired_swapchain_image_idx], // dstImage
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, // dstImageLayout
-                1,
-                &image_copy_regions
-            );
-        }
+        // TODO maybe we shouldn't hardcode this, if we're doing the whole "attached renderer" thing?
+        // Maybe have a function pointer in the renderer or something to the appropriate Render function. Idk,
+        // this is getting kinda weird. Maybe we should just ditch the whole generic crap.
+        bool success = recordCommandBuffer(
+            this_frame_resources,
+            voxel_count,
+            outlined_voxel_index_count,
+            particle_count,
+            p_surface_resources->swapchain_extent,
+            window_subregion,
+            p_surface_resources->swapchain_image_views[acquired_swapchain_image_idx],
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            &grid_pipeline_frag_shader_push_constants,
+            &particle_pipeline_frag_shader_push_constants,
+            imgui_draw_data
+        );
+        alwaysAssert(success);
 
-        // transition swapchain image to present_src
         {
-            VkImageMemoryBarrier swapchain_image_barrier {
+            // Vk spec 1.3.259, vkQueuePresentKHR:
+            //     Any writes to memory backing the images referenced by the pImageIndices and pSwapchains
+            //     members of pPresentInfo, that are available before vkQueuePresentKHR is executed, are
+            //     automatically made visible to the read access performed by the presentation engine. This
+            //     automatic visibility operation for an image happens-after the semaphore signal operation,
+            //     and happens-before the presentation engine accesses the image.
+            // I take this to mean that we can set `dstAccessMask = VK_ACCESS_NONE`.
+
+            VkImageMemoryBarrier color_image_barrier {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_NONE, // TODO FIXME is this right?
-                .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_NONE,
+                .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                 .srcQueueFamilyIndex = queue_family_,
                 .dstQueueFamilyIndex = queue_family_,
@@ -3607,66 +3475,33 @@ RenderResult render(
             };
             vk_dev_procs.CmdPipelineBarrier(
                 command_buffer,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, // srcStageMask
-                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // dstStageMask // TODO FIXME is this right?
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // srcStageMask
+                VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, // dstStageMask
                 0, // dependencyFlags
                 0, // memoryBarrierCount
                 NULL, // pMemoryBarriers
                 0, // bufferMemoryBarrierCount
                 NULL, // pBufferMemoryBarriers
                 1, // imageMemoryBarrierCount
-                &swapchain_image_barrier // pImageMemoryBarriers
+                &color_image_barrier // pImageMemoryBarriers
             );
         }
-
-        VkImageMemoryBarrier color_image_barrier {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-            .oldLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_FINAL_LAYOUT,
-            .newLayout = SIMPLE_RENDER_PASS_COLOR_ATTACHMENT_INITIAL_LAYOUT,
-            .srcQueueFamilyIndex = queue_family_,
-            .dstQueueFamilyIndex = queue_family_,
-            .image = this_frame_resources->render_target,
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-        };
-        vk_dev_procs.CmdPipelineBarrier(
-            command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, // srcStageMask
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // dstStageMask
-            0, // dependencyFlags
-            0, // memoryBarrierCount
-            NULL, // pMemoryBarriers
-            0, // bufferMemoryBarrierCount
-            NULL, // pBufferMemoryBarriers
-            1, // imageMemoryBarrierCount
-            &color_image_barrier // pImageMemoryBarriers
-        );
     }
     result = vk_dev_procs.EndCommandBuffer(command_buffer);
     assertVk(result);
 
 
-    constexpr u32 wait_semaphore_count = 2;
+    constexpr u32 wait_semaphore_count = 1;
     const VkSemaphore wait_semaphores[wait_semaphore_count] {
         swapchain_image_acquired_semaphore,
-        p_surface_resources->swapchain_image_in_use_semaphores[acquired_swapchain_image_idx],
     };
     const VkPipelineStageFlags wait_dst_stage_mask[wait_semaphore_count] {
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
     };
 
-    constexpr u32 signal_semaphore_count = 2;
+    constexpr u32 signal_semaphore_count = 1;
     const VkSemaphore signal_semaphores[signal_semaphore_count] {
         this_frame_resources->render_finished_semaphore,
-        p_surface_resources->swapchain_image_in_use_semaphores[acquired_swapchain_image_idx],
     };
 
     const VkSubmitInfo submit_info {
