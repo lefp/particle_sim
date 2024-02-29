@@ -105,7 +105,7 @@ extern "C" void advance(SimData* s, f32 delta_t) {
             if (dist >= particle_interaction_radius) continue;
             if (dist < 1e-7)
             {
-                LOG_F(WARNING, "distance too small: %" PRIuFAST32 " %" PRIuFAST32 "%f", i, j, dist);
+                LOG_F(WARNING, "distance too small: %" PRIuFAST32 " %" PRIuFAST32 " %f", i, j, dist);
                 continue;
             }
             vec3 disp_unit = disp / dist;
