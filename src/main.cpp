@@ -664,6 +664,22 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
     return sim_data;
 }
 
+static void updateFluidSimPluginVersionAndProcs(const FluidSimProcs* new_procs) {
+    assert(new_procs != NULL);
+
+    u32fast new_version = fluid_sim_plugin_versions_.procs.size;
+    assert(new_version == plugin::getLatestVersionNumber(PluginID_FluidSim));
+
+    fluid_sim_plugin_versions_.push(new_procs);
+    fluid_sim_procs_ = new_procs;
+    fluid_sim_selected_plugin_version_ = new_version;
+
+    LOG_F(
+        INFO, "Newly loaded fluid sim plugin version is %" PRIuFAST32 ".",
+        fluid_sim_selected_plugin_version_
+    );
+}
+
 //
 // ImGui windows =============================================================================================
 //
@@ -933,7 +949,10 @@ int main(int argc, char** argv) {
 
     success = gfx::setShaderSourceFileModificationTracking(true);
     shader_file_tracking_enabled_ = success;
-    LOG_IF_F(ERROR, !success, "Failed to enable shader source file tracking.");
+    if (!success) {
+        LOG_F(ERROR, "Failed to enable shader source file tracking.");
+        shader_autoreload_enabled_ = false;
+    }
 
     gfx::setGridEnabled(grid_shader_enabled_);
 
@@ -1122,12 +1141,35 @@ int main(int argc, char** argv) {
             p_particles[i].coord = sim_data.p_positions[i];
         }
 
-        if (shader_autoreload_enabled_ and shader_file_tracking_enabled_) {
-            gfx::ShaderReloadResult reload_result = gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
-            switch (reload_result) {
-                case gfx::ShaderReloadResult::no_shaders_need_reloading : break;
-                case gfx::ShaderReloadResult::success : last_shader_reload_failed_ = false; break;
-                case gfx::ShaderReloadResult::error : last_shader_reload_failed_ = true; break;
+        // autoreload
+        {
+            if (shader_autoreload_enabled_) {
+                gfx::ShaderReloadResult reload_result = gfx::reloadModifiedShaderSourceFiles(gfx_renderer);
+                switch (reload_result) {
+                    case gfx::ShaderReloadResult::no_shaders_need_reloading : break;
+                    case gfx::ShaderReloadResult::success : last_shader_reload_failed_ = false; break;
+                    case gfx::ShaderReloadResult::error : last_shader_reload_failed_ = true; break;
+                }
+            }
+            if (fluid_sim_plugin_autoreload_enabled_) {
+
+                bool success_bool = false;
+
+                const FluidSimProcs* new_plugin_procs = NULL;
+
+                f64 reload_start_time = glfwGetTime();
+                PLUGIN_RELOAD_IF_MODIFIED(new_plugin_procs, FluidSim, &success_bool);
+                f64 reload_duration = glfwGetTime() - reload_start_time;
+
+                if (!success_bool) {
+                    LOG_F(ERROR, "Fluid sim plugin auto-reload failed.");
+                    fluid_sim_plugin_last_reload_failed_ = true;
+                }
+                else if (new_plugin_procs != NULL) {
+                    LOG_F(INFO, "Fluid sim plugin auto-reloaded (%.1lf s).", reload_duration);
+                    fluid_sim_plugin_last_reload_failed_ = false;
+                    updateFluidSimPluginVersionAndProcs(new_plugin_procs);
+                }
             }
         }
 
@@ -1298,11 +1340,11 @@ int main(int argc, char** argv) {
                     fluid_sim_procs_ = fluid_sim_plugin_versions_.procs.ptr[selected_plugin_version];
                 }
 
-                const FluidSimProcs* new_plugin_procs = NULL;
-
                 if (res.button_pressed_reload) {
 
                     LOG_F(INFO, "Reloading fluid sim plugin due to GUI button pressed.");
+
+                    const FluidSimProcs* new_plugin_procs = NULL;
 
                     f64 reload_start_time = glfwGetTime();
                     PLUGIN_RELOAD(new_plugin_procs, FluidSim);
@@ -1313,39 +1355,10 @@ int main(int argc, char** argv) {
                     if (fluid_sim_plugin_last_reload_failed_) {
                         LOG_F(ERROR, "Failed to reload fluid sim plugin.");
                     }
-                    else LOG_F(INFO, "Fluid sim plugin reloaded (%.1lf s).", reload_duration);
-                }
-                // TODO FIXME: this code should be elsewhere, because we're currently inside the condition
-                // `if (imgui_overlay_visible_)`, which would prevent autoreload when the overlay is hidden.
-                if (fluid_sim_plugin_autoreload_enabled_) {
-
-                    bool success_bool = false;
-
-                    f64 reload_start_time = glfwGetTime();
-                    PLUGIN_RELOAD_IF_MODIFIED(new_plugin_procs, FluidSim, &success_bool);
-                    f64 reload_duration = glfwGetTime() - reload_start_time;
-
-                    if (!success_bool) {
-                        LOG_F(ERROR, "Fluid sim plugin auto-reload failed.");
-                        fluid_sim_plugin_last_reload_failed_ = true;
+                    else {
+                        LOG_F(INFO, "Fluid sim plugin reloaded (%.1lf s).", reload_duration);
+                        updateFluidSimPluginVersionAndProcs(new_plugin_procs);
                     }
-                    else if (new_plugin_procs != NULL) {
-                        LOG_F(INFO, "Fluid sim plugin auto-reloaded (%.1lf s).", reload_duration);
-                        fluid_sim_plugin_last_reload_failed_ = false;
-                    }
-                }
-                if (new_plugin_procs != NULL) {
-                    u32fast new_version = fluid_sim_plugin_versions_.procs.size;
-                    assert(new_version == plugin::getLatestVersionNumber(PluginID_FluidSim));
-    
-                    fluid_sim_plugin_versions_.push(new_plugin_procs);
-                    fluid_sim_procs_ = new_plugin_procs;
-                    fluid_sim_selected_plugin_version_ = new_version;
-
-                    LOG_F(
-                        INFO, "Newly loaded fluid sim plugin version is %" PRIuFAST32 ".",
-                        fluid_sim_selected_plugin_version_
-                    );
                 }
             }
         }
