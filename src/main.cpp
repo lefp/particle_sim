@@ -20,6 +20,7 @@
 #include "error_util.hpp"
 #include "graphics.hpp"
 #include "alloc_util.hpp"
+#include "str_util.hpp"
 #include "defer.hpp"
 
 #include "plugin.hpp"
@@ -1021,23 +1022,9 @@ int main(int argc, char** argv) {
     ImPlotContext* implot_context = ImPlot::CreateContext();
     alwaysAssert(implot_context != NULL);
 
-    char* frametimeplot_axis_label = NULL;
-    {
-        int len_without_nul = snprintf(
-            NULL, 0,
-            "Frame time (ms)\nOver %.1lf ms intervals", FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS * 1000.
-        );
-        alwaysAssert(len_without_nul > 0);
-
-        const size_t len_with_nul = (size_t)len_without_nul + 1;
-        frametimeplot_axis_label = (char*)mallocAsserted(len_with_nul);
-
-        len_without_nul = snprintf(
-            frametimeplot_axis_label, len_with_nul,
-            "Frame time (ms)\nOver %.1lf ms intervals", FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS * 1000.
-        );
-        alwaysAssert(len_without_nul > 0);
-    };
+    const char* frametimeplot_axis_label = allocSprintf(
+        "Frame time (ms)\nOver %.1lf ms intervals", FRAMETIME_PLOT_SAMPLE_INTERVAL_SECONDS * 1000.
+    );
 
     ImGuiIO& imgui_io = ImGui::GetIO();
 

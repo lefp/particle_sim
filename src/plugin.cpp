@@ -64,25 +64,7 @@ static inline void* allocProcsStruct_Zeroed_Asserted(PluginID plugin_id) {
     const plugin_infos::PluginReloadInfo* plugin_info = &plugin_infos::PLUGIN_RELOAD_INFOS[plugin_id];
 
 
-    char* lib_path = NULL;
-    {
-        int len_without_null = snprintf(
-            NULL, 0,
-            "%s.%" PRIuFAST32,
-            plugin_info->shared_object_path, version_number
-        );
-        alwaysAssert(len_without_null > 0);
-
-        int buf_size = len_without_null + 1;
-        lib_path = (char*)mallocAsserted((size_t)len_without_null);
-
-        len_without_null = snprintf(
-            lib_path, (size_t)buf_size,
-            "%s.%" PRIuFAST32,
-            plugin_info->shared_object_path, version_number
-        );
-        alwaysAssert(len_without_null < buf_size);
-    }
+    char* lib_path = allocSprintf("%s.%" PRIuFAST32, plugin_info->shared_object_path, version_number);
     defer(free(lib_path));
 
 
