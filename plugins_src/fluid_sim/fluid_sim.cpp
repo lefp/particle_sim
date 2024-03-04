@@ -473,6 +473,7 @@ extern "C" void advance(SimData* s, f32 delta_t) {
         // 32-bit Morton codes can handle at most a 1024x1024x1024 grid.
         // If this turns out to be insufficient, consider using 64-bit Morton codes.
         assert(cell_count.x < 1024 and cell_count.y < 1024 and cell_count.z < 1024);
+        (void)cell_count; // to prevent "unused variable" complaints when compiling with NDEBUG
     }
 
     mergeSortByMortonCodes(

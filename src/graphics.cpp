@@ -3080,6 +3080,8 @@ bool reloadAllShaders(RenderResources renderer) {
 
     const RenderResourcesImpl* p_render_resources = (const RenderResourcesImpl*)renderer.impl;
     assert(p_render_resources != NULL);
+    // TODO FIXME hack to hide "unused variable" complaint; just remove the input parameter entirely
+    (void)p_render_resources;
 
 
     GraphicsPipelineShaderModules new_shader_modules[PIPELINE_INDEX_COUNT];
@@ -3609,6 +3611,8 @@ extern ShaderReloadResult reloadModifiedShaderSourceFiles(RenderResources render
 
     const RenderResourcesImpl* p_render_resources = (const RenderResourcesImpl*)renderer.impl;
     assert(p_render_resources != NULL);
+    // TODO FIXME hack to hide "unused variable" complaint; just remove the input parameter entirely
+    (void)p_render_resources;
 
     u32 event_count = 0;
     const filewatch::FileID* p_events = NULL;
