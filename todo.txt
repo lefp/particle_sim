@@ -28,7 +28,12 @@
 - [ ] Fog and volumetric lighting
 - [ ] Fire physics
 
-- [ ] Try on-demand Tracy profiling, so it doesn't consume ever-growing memory when you're not trying to get a profile.
+- [x] Try on-demand Tracy profiling, so it doesn't consume ever-growing memory when you're not trying to get a profile.
+
+- [ ] Fluid sim: render, for debugging purposes:
+    - [ ] spheres or circles around particles showing the interaction radius
+    - [ ] an rectangular-prism outline showing the simulation domain boundaries
+    - [ ] a cube outline around each active cell
 
 
 Consider (not very important):
