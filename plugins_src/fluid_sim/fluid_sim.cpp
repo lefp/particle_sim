@@ -2,8 +2,6 @@
 #include <cstdlib>
 #include <cinttypes>
 #include <cmath>
-#include <signal.h> // @debug TODO delete this
-#include <stdio.h> // @debug TODO delete this
 
 #define GLM_FORCE_EXPLICIT_CTOR
 #include <glm/glm.hpp>
@@ -13,7 +11,6 @@
 #include "../src/error_util.hpp"
 #include "../src/math_util.hpp"
 #include "../src/alloc_util.hpp"
-#include "../src/defer.hpp" // @debug TODO delete this
 #include "fluid_sim_types.hpp"
 
 namespace fluid_sim {
@@ -451,10 +448,6 @@ extern "C" void destroy(SimData* s) {
 
 extern "C" void advance(SimData* s, f32 delta_t) {
 
-    // @debug TODO delete this
-    // FILE* logfile = fopen("tmp.log", "w");
-    // defer(fclose(logfile));
-
     assert(delta_t > 1e-5); // assert nonzero
 
     const u32fast particle_count = s->particle_count;
@@ -481,20 +474,6 @@ extern "C" void advance(SimData* s, f32 delta_t) {
         &s->p_positions, &s->p_velocities, &s->p_particles_scratch_buffer1, &s->p_particles_scratch_buffer2,
         domain_min, cell_size_reciprocal
     );
-
-    // @debug TODO delete this
-    /*
-    fprintf(logfile, "Particle Morton codes:\n");
-    for (u32fast i = 0; i < s->particle_count; i++)
-    {
-        fprintf(
-            logfile, "%lu: %u\n",
-            i,
-            cellMortonCode(cellIndex(s->p_positions[i], domain_min, cell_size_reciprocal))
-        );
-    }
-    fflush(logfile);
-    */
 
     // fill cell list
     {
@@ -536,20 +515,6 @@ extern "C" void advance(SimData* s, f32 delta_t) {
             domain_min, cell_size_reciprocal,
             s->hash_modulus
         );
-
-        // @debug TODO delete this
-        /*
-        fprintf(logfile, "Cell hashes:\n");
-        for (u32fast i = 0; i < s->cell_count; i++)
-        {
-            fprintf(
-                logfile, "%lu: %u\n",
-                i,
-                mortonCodeHash(cellMortonCode(cellIndex(s->p_positions[s->p_cells[i]], domain_min, cell_size_reciprocal)), s->hash_modulus)
-            );
-        }
-        fflush(logfile);
-        */
     }
 
     {
