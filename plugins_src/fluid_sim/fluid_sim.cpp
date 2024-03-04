@@ -280,18 +280,6 @@ static void mergeSortByCellHashes(
 }
 
 
-static inline bool isPrime(u32fast n) {
-
-    if (n == 0 || n == 1) return false;
-
-    for (u32fast i = 2; i < n; i++)
-    {
-        if (n % i == 0) return false;
-    }
-    return true;
-}
-
-
 static u32fast getNextPrimeNumberExclusive(u32fast n) {
 
     if (n == 0 || n == 1) return 2;
@@ -323,16 +311,17 @@ struct CompactCell {
     u32 first_particle_idx;
     u32 particle_count;
 };
-static inline CompactCell particle2Cell(const SimData* s, const vec3 particle, const vec3 domain_min) {
 
-    const uvec3 cell_idx_3d = cellIndex(particle, domain_min, s->cell_size_reciprocal);
+
+static inline CompactCell cell3dToCell(const SimData* s, const uvec3 cell_idx_3d, const vec3 domain_min) {
+
     const u32 morton_code = cellMortonCode(cell_idx_3d);
     const u32 hash = mortonCodeHash(morton_code, s->hash_modulus);
 
     const u32 first_cell_with_hash_idx = s->H_begin[hash];
     const u32 n_cells_with_hash = s->H_length[hash];
 
-    assert(n_cells_with_hash > 0); // you must not pass nonexistent particles to this function
+    if (n_cells_with_hash == 0) return CompactCell { .first_particle_idx = UINT32_MAX, .particle_count = 0 };
 
     u32 cell_idx = first_cell_with_hash_idx;
     const u32 cell_idx_end = cell_idx + n_cells_with_hash;
@@ -355,6 +344,54 @@ static inline CompactCell particle2Cell(const SimData* s, const vec3 particle, c
     }
 
     return CompactCell { .first_particle_idx = UINT32_MAX, .particle_count = 0 };
+}
+
+
+static inline CompactCell particleToCell(const SimData* s, const vec3 particle, const vec3 domain_min) {
+
+    const uvec3 cell_idx_3d = cellIndex(particle, domain_min, s->cell_size_reciprocal);
+    return cell3dToCell(s, cell_idx_3d, domain_min);
+}
+
+
+static inline vec3 accelerationDueToParticlesInCell(
+    const SimData* s,
+    const u32fast target_particle_idx,
+    const uvec3 cell_idx_3d,
+    const vec3 domain_min
+) {
+
+    const CompactCell cell = cell3dToCell(s, cell_idx_3d, domain_min);
+    if (cell.particle_count == 0) return vec3(0.0f); // cell doesn't exist
+
+    const vec3 pos = s->p_positions[target_particle_idx];
+
+    vec3 accel {};
+
+    u32fast i = cell.first_particle_idx;
+    const u32fast i_end = i + cell.particle_count;
+
+    for (; i < i_end; i++)
+    {
+        // OPTIMIZE: we can remove this check if we know that none of the particles are the target particle.
+        //     E.g. if the particle list comes from a different cell than the target particle.
+        if (i == target_particle_idx) continue;
+
+        vec3 disp = s->p_positions[i] - pos;
+        f32 dist = glm::length(disp);
+
+        if (dist >= s->parameters.particle_interaction_radius) continue;
+        if (dist < 1e-7)
+        {
+            LOG_F(WARNING, "distance too small: %" PRIuFAST32 " %" PRIuFAST32 " %f", target_particle_idx, i, dist);
+            continue;
+        }
+        vec3 disp_unit = disp / dist;
+
+        accel += s->parameters.spring_stiffness * (dist - s->parameters.spring_rest_length) * disp_unit;
+    }
+
+    return accel;
 }
 
 
@@ -415,15 +452,12 @@ extern "C" void destroy(SimData* s) {
 extern "C" void advance(SimData* s, f32 delta_t) {
 
     // @debug TODO delete this
-    FILE* logfile = fopen("tmp.log", "w");
-    defer(fclose(logfile));
+    // FILE* logfile = fopen("tmp.log", "w");
+    // defer(fclose(logfile));
 
     assert(delta_t > 1e-5); // assert nonzero
 
     const u32fast particle_count = s->particle_count;
-    const f32 particle_interaction_radius = s->parameters.particle_interaction_radius;
-    const f32 spring_stiffness = s->parameters.spring_stiffness;
-    const f32 spring_rest_length = s->parameters.spring_rest_length;
     const f32 cell_size_reciprocal = s->cell_size_reciprocal;
 
     vec3 domain_min = vec3(INFINITY);
@@ -448,6 +482,7 @@ extern "C" void advance(SimData* s, f32 delta_t) {
     );
 
     // @debug TODO delete this
+    /*
     fprintf(logfile, "Particle Morton codes:\n");
     for (u32fast i = 0; i < s->particle_count; i++)
     {
@@ -458,6 +493,7 @@ extern "C" void advance(SimData* s, f32 delta_t) {
         );
     }
     fflush(logfile);
+    */
 
     // fill cell list
     {
@@ -501,6 +537,7 @@ extern "C" void advance(SimData* s, f32 delta_t) {
         );
 
         // @debug TODO delete this
+        /*
         fprintf(logfile, "Cell hashes:\n");
         for (u32fast i = 0; i < s->cell_count; i++)
         {
@@ -511,6 +548,7 @@ extern "C" void advance(SimData* s, f32 delta_t) {
             );
         }
         fflush(logfile);
+        */
     }
 
     {
@@ -561,31 +599,37 @@ extern "C" void advance(SimData* s, f32 delta_t) {
         vec3 accel_i = vec3(0);
         vec3 pos_i = s->p_positions[i];
 
-        const CompactCell cell = particle2Cell(s, pos_i, domain_min);
-        // the cell must exist, because our particle is in it.
-        assert(cell.first_particle_idx != UINT32_MAX);
-        assert(cell.particle_count > 0);
+        const uvec3 cell_index_3d = cellIndex(pos_i, domain_min, cell_size_reciprocal);
 
-        u32fast j = cell.first_particle_idx;
-        const u32fast j_end = j + cell.particle_count;
-
-        // TODO FIXME also apply forces of particles in adjacent cells
-        for (; j < j_end; j++)
+        // TODO FIXME: verify that the unsigned integer wrapping due to `-1` doesn't break the sim.
         {
-            if (i == j) continue;
-
-            vec3 disp = s->p_positions[j] - pos_i;
-            f32 dist = glm::length(disp);
-
-            if (dist >= particle_interaction_radius) continue;
-            if (dist < 1e-7)
-            {
-                LOG_F(WARNING, "distance too small: %" PRIuFAST32 " %" PRIuFAST32 " %f", i, j, dist);
-                continue;
-            }
-            vec3 disp_unit = disp / dist;
-
-            accel_i += spring_stiffness * (dist - spring_rest_length) * disp_unit;
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1,  1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  0, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  0,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  0,  1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  1, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  1,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  1,  1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0, -1, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0, -1,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0, -1,  1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  0, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  0,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  0,  1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  1, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  1,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  1,  1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1, -1, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1, -1,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1, -1,  1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  0, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  0,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  0,  1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  1, -1), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  1,  0), domain_min);
+            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  1,  1), domain_min);
         }
 
         s->p_velocities[i] += accel_i * delta_t;
