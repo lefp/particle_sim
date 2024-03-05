@@ -210,13 +210,13 @@ static void mergeSortByCellHashes(
     const u32 hash_modulus
 ) {
 
+    if (array_size < 2) return;
+
     u32* cells_arr1 = *pp_cells;
     u32* cells_arr2 = *pp_scratch1;
 
     u32* lens_arr1 = *pp_lengths;
     u32* lens_arr2 = *pp_scratch2;
-
-    assert(array_size >= 2);
 
     for (u64 bucket_size = 1; bucket_size < array_size; bucket_size *= 2)
     {
@@ -561,7 +561,7 @@ extern "C" void advance(SimData* s, f32 delta_t) {
             }
             cells_with_this_hash_count++;
         }
-        s->H_length[hash] = cells_with_this_hash_count;
+        if (cell_count > 0) s->H_length[prev_hash] = cells_with_this_hash_count;
     }
 
     for (u32fast i = 0; i < particle_count; i++)
