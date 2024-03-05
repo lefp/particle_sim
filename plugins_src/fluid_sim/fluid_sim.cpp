@@ -150,7 +150,8 @@ static void mergeSortByMortonCodes(
             for (; idx_dst < idx_dst_max; idx_dst++)
             {
                 u32 morton_code_a;
-                if (idx_a < idx_a_max) {
+                if (idx_a < idx_a_max)
+                {
                     vec3 particle_a = pos_arr1[idx_a];
                     const uvec3 cell_a = cellIndex(particle_a, domain_min, cell_size_reciprocal);
                     morton_code_a = cellMortonCode(cell_a);
@@ -158,19 +159,22 @@ static void mergeSortByMortonCodes(
                 else morton_code_a = UINT32_MAX;
 
                 u32 morton_code_b;
-                if (idx_b < idx_b_max) {
+                if (idx_b < idx_b_max)
+                {
                     vec3 particle_b = pos_arr1[idx_b];
                     const uvec3 cell_b = cellIndex(particle_b, domain_min, cell_size_reciprocal);
                     morton_code_b = cellMortonCode(cell_b);
                 }
                 else morton_code_b = UINT32_MAX;
 
-                if (morton_code_a < morton_code_b) {
+                if (morton_code_a < morton_code_b)
+                {
                     pos_arr2[idx_dst] = pos_arr1[idx_a];
                     vel_arr2[idx_dst] = vel_arr1[idx_a];
                     idx_a++;
                 }
-                else {
+                else
+                {
                     pos_arr2[idx_dst] = pos_arr1[idx_b];
                     vel_arr2[idx_dst] = vel_arr1[idx_b];
                     idx_b++;
