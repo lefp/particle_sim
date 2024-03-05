@@ -53,15 +53,21 @@ extern "C" void setParams(SimData* s, const SimParameters* params) {
     // TODO FIXME didn't really think about a good way to compute this
     s->parameters.spring_rest_length = s->parameters.particle_interaction_radius * 0.5f;
 
+    const f32 cell_size = 2.0f * s->parameters.particle_interaction_radius;
+    s->parameters.cell_size = cell_size;
+    s->parameters.cell_size_reciprocal = 1.0f / cell_size;
+
     LOG_F(INFO, "Set fluid sim parameters: "
         "REST_PARTICLE_DENSITY = %f, "
         "SPRING_STIFFNESS = %f, "
         "SPRING_REST_LENGTH = %f, "
-        "PARTICLE_INTERACTION_RADIUS = %f.",
+        "PARTICLE_INTERACTION_RADIUS = %f, "
+        "CELL_SIZE = %f.",
         s->parameters.rest_particle_density,
         s->parameters.spring_stiffness,
         s->parameters.spring_rest_length,
-        s->parameters.particle_interaction_radius
+        s->parameters.particle_interaction_radius,
+        s->parameters.cell_size
     );
 }
 
@@ -343,7 +349,7 @@ static inline CompactCell cell3dToCell(const SimData* s, const uvec3 cell_idx_3d
 
         const vec3 first_particle_in_cell = s->p_positions[first_particle_in_cell_idx];
         if (
-            cellMortonCode(cellIndex(first_particle_in_cell, domain_min, s->cell_size_reciprocal))
+            cellMortonCode(cellIndex(first_particle_in_cell, domain_min, s->parameters.cell_size_reciprocal))
             == morton_code
         ) {
             return CompactCell {
@@ -359,7 +365,7 @@ static inline CompactCell cell3dToCell(const SimData* s, const uvec3 cell_idx_3d
 
 static inline CompactCell particleToCell(const SimData* s, const vec3 particle, const vec3 domain_min) {
 
-    const uvec3 cell_idx_3d = cellIndex(particle, domain_min, s->cell_size_reciprocal);
+    const uvec3 cell_idx_3d = cellIndex(particle, domain_min, s->parameters.cell_size_reciprocal);
     return cell3dToCell(s, cell_idx_3d, domain_min);
 }
 
@@ -442,9 +448,6 @@ extern "C" SimData create(
         s.H_length = callocArray(hash_modulus, u32);
 
         setParams(&s, params);
-
-        s.cell_size = 2.0f * s.parameters.particle_interaction_radius;
-        s.cell_size_reciprocal = 1.0f / s.cell_size;
     }
 
     LOG_F(INFO, "Initialized fluid sim with %" PRIuFAST32 " particles.", s.particle_count);
@@ -469,7 +472,7 @@ extern "C" void advance(SimData* s, f32 delta_t) {
     assert(delta_t > 1e-5); // assert nonzero
 
     const u32fast particle_count = s->particle_count;
-    const f32 cell_size_reciprocal = s->cell_size_reciprocal;
+    const f32 cell_size_reciprocal = s->parameters.cell_size_reciprocal;
 
     vec3 domain_min = vec3(INFINITY);
     vec3 domain_max = vec3(-INFINITY);

@@ -45,9 +45,9 @@ struct SimData {
         f32 particle_interaction_radius;
         f32 spring_rest_length;
         f32 spring_stiffness;
+        f32 cell_size; // edge length
+        f32 cell_size_reciprocal;
     } parameters;
-    f32 cell_size; // edge length
-    f32 cell_size_reciprocal;
 };
 
 //
