@@ -47,37 +47,10 @@ class Library:
     source_file_paths: list[str]
     additional_compile_flags: list[str]
 
-@dataclass
-class FileAndLocation:
-    filename: str
-    line: int
-    col: int
-
 
 def filesInDirWithSuffix(dir: str, suffix: str):
     all_files: list[str] = os.listdir(dir)
     return list(filter(lambda s: s.endswith(suffix), all_files))
-
-
-# TODO FIXME: this should be in `build.py` and include `plugins_src`
-nocompile_list: list[FileAndLocation] = []
-for filename in os.listdir('src'):
-
-    f = open('src/' + filename)
-    file_contents: list[str] = f.readlines()
-    f.close()
-
-    for line_idx, line_contents in enumerate(file_contents):
-        col: int = line_contents.find('@nocompile')
-        if (col != -1):
-            nocompile_list.append(FileAndLocation(filename, line_idx, col))
-
-if (len(nocompile_list) != 0):
-    print('Error: the following source files contain "@nocompile":')
-    for nc in nocompile_list:
-        print(f'    - {nc.filename}:{nc.line}:{nc.col}')
-    print('Aborting build due to "@nocompile".')
-    exit(1)
 
 
 compilation_processes: list[sp.Popen] = []
