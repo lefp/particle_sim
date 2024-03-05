@@ -6,6 +6,7 @@
 #define GLM_FORCE_EXPLICIT_CTOR
 #include <glm/glm.hpp>
 #include <loguru/loguru.hpp>
+#include <tracy/tracy/Tracy.hpp>
 
 #include "../src/types.hpp"
 #include "../src/error_util.hpp"
@@ -125,6 +126,9 @@ static void mergeSortByMortonCodes(
     const f32 cell_size_reciprocal
 ) {
 
+    ZoneScoped;
+
+
     vec3* pos_arr1 = *pp_positions;
     vec3* pos_arr2 = *pp_scratch1;
 
@@ -210,6 +214,9 @@ static void mergeSortByCellHashes(
     const u32 hash_modulus
 ) {
 
+    ZoneScoped;
+
+
     if (array_size < 2) return;
 
     u32* cells_arr1 = *pp_cells;
@@ -282,6 +289,8 @@ static void mergeSortByCellHashes(
 
 
 static u32fast getNextPrimeNumberExclusive(u32fast n) {
+
+    ZoneScoped;
 
     if (n == 0 || n == 1) return 2;
 
@@ -402,6 +411,8 @@ extern "C" SimData create(
     const vec3* p_initial_positions
 ) {
 
+    ZoneScoped;
+
     SimData s {};
     {
         s.particle_count = particle_count;
@@ -452,6 +463,9 @@ extern "C" void destroy(SimData* s) {
 
 extern "C" void advance(SimData* s, f32 delta_t) {
 
+    ZoneScoped;
+
+
     assert(delta_t > 1e-5); // assert nonzero
 
     const u32fast particle_count = s->particle_count;
@@ -481,6 +495,8 @@ extern "C" void advance(SimData* s, f32 delta_t) {
 
     // fill cell list
     {
+        ZoneScopedN("fillCellList");
+
         u32 prev_morton_code = 0;
         if (particle_count > 0)
         {
@@ -522,6 +538,8 @@ extern "C" void advance(SimData* s, f32 delta_t) {
     }
 
     {
+        ZoneScopedN("fillHashTable");
+
         for (u32fast i = 0; i < s->hash_modulus; i++) s->H_begin[i] = UINT32_MAX;
         for (u32fast i = 0; i < s->hash_modulus; i++) s->H_length[i] = 0;
 
@@ -573,6 +591,8 @@ extern "C" void advance(SimData* s, f32 delta_t) {
 
         // TODO FIXME: verify that the unsigned integer wrapping due to `-1` doesn't break the sim.
         {
+            ZoneScopedN("accelerationDueToParticlesInCells");
+
             accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1, -1), domain_min);
             accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1,  0), domain_min);
             accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1,  1), domain_min);

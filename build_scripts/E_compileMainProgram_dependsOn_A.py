@@ -16,8 +16,6 @@ else:
     TIME_COMMAND = []
 
 
-TRACY = True
-
 BUILD_DIR_PATH = 'build/E_compileMainProgram_dependsOn_A'
 INTERMEDIATE_OBJECTS_PATH = BUILD_DIR_PATH + '/intermediate_objects'
 SPIRV_DIR_PATH = BUILD_DIR_PATH + '/shaders'
@@ -26,8 +24,8 @@ COMMON_COMPILE_FLAGS: list[str] = (
     common.getCompilerFlag_DNDEBUG() +
     common.getCompilerFlag_g() +
     common.getCompilerFlag_O() +
-    ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES'] +
-    (['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND', '-DTRACY_NO_BROADCAST'] if TRACY else [])
+    common.getCompilerFlags_TracyDefines() +
+    ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES']
 )
 
 IMPLOT_CUSTOM_NUMERIC_TYPES_FLAG = '-DIMPLOT_CUSTOM_NUMERIC_TYPES=(float)'
@@ -106,13 +104,6 @@ lib_implot = Library(
     ],
     additional_compile_flags = ['-isystem', 'libs/imgui', IMPLOT_CUSTOM_NUMERIC_TYPES_FLAG]
 )
-lib_tracy = Library(
-    source_file_paths = [
-        'libs/tracy/' + s
-        for s in filesInDirWithSuffix('libs/tracy', '.cpp')
-    ],
-    additional_compile_flags = ['-isystem', 'libs/tracy']
-)
 
 libs = [
     lib_my_app,
@@ -120,7 +111,6 @@ libs = [
     lib_imgui,
     lib_implot,
 ]
-if TRACY: libs.append(lib_tracy)
 
 for lib in libs:
     for source_file_path in lib.source_file_paths:
@@ -158,6 +148,7 @@ gcc_process = sp.Popen(
         INTERMEDIATE_OBJECTS_PATH + '/' + s
         for s in filesInDirWithSuffix(INTERMEDIATE_OBJECTS_PATH, '.o')
     ]
+    + (['./build/tracy.so'] if common.isTracyEnabled() else [])
 )
 gcc_process.communicate()
 if gcc_process.returncode != 0:

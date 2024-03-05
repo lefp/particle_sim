@@ -80,6 +80,7 @@ for (lib_name, lib_version) in zip(lib_names, lib_versions):
         + common.getCompilerFlag_DNDEBUG()
         + common.getCompilerFlag_g()
         + common.getCompilerFlag_O()
+        + (['./build/tracy.so'] if common.isTracyEnabled() else [])
     )
 
     # TODO OPTIMIZE: do this in parallel for all files, using Popen

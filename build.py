@@ -11,6 +11,7 @@ import os
 import shutil as sh
 from dataclasses import dataclass
 from glob import glob
+from build_scripts import common
 
 
 def runStage(script_path: str) -> None:
@@ -68,6 +69,54 @@ if (os.path.isdir("build")):
     sh.rmtree("build")
 os.mkdir("build")
 
+
+angame_env_names: list[str] = []
+angame_env_values: list[str] = []
+for name in os.environ.keys():
+    if (name.startswith('ANGAME')):
+        value = os.environ[name]
+        angame_env_names.append(name)
+        angame_env_values.append(value)
+with open('build/env_vars.hpp', 'w') as f:
+    f.write('#ifndef _ANGAME_ENV_VARS_HPP\n')
+    f.write('#define _ANGAME_ENV_VARS_HPP\n')
+    f.write('\n')
+
+    f.write(f'static constexpr u32fast ANGAME_ENV_VAR_COUNT = {len(angame_env_names)};\n');
+
+    f.write('\n')
+
+    f.write('static const char* ANGAME_ENV_NAMES[] = {\n')
+    for name in angame_env_names: f.write(f'    "{name}",\n')
+    f.write('};\n')
+    f.write('static_assert(sizeof(ANGAME_ENV_NAMES) / sizeof(*ANGAME_ENV_NAMES) == ANGAME_ENV_VAR_COUNT);\n')
+
+    f.write('\n')
+
+    f.write('static const char* ANGAME_ENV_VALUES[] = {\n')
+    for value in angame_env_values: f.write(f'    "{value}",\n')
+    f.write('};\n')
+    f.write('static_assert(sizeof(ANGAME_ENV_VALUES) / sizeof(*ANGAME_ENV_VALUES) == ANGAME_ENV_VAR_COUNT);\n')
+
+    f.write('\n')
+    f.write('#endif // include guard\n')
+
+
+# TODO I kinda feel like this doesn't belong in this file.
+#     It would be nice to have a file named F_compileTracy so that other build scripts can add `F` to the
+#     `dependsOn` lists in their filenames.
+if (common.isTracyEnabled()):
+    result: sp.CompletedProcess = sp.run(
+        [
+            'g++',
+            '-fPIC', '-shared',
+            '-o', './build/tracy.so',
+            'libs/tracy/TracyClient.cpp',
+            '-isystem', 'libs/tracy',
+            '-std=c++11',
+        ]
+        + common.getCompilerFlags_TracyDefines()
+    )
 
 # TODO whichever stages can be done in parallel, do those in parallel (using Popen)
 

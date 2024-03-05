@@ -27,6 +27,8 @@
 #include "../plugins_src/fluid_sim/fluid_sim_types.hpp"
 #include "../build/A_generatePluginHeaders/fluid_sim/plugin_fluid_sim.hpp"
 
+#include "../build/env_vars.hpp"
+
 #include "main_internal.hpp"
 
 namespace gfx = graphics;
@@ -940,6 +942,19 @@ int main(int argc, char** argv) {
     #else
         LOG_F(INFO, "NDEBUG is defined.");
     #endif
+
+    // Set the environment variables corresponding to the build configuration.
+    // This is partly for general consistency (have the same config vars set during build and runtime),
+    // but the main reason is that we must use the same configuration when calling build scripts when
+    // hot-reloading.
+    // I do not like this complexity, it feels fragile and easy to fuck up.
+    for (u32fast i = 0; i < ANGAME_ENV_VAR_COUNT; i++) {
+        const char* name = ANGAME_ENV_NAMES[i];
+        const char* value = ANGAME_ENV_VALUES[i];
+        LOG_F(INFO, "Setting environment variable `%s` to `%s`.", name, value);
+        setenv(name, value, 0);
+    }
+
 
     int success = glfwInit();
     assertGlfw(success);

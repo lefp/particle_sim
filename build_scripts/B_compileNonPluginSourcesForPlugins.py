@@ -53,6 +53,7 @@ for lib_name in lib_names:
             + common.getCompilerFlag_DNDEBUG()
             + common.getCompilerFlag_g()
             + common.getCompilerFlag_O()
+            + common.getCompilerFlags_TracyDefines()
             + additional_flags
         )
 

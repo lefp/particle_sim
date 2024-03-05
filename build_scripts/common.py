@@ -1,6 +1,13 @@
 import os
 
 
+def isTracyEnabled() -> bool:
+    env_str = os.environ.get("ANGAME_NO_TRACY")
+    if (env_str is not None and int(env_str) == 1):
+        return False
+    return True
+
+
 def getLibNames() -> list[str]:
     files_in_dir: list[str] = os.listdir("plugins_src")
     lib_names: list[str] = []
@@ -31,6 +38,13 @@ def getCompilerFlag_g() -> list[str]:
     if (env_str is not None and int(env_str) == 1):
         return ['-g0']
     return ['-g3']
+
+
+def getCompilerFlags_TracyDefines() -> list[str]:
+    if isTracyEnabled():
+        return ['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND', '-DTRACY_NO_BROADCAST']
+    else:
+        return []
 
 
 WARNING_FLAGS: list[str] = [
