@@ -18,7 +18,7 @@ void _assertErrno(bool condition, const char* file, int line) {
     if (condition) return;
 
     const char* err_description = strerror(errno);
-    alwaysAssert(err_description != NULL);
+    if (err_description == NULL) err_description = "(NO ERROR DESCRIPTION PROVIDED... THAT'S SUSPICIOUS)";
 
     ABORT_F(
         "Assertion failed! File `%s`, line %i, errno %i, strerror `%s`.",
