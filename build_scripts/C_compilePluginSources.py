@@ -10,12 +10,6 @@ import sys
 import common
 
 
-# TODO FIXME:
-#     Take the plugin names as a list of args.
-#          If empty, do all plugins.
-#          Otherwise do the listed plugins (after asserting that they exist).
-
-
 STAGE_DIR = "build/C_compilePluginSources"
 if (os.path.exists(STAGE_DIR)):
     sh.rmtree(STAGE_DIR)
