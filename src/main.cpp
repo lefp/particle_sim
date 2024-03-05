@@ -643,6 +643,8 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
 
     // OPTIMIZE if needed. This was written without much thought.
 
+    srand(2039519);
+
     fluid_sim::SimData sim_data {};
     {
         u32fast particle_count = 1000;
