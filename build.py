@@ -106,9 +106,11 @@ with open('build/env_vars.hpp', 'w') as f:
 #     It would be nice to have a file named F_compileTracy so that other build scripts can add `F` to the
 #     `dependsOn` lists in their filenames.
 if (common.isTracyEnabled()):
+    print("Building Tracy")
     result: sp.CompletedProcess = sp.run(
         [
             'g++',
+            '-c', # note: ccache doesn't work without the -c flag
             '-fPIC', '-shared',
             '-o', './build/tracy.so',
             'libs/tracy/TracyClient.cpp',
