@@ -3644,13 +3644,13 @@ extern ShaderReloadResult reloadModifiedShaderSourceFiles(RenderResources render
             VkShaderModule* p_shader_module = NULL;
 
             if (this_pipeline_watch_ids->vertex_shader_id == event_watch_id) {
-                shader_src_filepath =  PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].vertex_shader_src_filepath;
+                shader_src_filepath = PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].vertex_shader_src_filepath;
                 shader_type = shaderc_glsl_vertex_shader;
                 p_shader_module = &new_shader_modules[pipeline_idx].vertex_shader_module;
                 modified_shaders[pipeline_idx] |= VK_SHADER_STAGE_VERTEX_BIT;
             }
             else if (this_pipeline_watch_ids->fragment_shader_id == event_watch_id) {
-                shader_src_filepath =  PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].fragment_shader_src_filepath;
+                shader_src_filepath = PIPELINE_HOT_RELOAD_INFOS[pipeline_idx].fragment_shader_src_filepath;
                 shader_type = shaderc_glsl_fragment_shader;
                 p_shader_module = &new_shader_modules[pipeline_idx].fragment_shader_module;
                 modified_shaders[pipeline_idx] |= VK_SHADER_STAGE_FRAGMENT_BIT;
