@@ -144,7 +144,8 @@ RenderResult render(
     u32 outlined_voxel_index_count,
     const u32* p_outlined_voxel_indices,
     u32 particle_count,
-    const Particle* p_particles
+    const Particle* p_particles,
+    bool fancy_particle_rendering
 );
 
 /// `init()` must have been called before this; otherwise returns VK_NULL_HANDLE.

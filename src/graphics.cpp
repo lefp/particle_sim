@@ -63,6 +63,7 @@ enum PipelineIndex {
     PIPELINE_INDEX_GRID_PIPELINE,
     PIPELINE_INDEX_CUBE_OUTLINE_PIPELINE,
     PIPELINE_INDEX_PARTICLE_PIPELINE,
+    PIPELINE_INDEX_PARTICLE_RASTERIZE_PIPELINE,
 
     PIPELINE_INDEX_COUNT,
 };
@@ -112,6 +113,7 @@ static FN_CreatePipeline createVoxelPipeline;
 static FN_CreatePipeline createGridPipeline;
 static FN_CreatePipeline createCubeOutlinePipeline;
 static FN_CreatePipeline createParticlePipeline;
+static FN_CreatePipeline createParticleRasterizePipeline;
 
 //
 // Global constants ==========================================================================================
@@ -162,6 +164,11 @@ const PipelineBuildFromSpirvFilesInfo PIPELINE_BUILD_FROM_SPIRV_FILES_INFOS[PIPE
         .fragment_shader_spirv_filepath = "build/shaders/particle.frag.spv",
         .pfn_createPipeline = createParticlePipeline,
     },
+    [PIPELINE_INDEX_PARTICLE_RASTERIZE_PIPELINE] = {
+        .vertex_shader_spirv_filepath = "build/shaders/particle_rasterize.vert.spv",
+        .fragment_shader_spirv_filepath = "build/shaders/particle_rasterize.frag.spv",
+        .pfn_createPipeline = createParticleRasterizePipeline,
+    },
 };
 
 const PipelineHotReloadInfo PIPELINE_HOT_RELOAD_INFOS[PIPELINE_INDEX_COUNT] {
@@ -184,6 +191,11 @@ const PipelineHotReloadInfo PIPELINE_HOT_RELOAD_INFOS[PIPELINE_INDEX_COUNT] {
         .vertex_shader_src_filepath = "src/particle.vert",
         .fragment_shader_src_filepath = "src/particle.frag",
         .pfn_createPipeline = createParticlePipeline,
+    },
+    [PIPELINE_INDEX_PARTICLE_RASTERIZE_PIPELINE] = {
+        .vertex_shader_src_filepath = "src/particle_rasterize.vert",
+        .fragment_shader_src_filepath = "src/particle_rasterize.frag",
+        .pfn_createPipeline = createParticleRasterizePipeline,
     },
 };
 
@@ -255,7 +267,6 @@ struct GridPipelineFragmentShaderPushConstants {
     alignas(16) vec2 viewport_offset_in_window;
     alignas( 8) vec2 viewport_size_in_window;
 };
-
 struct ParticlePipelineFragmentShaderPushConstants {
     alignas(16) mat4 world_to_screen_transform_inverse;
     alignas(16) vec2 viewport_offset_in_window;
@@ -263,6 +274,9 @@ struct ParticlePipelineFragmentShaderPushConstants {
     alignas( 8) uint particle_count;
     alignas( 4) float particle_radius;
     alignas( 4) float max_travel_distance;
+};
+struct ParticleRasterizePipelineVertexShaderPushConstants {
+    alignas( 4) float particle_radius;
 };
 
 struct UniformBuffer {
@@ -1228,6 +1242,237 @@ static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
 }
 
 
+[[nodiscard]] static bool createParticleRasterizePipeline(
+    VkDevice device,
+    VkShaderModule vertex_shader_module,
+    VkShaderModule fragment_shader_module,
+    VkDescriptorSetLayout descriptor_set_layout,
+    VkPipeline* pipeline_out,
+    VkPipelineLayout* pipeline_layout_out
+) {
+
+    VkResult result;
+
+
+    constexpr u32 shader_stage_info_count = 2;
+    const VkPipelineShaderStageCreateInfo shader_stage_infos[shader_stage_info_count] {
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_VERTEX_BIT,
+            .module = vertex_shader_module,
+            .pName = "main",
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .module = fragment_shader_module,
+            .pName = "main",
+        },
+    };
+
+
+    VkVertexInputBindingDescription vertex_binding_description {
+        .binding = 0,
+        .stride = sizeof(Particle),
+        .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE,
+    };
+
+    constexpr u32 vertex_attribute_description_count = 2;
+    VkVertexInputAttributeDescription vertex_attribute_descriptions[vertex_attribute_description_count] {
+        {
+            .location = 0,
+            .binding = 0,
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = offsetof(Particle, coord),
+        },
+        {
+            .location = 1,
+            .binding = 0,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .offset = offsetof(Particle, color),
+        },
+    };
+
+    const VkPipelineVertexInputStateCreateInfo vertex_input_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &vertex_binding_description,
+        .vertexAttributeDescriptionCount = vertex_attribute_description_count,
+        .pVertexAttributeDescriptions = vertex_attribute_descriptions,
+    };
+
+
+    const VkPipelineInputAssemblyStateCreateInfo input_assembly_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = VK_FALSE,
+    };
+
+
+    const VkPipelineViewportStateCreateInfo viewport_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .pViewports = NULL, // using dynamic viewport
+        .scissorCount = 1,
+        .pScissors = NULL, // using dynamic scissor
+    };
+
+
+    const VkPipelineRasterizationStateCreateInfo rasterization_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = VK_FALSE,
+        .rasterizerDiscardEnable = VK_FALSE,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .depthBiasEnable = VK_FALSE,
+        .depthBiasConstantFactor = 0.0,
+        .depthBiasClamp = 0.0,
+        .depthBiasSlopeFactor = 0.0,
+        .lineWidth = 1.0,
+    };
+
+
+    const VkPipelineMultisampleStateCreateInfo multisample_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable = VK_FALSE,
+        .minSampleShading = 0.0,
+        .pSampleMask = NULL,
+        .alphaToCoverageEnable = VK_FALSE,
+        .alphaToOneEnable = VK_FALSE,
+    };
+
+
+    const VkPipelineDepthStencilStateCreateInfo depth_stencil_state_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable = VK_FALSE,
+        .front = {},
+        .back = {},
+        .minDepthBounds = 0.0,
+        .maxDepthBounds = 1.0,
+    };
+
+
+    const VkPipelineColorBlendAttachmentState color_blend_attachment_info {
+        .blendEnable = VK_FALSE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .colorBlendOp = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp = VK_BLEND_OP_ADD,
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+
+    const VkPipelineColorBlendStateCreateInfo color_blend_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .logicOp = VK_LOGIC_OP_CLEAR,
+        .attachmentCount = 1,
+        .pAttachments = &color_blend_attachment_info,
+        .blendConstants = {0.0, 0.0, 0.0, 0.0},
+    };
+
+
+    constexpr u32 dynamic_state_count = 2;
+    const VkDynamicState dynamic_states[dynamic_state_count] {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
+
+    const VkPipelineDynamicStateCreateInfo dynamic_state_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = dynamic_state_count,
+        .pDynamicStates = dynamic_states,
+    };
+
+
+    constexpr u32 push_constant_range_count = 1;
+    VkPushConstantRange push_constant_ranges[push_constant_range_count] {
+        VkPushConstantRange {
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = sizeof(ParticleRasterizePipelineVertexShaderPushConstants),
+        },
+    };
+
+
+    const VkPipelineLayoutCreateInfo pipeline_layout_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &descriptor_set_layout,
+        .pushConstantRangeCount = push_constant_range_count,
+        .pPushConstantRanges = push_constant_ranges,
+    };
+
+    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+    result = vk_dev_procs.CreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout);
+    assertVk(result);
+
+
+    constexpr u32 color_attachment_count = 1;
+    VkFormat color_attachment_formats[color_attachment_count] { SWAPCHAIN_FORMAT };
+
+    const VkPipelineRenderingCreateInfo pipeline_rendering_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .viewMask = 0, // TODO FIXME verify that this can be 0
+        .colorAttachmentCount = color_attachment_count,
+        .pColorAttachmentFormats = color_attachment_formats,
+        .depthAttachmentFormat = DEPTH_FORMAT,
+    };
+
+
+    const VkGraphicsPipelineCreateInfo pipeline_info {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext = &pipeline_rendering_info,
+        .stageCount = shader_stage_info_count,
+        .pStages = shader_stage_infos,
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly_info,
+        .pTessellationState = NULL,
+        .pViewportState = &viewport_info,
+        .pRasterizationState = &rasterization_info,
+        .pMultisampleState = &multisample_info,
+        .pDepthStencilState = &depth_stencil_state_info,
+        .pColorBlendState = &color_blend_info,
+        .pDynamicState = &dynamic_state_info,
+        .layout = pipeline_layout,
+        .basePipelineHandle = VK_NULL_HANDLE,
+        .basePipelineIndex = -1,
+    };
+
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    result = vk_dev_procs.CreateGraphicsPipelines(
+        device,
+        VK_NULL_HANDLE, // pipelineCache
+        1, // createInfoCount
+        &pipeline_info,
+        NULL, // allocationCallbacks
+        &pipeline
+    );
+    if (result == VK_ERROR_INVALID_SHADER_NV) {
+        LOG_F(
+            ERROR, "Failed to create pipeline for shader modules {%p, %p}.",
+            vertex_shader_module, fragment_shader_module
+        );
+        vk_dev_procs.DestroyPipelineLayout(device, pipeline_layout, NULL);
+        return false;
+    }
+    assertVk(result);
+
+
+    *pipeline_layout_out = pipeline_layout;
+    *pipeline_out = pipeline;
+
+    return true;
+}
+
+
 [[nodiscard]] static bool createGridPipeline(
     VkDevice device,
     VkShaderModule vertex_shader_module,
@@ -1940,9 +2185,14 @@ static bool recordCommandBuffer(
     VkImageLayout dst_image_layout,
     const GridPipelineFragmentShaderPushConstants* grid_pipeline_push_constants,
     const ParticlePipelineFragmentShaderPushConstants* particle_pipeline_push_constants,
+    const ParticleRasterizePipelineVertexShaderPushConstants* particle_rasterize_pipeline_push_constants,
+    bool fancy_particle_rendering,
     ImDrawData* imgui_draw_data
 ) {
     ZoneScoped;
+
+    if (fancy_particle_rendering) assert(particle_pipeline_push_constants != NULL);
+    else assert(particle_rasterize_pipeline_push_constants != NULL);
 
     VkCommandBuffer command_buffer = p_frame_resources->command_buffer;
 
@@ -2015,25 +2265,53 @@ static bool recordCommandBuffer(
         vk_dev_procs.CmdDraw(command_buffer, 36, voxel_count, 0, 0);
     }
     if (particle_count > 0) {
-        PipelineAndLayout* p_pipeline = &pipelines_[PIPELINE_INDEX_PARTICLE_PIPELINE];
+        if (fancy_particle_rendering) {
+            PipelineAndLayout* p_pipeline = &pipelines_[PIPELINE_INDEX_PARTICLE_PIPELINE];
 
-        vk_dev_procs.CmdBindDescriptorSets(
-            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_pipeline->layout,
-            0, // firstSet
-            1, // descriptorSetCount
-            &p_frame_resources->descriptor_set,
-            0, // dynamicOffsetCount
-            NULL // pDynamicOffsets
-        );
+            vk_dev_procs.CmdBindDescriptorSets(
+                command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_pipeline->layout,
+                0, // firstSet
+                1, // descriptorSetCount
+                &p_frame_resources->descriptor_set,
+                0, // dynamicOffsetCount
+                NULL // pDynamicOffsets
+            );
 
-        vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_pipeline->pipeline);
+            vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_pipeline->pipeline);
 
-        vk_dev_procs.CmdPushConstants(
-            command_buffer, p_pipeline->layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-            sizeof(*particle_pipeline_push_constants), particle_pipeline_push_constants
-        );
+            vk_dev_procs.CmdPushConstants(
+                command_buffer, p_pipeline->layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                sizeof(*particle_pipeline_push_constants), particle_pipeline_push_constants
+            );
 
-        vk_dev_procs.CmdDraw(command_buffer, 6, 1, 0, 0);
+            vk_dev_procs.CmdDraw(command_buffer, 6, 1, 0, 0);
+        }
+        else {
+            PipelineAndLayout* p_pipeline = &pipelines_[PIPELINE_INDEX_PARTICLE_RASTERIZE_PIPELINE];
+
+            vk_dev_procs.CmdBindDescriptorSets(
+                command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_pipeline->layout,
+                0, // firstSet
+                1, // descriptorSetCount
+                &p_frame_resources->descriptor_set,
+                0, // dynamicOffsetCount
+                NULL // pDynamicOffsets
+            );
+
+            vk_dev_procs.CmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_pipeline->pipeline);
+
+            vk_dev_procs.CmdPushConstants(
+                command_buffer, p_pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                sizeof(*particle_rasterize_pipeline_push_constants), particle_rasterize_pipeline_push_constants
+            );
+
+            VkDeviceSize offset_in_vertex_buf = 0;
+            vk_dev_procs.CmdBindVertexBuffers(
+                command_buffer, 0, 1, &p_frame_resources->particles_buffer, &offset_in_vertex_buf
+            );
+
+            vk_dev_procs.CmdDraw(command_buffer, 36, particle_count, 0, 0);
+        }
     }
     {
         PipelineAndLayout* p_pipeline = &pipelines_[PIPELINE_INDEX_CUBE_OUTLINE_PIPELINE];
@@ -3176,7 +3454,8 @@ RenderResult render(
     u32 outlined_voxel_index_count,
     const u32* p_outlined_voxel_indices,
     u32 particle_count,
-    const Particle* p_particles
+    const Particle* p_particles,
+    bool fancy_particle_rendering
 ) {
 
     ZoneScoped;
@@ -3378,6 +3657,9 @@ RenderResult render(
         .particle_radius = particle_radius,
         .max_travel_distance = raymarch_max_travel_distance,
     };
+    ParticleRasterizePipelineVertexShaderPushConstants particle_rasterize_pipeline_vert_shader_push_constants {
+        .particle_radius = particle_radius,
+    };
 
 
     VkCommandBufferBeginInfo begin_info {
@@ -3445,6 +3727,8 @@ RenderResult render(
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             &grid_pipeline_frag_shader_push_constants,
             &particle_pipeline_frag_shader_push_constants,
+            &particle_rasterize_pipeline_vert_shader_push_constants,
+            fancy_particle_rendering,
             imgui_draw_data
         );
         alwaysAssert(success);
