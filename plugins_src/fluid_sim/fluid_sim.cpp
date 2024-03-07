@@ -177,7 +177,7 @@ static void mergeSortByMortonCodes(
                 }
                 else morton_code_b = UINT32_MAX;
 
-                if (morton_code_a < morton_code_b)
+                if (morton_code_a <= morton_code_b)
                 {
                     pos_arr2[idx_dst] = pos_arr1[idx_a];
                     vel_arr2[idx_dst] = vel_arr1[idx_a];
@@ -265,7 +265,7 @@ static void mergeSortByCellHashes(
                 }
                 else cell_hash_b = UINT32_MAX;
 
-                if (cell_hash_a < cell_hash_b) {
+                if (cell_hash_a <= cell_hash_b) {
                     cells_arr2[idx_dst] = cells_arr1[idx_a];
                     lens_arr2[idx_dst] = lens_arr1[idx_a];
                     idx_a++;
