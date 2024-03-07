@@ -116,6 +116,8 @@ if (common.isTracyEnabled()):
             '-std=c++11',
         ]
         + common.getCompilerFlags_TracyDefines()
+        + common.getCompilerFlag_O()
+        + ['-DNDEBUG']
     )
 
 # TODO whichever stages can be done in parallel, do those in parallel (using Popen)
