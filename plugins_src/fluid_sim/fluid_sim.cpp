@@ -585,54 +585,11 @@ extern "C" void advance(SimData* s, f32 delta_t) {
         if (cell_count > 0) s->H_length[prev_hash] = cells_with_this_hash_count;
     }
 
-    for (u32fast i = 0; i < particle_count; i++)
-    {
-        vec3 accel_i = vec3(0);
-        vec3 pos_i = s->p_positions[i];
 
-        const uvec3 cell_index_3d = cellIndex(pos_i, domain_min, cell_size_reciprocal);
-
-        // TODO FIXME: verify that the unsigned integer wrapping due to `-1` doesn't break the sim.
-        {
-            ZoneScopedN("accelerationDueToParticlesInCells");
-
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1, -1,  1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  0, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  0,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  0,  1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  1, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  1,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3(-1,  1,  1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0, -1, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0, -1,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0, -1,  1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  0, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  0,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  0,  1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  1, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  1,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 0,  1,  1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1, -1, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1, -1,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1, -1,  1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  0, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  0,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  0,  1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  1, -1), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  1,  0), domain_min);
-            accel_i += accelerationDueToParticlesInCell(s, i, cell_index_3d + uvec3( 1,  1,  1), domain_min);
-        }
-
-        s->p_velocities[i] += accel_i * delta_t;
-        s->p_velocities[i] -= 0.5f * delta_t * s->p_velocities[i]; // damping
-    }
-
-    for (u32fast i = 0; i < particle_count; i++)
-    {
-        s->p_positions[i] += s->p_velocities[i] * delta_t;
-    }
+    // TODO FIXME nocompile:
+    // - [ ] upload data to GPU
+    // - [ ] invoke compute pipeline
+    // - [ ] download result from GPU
 };
 
 //

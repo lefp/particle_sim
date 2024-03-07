@@ -1,0 +1,232 @@
+/// Data structure reference:
+///     "Multi-Level Memory Structures for Simulating and Rendering Smoothed Particle Hydrodynamics"
+///     by R. Winchenbach and A. Kolb.
+
+#version 450
+
+// TODO FIXME make sure all the binding numbers are correct
+
+layout(binding = 0, std140) uniform SimParams {
+    float rest_particle_density_;
+    float particle_interaction_radius_;
+    float spring_rest_length_;
+    float spring_stiffness_;
+    float cell_size_reciprocal_;
+
+    // stuff whose lifetime is the lifetime of the sim
+    uint particle_count_;
+    uint hash_modulus_;
+};
+layout(binding = 1, std430) buffer Positions {
+    vec3 positions_[];
+};
+layout(binding = 2, std430) buffer Velocities {
+    vec3 velocities_[];
+};
+layout(binding = 3, std430) buffer C_begin {
+    uint C_begin_[];
+};
+layout(binding = 4, std430) buffer C_length {
+    uint C_length_[];
+};
+layout(binding = 5, std430) buffer H_begin {
+    uint H_begin_[];
+};
+layout(binding = 6, std430) buffer H_length {
+    uint H_length_[];
+};
+
+layout(push_constant, std140) uniform PushConstants {
+
+    // stuff that probably changes every frame
+
+    uint delta_t_;
+    uint cell_count_;
+    vec3 domain_min_;
+};
+
+
+/// Get the index of the cell that contains the particle.
+uvec3 cellIndex(vec3 particle, vec3 domain_min, float cell_size_reciprocal) {
+
+    return uvec3((domain_min + particle) * cell_size_reciprocal);
+}
+
+uint cellMortonCode(uvec3 cell_index) {
+    return
+        ((cell_index.x &    1) <<  0) |
+        ((cell_index.y &    1) <<  1) |
+        ((cell_index.z &    1) <<  2) |
+        ((cell_index.x &    2) <<  2) |
+        ((cell_index.y &    2) <<  3) |
+        ((cell_index.z &    2) <<  4) |
+        ((cell_index.x &    4) <<  4) |
+        ((cell_index.y &    4) <<  5) |
+        ((cell_index.z &    4) <<  6) |
+        ((cell_index.x &    8) <<  6) |
+        ((cell_index.y &    8) <<  7) |
+        ((cell_index.z &    8) <<  8) |
+        ((cell_index.x &   16) <<  8) |
+        ((cell_index.y &   16) <<  9) |
+        ((cell_index.z &   16) << 10) |
+        ((cell_index.x &   64) << 10) |
+        ((cell_index.y &   64) << 11) |
+        ((cell_index.z &   64) << 12) |
+        ((cell_index.x &  128) << 12) |
+        ((cell_index.y &  128) << 13) |
+        ((cell_index.z &  128) << 14) |
+        ((cell_index.x &  256) << 14) |
+        ((cell_index.y &  256) << 15) |
+        ((cell_index.z &  256) << 16) |
+        ((cell_index.x &  512) << 16) |
+        ((cell_index.y &  512) << 17) |
+        ((cell_index.z &  512) << 18) |
+        ((cell_index.x & 1024) << 18) |
+        ((cell_index.y & 1024) << 19) |
+        ((cell_index.z & 1024) << 20) ;
+}
+
+uint mortonCodeHash(uint cell_morton_code, uint hash_modulus) {
+    return cell_morton_code % hash_modulus;
+}
+
+
+struct CompactCell {
+    uint first_particle_idx;
+    uint particle_count;
+};
+
+CompactCell cell3dToCell(const uvec3 cell_idx_3d, const vec3 domain_min) {
+
+    const uint morton_code = cellMortonCode(cell_idx_3d);
+    const uint hash = mortonCodeHash(morton_code, hash_modulus_);
+
+    const uint first_cell_with_hash_idx = H_begin_[hash];
+    const uint n_cells_with_hash = H_length_[hash];
+
+    CompactCell ret;
+    ret.first_particle_idx = 0xFFFFFFFF;
+    ret.particle_count = 0;
+
+    if (n_cells_with_hash == 0) return ret;
+
+    uint cell_idx = first_cell_with_hash_idx;
+    const uint cell_idx_end = cell_idx + n_cells_with_hash;
+
+    for (; cell_idx < cell_idx_end; cell_idx++)
+    {
+        const uint first_particle_in_cell_idx = C_begin_[cell_idx];
+
+        const vec3 first_particle_in_cell = positions_[first_particle_in_cell_idx];
+        if (
+            cellMortonCode(cellIndex(first_particle_in_cell, domain_min, cell_size_reciprocal_))
+            == morton_code
+        ) {
+            ret.first_particle_idx = first_particle_in_cell_idx;
+            ret.particle_count = C_length_[cell_idx];
+            return ret;
+        }
+    }
+
+    return ret;
+}
+
+CompactCell particleToCell(const vec3 particle, const vec3 domain_min) {
+
+    const uvec3 cell_idx_3d = cellIndex(particle, domain_min, cell_size_reciprocal_);
+    return cell3dToCell(cell_idx_3d, domain_min);
+}
+
+vec3 accelerationDueToParticlesInCell(
+    const uint target_particle_idx,
+    const uvec3 cell_idx_3d,
+    const vec3 domain_min
+) {
+
+    const CompactCell cell = cell3dToCell(cell_idx_3d, domain_min);
+    if (cell.particle_count == 0) return vec3(0.0f); // cell doesn't exist
+
+    const vec3 pos = positions_[target_particle_idx];
+
+    vec3 accel = vec3(0.0f);
+
+    uint i = cell.first_particle_idx;
+    const uint i_end = i + cell.particle_count;
+
+    for (; i < i_end; i++)
+    {
+        // OPTIMIZE: we can remove this check if we know that none of the particles are the target particle.
+        //     E.g. if the particle list comes from a different cell than the target particle.
+        if (i == target_particle_idx) continue;
+
+        vec3 disp = positions_[i] - pos;
+        float dist = length(disp);
+
+        if (dist >= particle_interaction_radius_) continue;
+        vec3 disp_unit = disp / dist;
+
+        accel += spring_stiffness_ * (dist - spring_rest_length_) * disp_unit;
+    }
+
+    return accel;
+}
+
+void main(void) {
+
+    const uint particle_idx = gl_GlobalInvocationID.x;
+    const bool this_invocation_should_run = particle_idx < particle_count_;
+
+    vec3 new_velocity;
+
+    if (this_invocation_should_run)
+    {
+        vec3 accel_i = vec3(0);
+        vec3 pos_i = positions_[particle_idx];
+
+        const uvec3 cell_index_3d = cellIndex(pos_i, domain_min_, cell_size_reciprocal_);
+
+        // TODO FIXME: verify that uint `-1` is defined, and that the result doesn't break the sim.
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1, -1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1, -1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1, -1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  0, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  0,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  0,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0, -1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0, -1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0, -1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  0, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  0,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  0,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1, -1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1, -1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1, -1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  0, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  0,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  0,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  1,  1), domain_min_);
+
+        new_velocity = velocities_[particle_idx];
+        new_velocity += accel_i * delta_t_;
+        new_velocity -= 0.5f * delta_t_ * velocities_[particle_idx]; // damping
+        velocities_[particle_idx] = new_velocity;
+    }
+
+    // don't update positions until other invocations are done reading them
+    barrier();
+    // TODO do we also need a memoryBarrier() here? I don't think so, because we're not about to read data
+    // that was updated by other invocations.
+
+    if (this_invocation_should_run)
+    {
+        positions_[particle_idx] += new_velocity * delta_t_;
+    }
+}
