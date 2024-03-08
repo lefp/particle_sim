@@ -10,13 +10,11 @@
 
 /// These are where you define the lists of procedures you want to use.
 
-// TODO FIXME: rename these to FOR_EACH_VK_BASE_PROC, etc, to avoid naming conflicts.
-
-#define FOR_EACH_BASE_PROC(X) \
+#define FOR_EACH_VK_BASE_PROC(X) \
     X(CreateInstance) \
     X(GetInstanceProcAddr)
 
-#define FOR_EACH_INSTANCE_PROC(X) \
+#define FOR_EACH_VK_INSTANCE_PROC(X) \
     X(CreateDevice) \
     X(EnumeratePhysicalDevices) \
     X(GetDeviceProcAddr) \
@@ -26,7 +24,7 @@
     X(GetPhysicalDeviceSurfaceCapabilitiesKHR) \
     X(GetPhysicalDeviceSurfacePresentModesKHR)
 
-#define FOR_EACH_DEVICE_PROC(X) \
+#define FOR_EACH_VK_DEVICE_PROC(X) \
     X(AcquireNextImageKHR) \
     X(AllocateCommandBuffers) \
     X(AllocateDescriptorSets) \
@@ -85,19 +83,19 @@
 #define DECLARE_PROC_PTR(PROC_NAME) PFN_vk##PROC_NAME PROC_NAME;
 
 struct VulkanBaseProcs {
-    FOR_EACH_BASE_PROC(DECLARE_PROC_PTR);
+    FOR_EACH_VK_BASE_PROC(DECLARE_PROC_PTR);
 
     void init(PFN_vkGetInstanceProcAddr);
 };
 
 struct VulkanInstanceProcs {
-    FOR_EACH_INSTANCE_PROC(DECLARE_PROC_PTR);
+    FOR_EACH_VK_INSTANCE_PROC(DECLARE_PROC_PTR);
 
     void init(VkInstance, PFN_vkGetInstanceProcAddr);
 };
 
 struct VulkanDeviceProcs {
-    FOR_EACH_DEVICE_PROC(DECLARE_PROC_PTR);
+    FOR_EACH_VK_DEVICE_PROC(DECLARE_PROC_PTR);
 
     void init(VkDevice, PFN_vkGetDeviceProcAddr);
 };

@@ -25,7 +25,7 @@ void VulkanBaseProcs::init(
             if (this->PROC_NAME == NULL) ABORT_F("Failed to load base procedure `%s`.", proc_name); \
         }
 
-    FOR_EACH_BASE_PROC(INITIALIZE_PROC_PTR);
+    FOR_EACH_VK_BASE_PROC(INITIALIZE_PROC_PTR);
 
     #undef INITIALIZE_PROC_PTR
 }
@@ -41,7 +41,7 @@ void VulkanInstanceProcs::init(
             if (this->PROC_NAME == NULL) ABORT_F("Failed to load instance procedure `%s`.", proc_name); \
         }
 
-    FOR_EACH_INSTANCE_PROC(INITIALIZE_PROC_PTR);
+    FOR_EACH_VK_INSTANCE_PROC(INITIALIZE_PROC_PTR);
 
     #undef INITIALIZE_PROC_PTR
 }
@@ -57,7 +57,7 @@ void VulkanDeviceProcs::init(
             if (this->PROC_NAME == NULL) ABORT_F("Failed to load device procedure `%s`.", proc_name); \
         }
 
-    FOR_EACH_DEVICE_PROC(INITIALIZE_PROC_PTR);
+    FOR_EACH_VK_DEVICE_PROC(INITIALIZE_PROC_PTR);
 
     #undef INITIALIZE_PROC_PTR
 }
