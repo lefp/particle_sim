@@ -203,6 +203,10 @@ const PipelineHotReloadInfo PIPELINE_HOT_RELOAD_INFOS[PIPELINE_INDEX_COUNT] {
 // Global variables ==========================================================================================
 //
 
+static VulkanBaseProcs vk_base_procs {};
+static VulkanInstanceProcs vk_inst_procs {};
+static VulkanDeviceProcs vk_dev_procs {};
+
 static bool initialized_ = false;
 
 static shaderc_compiler_t libshaderc_compiler_ = NULL;
@@ -226,6 +230,73 @@ static filewatch::Watchlist shader_source_file_watchlist_ = NULL;
 static ShaderSourceFileWatchIds shader_source_file_watch_ids_[PIPELINE_INDEX_COUNT] {};
 
 static bool grid_enabled_ = false;
+
+//
+// Vulkan proc initializers ==================================================================================
+//
+
+static VulkanBaseProcs VulkanBaseProcs_init(PFN_vkGetInstanceProcAddr);
+static VulkanInstanceProcs VulkanInstanceProcs_init(VkInstance, PFN_vkGetInstanceProcAddr);
+static VulkanDeviceProcs VulkanDeviceProcs_init(VkDevice, PFN_vkGetDeviceProcAddr);
+
+static VulkanBaseProcs VulkanBaseProcs_init(
+    PFN_vkGetInstanceProcAddr getInstanceProcAddr
+) {
+    VulkanBaseProcs procs {};
+
+    #define INITIALIZE_PROC_PTR(PROC_NAME) \
+        { \
+            const char* proc_name = "vk" #PROC_NAME; \
+            procs.PROC_NAME = (PFN_vk##PROC_NAME)getInstanceProcAddr(NULL, proc_name); \
+            if (procs.PROC_NAME == NULL) ABORT_F("Failed to load base procedure `%s`.", proc_name); \
+        }
+
+    FOR_EACH_VK_BASE_PROC(INITIALIZE_PROC_PTR);
+
+    #undef INITIALIZE_PROC_PTR
+
+    return procs;
+}
+
+static VulkanInstanceProcs VulkanInstanceProcs_init(
+    VkInstance instance,
+    PFN_vkGetInstanceProcAddr getInstanceProcAddr
+) {
+    VulkanInstanceProcs procs {};
+
+    #define INITIALIZE_PROC_PTR(PROC_NAME) \
+        { \
+            const char* proc_name = "vk" #PROC_NAME; \
+            procs.PROC_NAME = (PFN_vk##PROC_NAME)getInstanceProcAddr(instance, proc_name); \
+            if (procs.PROC_NAME == NULL) ABORT_F("Failed to load instance procedure `%s`.", proc_name); \
+        }
+
+    FOR_EACH_VK_INSTANCE_PROC(INITIALIZE_PROC_PTR);
+
+    #undef INITIALIZE_PROC_PTR
+
+    return procs;
+}
+
+static VulkanDeviceProcs VulkanDeviceProcs_init(
+    VkDevice device,
+    PFN_vkGetDeviceProcAddr getDeviceProcAddr
+) {
+    VulkanDeviceProcs procs {};
+
+    #define INITIALIZE_PROC_PTR(PROC_NAME) \
+        { \
+            const char* proc_name = "vk" #PROC_NAME; \
+            procs.PROC_NAME = (PFN_vk##PROC_NAME)getDeviceProcAddr(device, proc_name); \
+            if (procs.PROC_NAME == NULL) ABORT_F("Failed to load device procedure `%s`.", proc_name); \
+        }
+
+    FOR_EACH_VK_DEVICE_PROC(INITIALIZE_PROC_PTR);
+
+    #undef INITIALIZE_PROC_PTR
+
+    return procs;
+}
 
 //
 // ===========================================================================================================
@@ -542,7 +613,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
     ZoneScoped;
 
     if (!glfwVulkanSupported()) ABORT_F("Failed to find Vulkan; do you need to install drivers?");
-    vk_base_procs.init((PFN_vkGetInstanceProcAddr)glfwGetInstanceProcAddress);
+    vk_base_procs = VulkanBaseProcs_init((PFN_vkGetInstanceProcAddr)glfwGetInstanceProcAddress);
 
     // Create instance ---------------------------------------------------------------------------------------
     {
@@ -578,7 +649,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
         VkResult result = vk_base_procs.CreateInstance(&instance_info, NULL, &instance_);
         assertVk(result);
 
-        vk_inst_procs.init(instance_, (PFN_vkGetInstanceProcAddr)glfwGetInstanceProcAddress);
+        vk_inst_procs = VulkanInstanceProcs_init(instance_, (PFN_vkGetInstanceProcAddr)glfwGetInstanceProcAddress);
     }
 
     // Select physical device and queue families -------------------------------------------------------------
@@ -694,7 +765,7 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
         VkResult result = vk_inst_procs.CreateDevice(physical_device_, &device_cinfo, NULL, &device_);
         assertVk(result);
 
-        vk_dev_procs.init(device_, vk_inst_procs.GetDeviceProcAddr);
+        vk_dev_procs = VulkanDeviceProcs_init(device_, vk_inst_procs.GetDeviceProcAddr);
 
         // NOTE: Vk Spec 1.3.259:
         //     vkGetDeviceQueue must only be used to get queues that were created with the `flags` parameter

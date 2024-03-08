@@ -84,33 +84,18 @@
 
 struct VulkanBaseProcs {
     FOR_EACH_VK_BASE_PROC(DECLARE_PROC_PTR);
-
-    void init(PFN_vkGetInstanceProcAddr);
 };
 
 struct VulkanInstanceProcs {
     FOR_EACH_VK_INSTANCE_PROC(DECLARE_PROC_PTR);
-
-    void init(VkInstance, PFN_vkGetInstanceProcAddr);
 };
 
 struct VulkanDeviceProcs {
     FOR_EACH_VK_DEVICE_PROC(DECLARE_PROC_PTR);
-
-    void init(VkDevice, PFN_vkGetDeviceProcAddr);
 };
 
 
 #undef DECLARE_PROC_PTR
-
-//
-// ===========================================================================================================
-//
-
-// TODO maybe append an underscore to make it clear these are global
-extern VulkanBaseProcs vk_base_procs;
-extern VulkanInstanceProcs vk_inst_procs;
-extern VulkanDeviceProcs vk_dev_procs;
 
 //
 // ===========================================================================================================
