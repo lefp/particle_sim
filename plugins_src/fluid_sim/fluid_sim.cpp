@@ -7,11 +7,19 @@
 #include <glm/glm.hpp>
 #include <loguru/loguru.hpp>
 #include <tracy/tracy/Tracy.hpp>
+#define VMA_IMPLEMENTATION
+#define VMA_STATIC_VULKAN_FUNCTIONS 0
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
+#include <VulkanMemoryAllocator/vk_mem_alloc.h>
 
 #include "../src/types.hpp"
 #include "../src/error_util.hpp"
 #include "../src/math_util.hpp"
 #include "../src/alloc_util.hpp"
+#include "../src/file_util.hpp"
+#include "../src/vk_procs.hpp"
+#include "../src/vulkan_context.hpp"
+#include "../src/defer.hpp"
 #include "fluid_sim_types.hpp"
 
 namespace fluid_sim {
@@ -25,6 +33,11 @@ using glm::uvec3;
 
 constexpr f32 PI = (f32)M_PI;
 
+constexpr u32 COMPUTE_PIPELINE_DEFAULT_WORKGROUP_SIZE = 128; // TODO FIXME tune?
+constexpr struct {
+    u32 local_size_x = 0;
+} COMPUTE_SHADER_SPECIALIZATION_CONSTANT_IDS;
+
 //
 // ===========================================================================================================
 //
@@ -36,6 +49,309 @@ constexpr f32 PI = (f32)M_PI;
     typeof(a) _tmp = a; \
     a = b; \
     b = _tmp; \
+}
+
+
+static void _assertVk(VkResult result, const char* file, int line) {
+
+    if (result == VK_SUCCESS) return;
+
+    ABORT_F("VkResult is %i, file `%s`, line %i", result, file, line);
+}
+#define assertVk(result) _assertVk(result, __FILE__, __LINE__)
+
+
+static inline u32 divCeil(u32 numerator, u32 denominator) {
+    return (numerator / denominator) + (numerator % denominator != 0);
+}
+
+
+struct PushConstants {
+    alignas(16) vec3 domain_min;
+    alignas( 4) f32 delta_t;
+    alignas( 4) u32 cell_count;
+};
+
+
+static void createDescriptorSet(
+    const VulkanContext* vk_ctx,
+    const VkBuffer p_buffers[7],
+    VkDescriptorSet* descriptor_set_out,
+    VkDescriptorSetLayout* layout_out
+) {
+
+    VkResult result = VK_ERROR_UNKNOWN;
+
+
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    {
+        constexpr u32 binding_count = 7;
+        const VkDescriptorSetLayoutBinding bindings[binding_count] {
+            {
+                .binding = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            },
+            {
+                .binding = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            },
+            {
+                .binding = 2,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            },
+            {
+                .binding = 3,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            },
+            {
+                .binding = 4,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            },
+            {
+                .binding = 5,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            },
+            {
+                .binding = 6,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            },
+        };
+
+        const VkDescriptorSetLayoutCreateInfo layout_info {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = binding_count,
+            .pBindings = bindings,
+        };
+        result = vk_ctx->procs_dev.CreateDescriptorSetLayout(vk_ctx->device, &layout_info, NULL, &layout);
+        assertVk(result);
+    }
+    *layout_out = layout;
+
+    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+    {
+        // TODO FIXME compute this programmatically based on the descriptor binding list, so that you don't
+        // need to remember to update this every time you update the bindings.
+        constexpr u32 pool_size_count = 2;
+        const VkDescriptorPoolSize pool_sizes[pool_size_count] {
+            {
+                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+            },
+            {
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 6,
+            },
+        };
+        const VkDescriptorPoolCreateInfo pool_info {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .maxSets = 1,
+            .poolSizeCount = pool_size_count,
+            .pPoolSizes = pool_sizes,
+        };
+        result = vk_ctx->procs_dev.CreateDescriptorPool(vk_ctx->device, &pool_info, NULL, &descriptor_pool);
+        assertVk(result);
+    }
+
+    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
+    {
+        const VkDescriptorSetAllocateInfo alloc_info {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = descriptor_pool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &layout,
+        };
+        result = vk_ctx->procs_dev.AllocateDescriptorSets(vk_ctx->device, &alloc_info, &descriptor_set);
+        assertVk(result);
+    }
+    *descriptor_set_out = descriptor_set;
+
+    {
+        constexpr u32 write_count = 7;
+
+        const VkDescriptorBufferInfo buffer_infos[write_count] {
+            { .buffer = p_buffers[0], .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = p_buffers[1], .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = p_buffers[2], .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = p_buffers[3], .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = p_buffers[4], .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = p_buffers[5], .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = p_buffers[6], .offset = 0, .range = VK_WHOLE_SIZE },
+        };
+
+        const VkWriteDescriptorSet writes[write_count] {
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .pBufferInfo = &buffer_infos[0],
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 1,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &buffer_infos[1],
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 2,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &buffer_infos[2],
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 3,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &buffer_infos[3],
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 4,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &buffer_infos[4],
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 5,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &buffer_infos[5],
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 6,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &buffer_infos[6],
+            },
+        };
+        vk_ctx->procs_dev.UpdateDescriptorSets(vk_ctx->device, write_count, writes, 0, NULL);
+    }
+}
+
+
+static void createComputePipeline(
+    const VulkanContext* vk_ctx,
+    const u32 workgroup_size,
+    const VkDescriptorSetLayout descriptor_set_layout,
+    VkPipeline* pipeline_out,
+    VkPipelineLayout* pipeline_layout_out
+) {
+
+    VkResult result = VK_ERROR_UNKNOWN;
+
+
+    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+    {
+        VkPushConstantRange push_constant_range {
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .offset = 0,
+            .size = sizeof(PushConstants),
+        };
+
+        VkPipelineLayoutCreateInfo layout_info {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = &descriptor_set_layout,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &push_constant_range,
+        };
+        result = vk_ctx->procs_dev.CreatePipelineLayout(vk_ctx->device, &layout_info, NULL, &pipeline_layout);
+        assertVk(result);
+    }
+    *pipeline_layout_out = pipeline_layout;
+
+    const VkSpecializationMapEntry specialization_map_entry {
+        .constantID = COMPUTE_SHADER_SPECIALIZATION_CONSTANT_IDS.local_size_x,
+        .offset = 0,
+        .size = sizeof(u32),
+    };
+
+    const VkSpecializationInfo specialization_info {
+        .mapEntryCount = 1,
+        .pMapEntries = &specialization_map_entry,
+        .dataSize = sizeof(u32),
+        .pData = &workgroup_size,
+    };
+
+    VkShaderModule shader_module = VK_NULL_HANDLE;
+    {
+        size_t spirv_size = 0;
+        void* p_spirv = file_util::readEntireFile("build/shaders/fluid_sim.comp.spv", &spirv_size);
+        alwaysAssert(p_spirv != NULL);
+        alwaysAssert(spirv_size != 0);
+        defer(free(p_spirv));
+
+        alwaysAssert((uintptr_t)p_spirv % alignof(u32) == 0);
+        alwaysAssert(spirv_size % sizeof(u32) == 0);
+
+        const VkShaderModuleCreateInfo shader_module_info {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = spirv_size,
+            .pCode = (u32*)p_spirv,
+        };
+        result = vk_ctx->procs_dev.CreateShaderModule(vk_ctx->device, &shader_module_info, NULL, &shader_module);
+        assertVk(result);
+    }
+    defer(vk_ctx->procs_dev.DestroyShaderModule(vk_ctx->device, shader_module, NULL));
+
+    const VkPipelineShaderStageCreateInfo shader_stage_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = shader_module,
+        .pName = "main",
+        .pSpecializationInfo = &specialization_info,
+    };
+
+    const VkComputePipelineCreateInfo pipeline_info {
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .stage = shader_stage_info,
+        .layout = pipeline_layout,
+        .basePipelineHandle = VK_NULL_HANDLE,
+        .basePipelineIndex = -1,
+    };
+
+    result = vk_ctx->procs_dev.CreateComputePipelines(
+        vk_ctx->device,
+        VK_NULL_HANDLE, // pipelineCache
+        1, // createInfoCount
+        &pipeline_info,
+        NULL, // pAllocator
+        pipeline_out
+    );
+    assertVk(result);
 }
 
 
@@ -411,8 +727,392 @@ static inline vec3 accelerationDueToParticlesInCell(
 }
 
 
+struct UniformBufferData {
+
+    alignas(4) f32 rest_particle_density;
+    alignas(4) f32 particle_interaction_radius;
+    alignas(4) f32 spring_rest_length;
+    alignas(4) f32 spring_stiffness;
+    alignas(4) f32 cell_size_reciprocal;
+
+    // stuff whose lifetime is the lifetime of the sim
+    alignas(4) u32 particle_count;
+    alignas(4) u32 hash_modulus;
+};
+
+static GpuResources createGpuResources(
+    const VulkanContext* vk_ctx,
+    u32fast particle_count,
+    u32fast hash_modulus
+) {
+
+    ZoneScoped;
+
+    VkResult result = VK_ERROR_UNKNOWN;
+    GpuResources resources {};
+
+
+    u32 workgroup_size = 0;
+    u32 workgroup_count = 0;
+    {
+        const u32 max_workgroup_size = vk_ctx->physical_device_properties.limits.maxComputeWorkGroupSize[0];
+        const u32 max_workgroup_count = vk_ctx->physical_device_properties.limits.maxComputeWorkGroupCount[0];
+
+        workgroup_size = 128; // OPTIMIZE find a decent way to tune this number
+        workgroup_size = glm::min(workgroup_size, max_workgroup_size);
+
+        workgroup_count = divCeil((u32)particle_count, workgroup_size);
+        if (workgroup_count > max_workgroup_count)
+        {
+            workgroup_count = max_workgroup_count;
+            workgroup_size = divCeil((u32)particle_count, workgroup_count);
+        }
+
+        alwaysAssert(workgroup_size > 0);
+        alwaysAssert(workgroup_count > 0);
+        alwaysAssert(workgroup_size <= max_workgroup_size);
+        alwaysAssert(workgroup_count <= max_workgroup_count);
+
+        resources.workgroup_size = workgroup_size;
+        resources.workgroup_count = workgroup_count;
+    }
+
+
+    {
+        VkCommandPoolCreateInfo pool_info {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .queueFamilyIndex = vk_ctx->queue_family_index
+        };
+        result = vk_ctx->procs_dev.CreateCommandPool(vk_ctx->device, &pool_info, NULL, &resources.command_pool);
+        assertVk(result);
+    }
+    {
+        VkCommandBufferAllocateInfo alloc_info {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = resources.command_pool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+        result = vk_ctx->procs_dev.AllocateCommandBuffers(vk_ctx->device, &alloc_info, &resources.command_buffer);
+        assertVk(result);
+    }
+
+    {
+        const VkFenceCreateInfo fence_info { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        result = vk_ctx->procs_dev.CreateFence(vk_ctx->device, &fence_info, NULL, &resources.fence);
+        assertVk(result);
+    }
+
+
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = sizeof(UniformBufferData),
+            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_uniforms, &resources.allocation_uniforms, &resources.allocation_info_uniforms
+        );
+        assertVk(result);
+    }
+
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = particle_count * sizeof(vec3),
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // OPTIMIZE use a staging buffer instead?
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_positions, &resources.allocation_positions, &resources.allocation_info_positions
+        );
+        assertVk(result);
+    }
+
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = particle_count * sizeof(vec3),
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // OPTIMIZE use a staging buffer instead?
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_velocities, &resources.allocation_velocities, &resources.allocation_info_velocities
+        );
+        assertVk(result);
+    }
+
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = (particle_count + 1) * sizeof(u32),
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // OPTIMIZE use a staging buffer instead?
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_C_begin, &resources.allocation_C_begin, &resources.allocation_info_C_begin
+        );
+        assertVk(result);
+    }
+
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = particle_count * sizeof(u32),
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // OPTIMIZE use a staging buffer instead?
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_C_length, &resources.allocation_C_length, &resources.allocation_info_C_length
+        );
+        assertVk(result);
+    }
+
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = hash_modulus * sizeof(u32),
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // OPTIMIZE use a staging buffer instead?
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_H_begin, &resources.allocation_H_begin, &resources.allocation_info_H_begin
+        );
+        assertVk(result);
+    }
+
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = hash_modulus * sizeof(u32),
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // OPTIMIZE use a staging buffer instead?
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_H_length, &resources.allocation_H_length, &resources.allocation_info_H_length
+        );
+        assertVk(result);
+    }
+
+
+    {
+        const VkBuffer buffers[7] {
+            resources.buffer_uniforms,
+            resources.buffer_positions,
+            resources.buffer_velocities,
+            resources.buffer_C_begin,
+            resources.buffer_C_length,
+            resources.buffer_H_begin,
+            resources.buffer_H_length,
+        };
+        createDescriptorSet(vk_ctx, buffers, &resources.descriptor_set, &resources.descriptor_set_layout);
+    }
+
+    createComputePipeline(
+        vk_ctx,
+        workgroup_size,
+        resources.descriptor_set_layout,
+        &resources.pipeline,
+        &resources.pipeline_layout
+    );
+
+
+    return resources;
+}
+
+
+static void uploadBufferToHostVisibleGpuMemory(
+    const VulkanContext* vk_ctx,
+    const u32fast size_bytes,
+    const void* src,
+    const VmaAllocation dst
+) {
+
+    VkResult result = VK_ERROR_UNKNOWN;
+
+
+    void* p_mapped_memory = NULL;
+    {
+        result = vmaMapMemory(vk_ctx->vma_allocator, dst, &p_mapped_memory);
+        assertVk(result);
+    }
+
+    memcpy(p_mapped_memory, src, size_bytes);
+
+    result = vmaFlushAllocation(vk_ctx->vma_allocator, dst, 0, size_bytes);
+    assertVk(result);
+
+    vmaUnmapMemory(vk_ctx->vma_allocator, dst);
+}
+
+
+static void downloadBufferFromHostVisibleGpuMemory(
+    const VulkanContext* vk_ctx,
+    const u32fast size_bytes,
+    const VmaAllocation src,
+    void* dst
+) {
+
+    VkResult result = VK_ERROR_UNKNOWN;
+
+
+    const void* p_mapped_memory = NULL;
+    {
+        void* ptr = NULL;
+
+        result = vmaMapMemory(vk_ctx->vma_allocator, src, &ptr);
+        assertVk(result);
+
+        p_mapped_memory = ptr;
+    }
+
+    memcpy(dst, p_mapped_memory, size_bytes);
+
+    result = vmaFlushAllocation(vk_ctx->vma_allocator, src, 0, size_bytes);
+    assertVk(result);
+
+    vmaUnmapMemory(vk_ctx->vma_allocator, src);
+}
+
+
+static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
+
+    {
+        const UniformBufferData uniform_data {
+            .rest_particle_density = s->parameters.rest_particle_density,
+            .particle_interaction_radius = s->parameters.particle_interaction_radius,
+            .spring_rest_length = s->parameters.spring_rest_length,
+            .spring_stiffness = s->parameters.spring_stiffness,
+            .cell_size_reciprocal = s->parameters.cell_size_reciprocal,
+
+            .particle_count = (u32)s->particle_count,
+            .hash_modulus = s->hash_modulus,
+        };
+        uploadBufferToHostVisibleGpuMemory(
+            vk_ctx,
+            sizeof(uniform_data),
+            &uniform_data,
+            s->gpu_resources.allocation_uniforms
+        );
+    }
+
+    uploadBufferToHostVisibleGpuMemory(
+        vk_ctx,
+        s->particle_count * sizeof(*s->p_positions),
+        s->p_positions,
+        s->gpu_resources.allocation_positions
+    );
+    uploadBufferToHostVisibleGpuMemory(
+        vk_ctx,
+        s->particle_count * sizeof(*s->p_velocities),
+        s->p_velocities,
+        s->gpu_resources.allocation_velocities
+    );
+    uploadBufferToHostVisibleGpuMemory(
+        vk_ctx,
+        s->cell_count * sizeof(*s->p_cells),
+        s->p_cells,
+        s->gpu_resources.allocation_C_begin
+    );
+    uploadBufferToHostVisibleGpuMemory(
+        vk_ctx,
+        s->cell_count * sizeof(*s->p_cell_lengths),
+        s->p_cell_lengths,
+        s->gpu_resources.allocation_C_length
+    );
+    uploadBufferToHostVisibleGpuMemory(
+        vk_ctx,
+        s->hash_modulus * sizeof(*s->H_begin),
+        s->H_begin,
+        s->gpu_resources.allocation_H_begin
+    );
+    uploadBufferToHostVisibleGpuMemory(
+        vk_ctx,
+        s->hash_modulus * sizeof(*s->H_length),
+        s->H_length,
+        s->gpu_resources.allocation_H_length
+    );
+}
+
+
+static void downloadDataFromGpu(SimData* s, const VulkanContext* vk_ctx) {
+
+    downloadBufferFromHostVisibleGpuMemory(
+        vk_ctx,
+        s->particle_count * sizeof(*s->p_positions),
+        s->gpu_resources.allocation_positions,
+        s->p_positions
+    );
+    downloadBufferFromHostVisibleGpuMemory(
+        vk_ctx,
+        s->particle_count * sizeof(*s->p_velocities),
+        s->gpu_resources.allocation_velocities,
+        s->p_velocities
+    );
+}
+
+
 extern "C" SimData create(
     const SimParameters* params,
+    const VulkanContext* vk_ctx,
     u32fast particle_count,
     const vec3* p_initial_positions
 ) {
@@ -448,6 +1148,8 @@ extern "C" SimData create(
         s.H_length = callocArray(hash_modulus, u32);
 
         setParams(&s, params);
+
+        s.gpu_resources = createGpuResources(vk_ctx, particle_count, hash_modulus);
     }
 
     LOG_F(INFO, "Initialized fluid sim with %" PRIuFAST32 " particles.", s.particle_count);
@@ -458,13 +1160,16 @@ extern "C" SimData create(
 
 extern "C" void destroy(SimData* s) {
 
+    // TODO FIXME free all the other arrays you allocated
+    // TODO FIXME destroy all the GPU resources
+
     free(s->p_positions);
     free(s->p_velocities);
     s->particle_count = 0;
 }
 
 
-extern "C" void advance(SimData* s, f32 delta_t) {
+extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
 
     ZoneScoped;
 
@@ -586,10 +1291,82 @@ extern "C" void advance(SimData* s, f32 delta_t) {
     }
 
 
-    // TODO FIXME nocompile:
-    // - [ ] upload data to GPU
-    // - [ ] invoke compute pipeline
-    // - [ ] download result from GPU
+    uploadDataToGpu(s, vk_ctx);
+    // TODO: if a renderer directly uses our positions buffer, wait for the renderer to finish
+
+    {
+        VkResult result = vk_ctx->procs_dev.ResetCommandBuffer(s->gpu_resources.command_buffer, 0);
+        assertVk(result);
+
+        VkCommandBufferBeginInfo begin_info {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        };
+        result = vk_ctx->procs_dev.BeginCommandBuffer(s->gpu_resources.command_buffer, &begin_info);
+        assertVk(result);
+
+        const PushConstants push_constants {
+            .domain_min = domain_min,
+            .delta_t = delta_t,
+            .cell_count = (u32)s->cell_count
+        };
+        vk_ctx->procs_dev.CmdPushConstants(
+            s->gpu_resources.command_buffer,
+            s->gpu_resources.pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT,
+            0, // offset
+            sizeof(PushConstants),
+            &push_constants
+        );
+
+        vk_ctx->procs_dev.CmdBindDescriptorSets(
+            s->gpu_resources.command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            s->gpu_resources.pipeline_layout,
+            0, // firstSet
+            1, // descriptorSetCount
+            &s->gpu_resources.descriptor_set,
+            0, // dynamicOffsetCount
+            NULL // pDynamicOffsets
+        );
+
+        vk_ctx->procs_dev.CmdBindPipeline(
+            s->gpu_resources.command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            s->gpu_resources.pipeline
+        );
+
+        vk_ctx->procs_dev.CmdDispatch(
+            s->gpu_resources.command_buffer,
+            s->gpu_resources.workgroup_count, // groupCountX
+            1, // groupCountY
+            1 // groupCountZ
+        );
+
+        result = vk_ctx->procs_dev.EndCommandBuffer(s->gpu_resources.command_buffer);
+        assertVk(result);
+
+        const VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = NULL,
+            .pWaitDstStageMask = 0,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &s->gpu_resources.command_buffer,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = NULL,
+        };
+        result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
+        assertVk(result);
+
+        result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, true, UINT64_MAX);
+        assertVk(result);
+
+        result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
+        assertVk(result);
+    }
+
+    downloadDataFromGpu(s, vk_ctx);
 };
 
 //

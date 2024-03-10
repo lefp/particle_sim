@@ -4,7 +4,10 @@
 // #include <vulkan/vulkan.h>
 // #include <glm/glm.hpp>
 // #include <imgui/imgui.h>
+// #include <VulkanMemoryAllocator/vk_mem_alloc.h>
 // #include "types.hpp"
+// #include "vk_procs.hpp"
+// #include "vulkan_context.hpp"
 
 namespace graphics {
 
@@ -150,6 +153,8 @@ RenderResult render(
 
 /// `init()` must have been called before this; otherwise returns VK_NULL_HANDLE.
 VkInstance getVkInstance(void);
+
+const VulkanContext* getVkContext(void);
 
 void setGridEnabled(bool enable);
 

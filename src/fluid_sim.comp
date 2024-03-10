@@ -4,7 +4,7 @@
 
 #version 450
 
-// TODO FIXME make sure all the binding numbers are correct
+layout(local_size_x_id = 0) in; // specialization constant
 
 layout(binding = 0, std140) uniform SimParams {
     float rest_particle_density_;
@@ -40,9 +40,9 @@ layout(push_constant, std140) uniform PushConstants {
 
     // stuff that probably changes every frame
 
-    uint delta_t_;
-    uint cell_count_;
     vec3 domain_min_;
+    float delta_t_;
+    uint cell_count_;
 };
 
 

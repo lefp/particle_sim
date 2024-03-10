@@ -1,8 +1,10 @@
 #ifndef _FLUID_SIM_TYPES_HPP
 #define _FLUID_SIM_TYPES_HPP
 
+// #include <VulkanMemoryAllocator/vk_mem_alloc.h>
 // #include "../../src/types.hpp"
 // #include "../../libs/glm/glm.hpp"
+// #include "../../src/vk_procs.hpp"
 
 namespace fluid_sim {
 
@@ -17,6 +19,49 @@ struct SimParameters {
     /// The number of particles within the interaction radius at rest.
     f32 rest_particle_interaction_count_approx;
     f32 spring_stiffness;
+};
+
+struct GpuResources {
+
+    u32 workgroup_size;
+    u32 workgroup_count;
+
+    VkCommandPool command_pool;
+    VkCommandBuffer command_buffer;
+    VkDescriptorSet descriptor_set;
+    VkDescriptorSetLayout descriptor_set_layout;
+    VkPipeline pipeline;
+    VkPipelineLayout pipeline_layout;
+    VkFence fence;
+
+
+    VkBuffer buffer_uniforms;
+    VmaAllocation allocation_uniforms;
+    VmaAllocationInfo allocation_info_uniforms;
+
+    VkBuffer buffer_positions;
+    VmaAllocation allocation_positions;
+    VmaAllocationInfo allocation_info_positions;
+
+    VkBuffer buffer_velocities;
+    VmaAllocation allocation_velocities;
+    VmaAllocationInfo allocation_info_velocities;
+
+    VkBuffer buffer_C_begin;
+    VmaAllocation allocation_C_begin;
+    VmaAllocationInfo allocation_info_C_begin;
+
+    VkBuffer buffer_C_length;
+    VmaAllocation allocation_C_length;
+    VmaAllocationInfo allocation_info_C_length;
+
+    VkBuffer buffer_H_begin;
+    VmaAllocation allocation_H_begin;
+    VmaAllocationInfo allocation_info_H_begin;
+
+    VkBuffer buffer_H_length;
+    VmaAllocation allocation_H_length;
+    VmaAllocationInfo allocation_info_H_length;
 };
 
 struct SimData {
@@ -48,6 +93,8 @@ struct SimData {
         f32 cell_size; // edge length
         f32 cell_size_reciprocal;
     } parameters;
+
+    GpuResources gpu_resources;
 };
 
 //

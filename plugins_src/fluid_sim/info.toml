@@ -5,6 +5,7 @@ plugin_source_files = [
 other_source_files = [
   "libs/loguru/loguru.cpp",
   "src/error_util.cpp",
+  "src/file_util.cpp",
 ]
 
 [[procedures]]
@@ -19,6 +20,7 @@ return = "void"
 name = "create"
 args = [
   { type = "const SimParameters*" },
+  { type = "const VulkanContext*" },
   { type = "u32fast", name = "particle_count" },
   { type = "const vec3*", name = "p_initial_positions" },
 ]
@@ -35,6 +37,7 @@ return = "void"
 name = "advance"
 args = [
   { type = "SimData*" },
+  { type = "const VulkanContext*" },
   { type = "f32", name = "delta_t" },
 ]
 return = "void"

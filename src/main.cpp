@@ -14,10 +14,13 @@
 #include <imgui/imgui_impl_vulkan.h>
 #include <implot/implot.h>
 #include <tracy/tracy/Tracy.hpp>
+#include <VulkanMemoryAllocator/vk_mem_alloc.h>
 
 #include "types.hpp"
 #include "math_util.hpp"
 #include "error_util.hpp"
+#include "vk_procs.hpp"
+#include "vulkan_context.hpp"
 #include "graphics.hpp"
 #include "alloc_util.hpp"
 #include "str_util.hpp"
@@ -663,7 +666,12 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
             p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 1.0f;
         }
 
-        sim_data = fluid_sim_procs_->create(params, particle_count, p_initial_particles);
+        sim_data = fluid_sim_procs_->create(
+            params,
+            gfx::getVkContext(),
+            particle_count,
+            p_initial_particles
+        );
     }
 
     return sim_data;
@@ -1136,7 +1144,11 @@ int main(int argc, char** argv) {
             // }
             // else {
             ZoneScopedN("fluid_sim::advance");
-            fluid_sim_procs_->advance(&sim_data, (f32)delta_t_seconds);
+            fluid_sim_procs_->advance(
+                &sim_data,
+                gfx::getVkContext(),
+                (f32)delta_t_seconds
+            );
             // }
         }
         // TODO FIXME OPTIMIZE this is kinda dumb

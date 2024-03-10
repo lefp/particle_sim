@@ -35,6 +35,7 @@
     X(CmdBindIndexBuffer) \
     X(CmdBindVertexBuffers) \
     X(CmdCopyImage) \
+    X(CmdDispatch) \
     X(CmdDraw) \
     X(CmdDrawIndexed) \
     X(CmdEndRendering) \
@@ -43,6 +44,7 @@
     X(CmdSetScissor) \
     X(CmdSetViewport) \
     X(CreateCommandPool) \
+    X(CreateComputePipelines) \
     X(CreateDescriptorPool) \
     X(CreateDescriptorSetLayout) \
     X(CreateFence) \

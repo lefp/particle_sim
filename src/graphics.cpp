@@ -41,9 +41,11 @@
 #include "alloc_util.hpp"
 #include "defer.hpp"
 #include "math_util.hpp"
-#include "graphics.hpp"
 #include "libshaderc_procs.hpp"
 #include "file_watch.hpp"
+#include "vulkan_context.hpp"
+#include "file_util.hpp"
+#include "graphics.hpp"
 
 namespace graphics {
 
@@ -206,6 +208,8 @@ const PipelineHotReloadInfo PIPELINE_HOT_RELOAD_INFOS[PIPELINE_INDEX_COUNT] {
 static VulkanBaseProcs vk_base_procs {};
 static VulkanInstanceProcs vk_inst_procs {};
 static VulkanDeviceProcs vk_dev_procs {};
+
+static VulkanContext vk_ctx_ {};
 
 static bool initialized_ = false;
 
@@ -775,47 +779,6 @@ static void initGraphicsUptoQueueCreation(const char* app_name, const char* spec
 }
 
 
-/// You own the returned buffer. You may free it using `free()`.
-/// On error, either aborts or returns `NULL`.
-static void* readEntireFile(const char* fname, size_t* size_out) {
-    // OPTIMIZE: Maybe using `open()`, `fstat()`, and `read()` would be faster; because we don't need buffered
-    // input, and maybe using `fseek()` to get the file size is unnecessarily slow.
-
-    FILE* file = fopen(fname, "r");
-    if (file == NULL) {
-        LOG_F(ERROR, "Failed to open file `%s`; errno: `%i`, description: `%s`.", fname, errno, strerror(errno));
-        return NULL;
-    }
-
-    int result = fseek(file, 0, SEEK_END);
-    assertErrno(result == 0);
-
-    size_t file_size;
-    {
-        long size = ftell(file);
-        assertErrno(size >= 0);
-        file_size = (size_t)size;
-    }
-
-    result = fseek(file, 0, SEEK_SET);
-    assertErrno(result == 0);
-
-
-    void* buffer = malloc(file_size);
-    assertErrno(buffer != NULL);
-
-    size_t n_items_read = fread(buffer, file_size, 1, file);
-    alwaysAssert(n_items_read == 1);
-
-    result = fclose(file);
-    assertErrno(result == 0);
-
-
-    *size_out = file_size;
-    return buffer;
-}
-
-
 /// You own the returned result. You are responsible for calling `shaderc_result_release()` to free it.
 static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
     const char* shader_src_filename,
@@ -826,7 +789,7 @@ static shaderc_compilation_result_t compileShaderSrcFileToSpirv(
     // TODO: should we lock the source file while reading it? Maybe using something like `fcntl` or `flock`.
 
     size_t file_size = 0;
-    void* file_contents = readEntireFile(shader_src_filename, &file_size);
+    void* file_contents = file_util::readEntireFile(shader_src_filename, &file_size);
     if (file_contents == NULL) {
         LOG_F(ERROR, "Failed to read shader src file `%s`.", shader_src_filename);
         return NULL;
@@ -2607,7 +2570,7 @@ extern void init(const char* app_name, const char* specific_named_device_request
 
 
             size_t vertex_shader_spirv_byte_count = 0;
-            void* vertex_shader_spirv_bytes = readEntireFile(
+            void* vertex_shader_spirv_bytes = file_util::readEntireFile(
                 p_build_info->vertex_shader_spirv_filepath,
                 &vertex_shader_spirv_byte_count
             );
@@ -2629,7 +2592,7 @@ extern void init(const char* app_name, const char* specific_named_device_request
 
 
             size_t fragment_shader_spirv_byte_count = 0;
-            void* fragment_shader_spirv_bytes = readEntireFile(
+            void* fragment_shader_spirv_bytes = file_util::readEntireFile(
                 p_build_info->fragment_shader_spirv_filepath,
                 &fragment_shader_spirv_byte_count
             );
@@ -2675,6 +2638,22 @@ extern void init(const char* app_name, const char* specific_named_device_request
         libshaderc_compiler_ = libshaderc_procs_.compiler_initialize();
         alwaysAssert(libshaderc_compiler_ != NULL);
     }
+
+
+    // TODO FIXME: use this to store all these things, instead of just copying them over into it
+    vk_ctx_ = VulkanContext {
+        .procs_base = vk_base_procs,
+        .procs_inst = vk_inst_procs,
+        .procs_dev = vk_dev_procs,
+
+        .vma_allocator = vma_allocator_,
+
+        .device = device_,
+        .queue_family_index = queue_family_,
+        .queue = queue_,
+
+        .physical_device_properties = physical_device_properties_,
+    };
 
 
     initialized_ = true;
@@ -3184,6 +3163,7 @@ extern Result createRenderer(RenderResources* render_resources_out) {
                 .pQueueFamilyIndices = &queue_family_,
             };
             VmaAllocationCreateInfo uniform_buffer_alloc_info {
+                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
                 .usage = VMA_MEMORY_USAGE_AUTO,
                 .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             };
@@ -3208,6 +3188,7 @@ extern Result createRenderer(RenderResources* render_resources_out) {
                 .pQueueFamilyIndices = &queue_family_,
             };
             VmaAllocationCreateInfo voxels_buffer_alloc_info {
+                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
                 .usage = VMA_MEMORY_USAGE_AUTO,
                 .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             };
@@ -3232,6 +3213,7 @@ extern Result createRenderer(RenderResources* render_resources_out) {
                 .pQueueFamilyIndices = &queue_family_,
             };
             VmaAllocationCreateInfo particles_buffer_alloc_info {
+                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
                 .usage = VMA_MEMORY_USAGE_AUTO,
                 .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             };
@@ -3256,6 +3238,7 @@ extern Result createRenderer(RenderResources* render_resources_out) {
                 .pQueueFamilyIndices = &queue_family_,
             };
             VmaAllocationCreateInfo cube_outlines_index_buffer_alloc_info {
+                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
                 .usage = VMA_MEMORY_USAGE_AUTO,
                 .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             };
@@ -3591,22 +3574,10 @@ RenderResult render(
     {
         // OPTIMIZE keep stuff persistently mapped?
         {
-            VkMappedMemoryRange mapped_memory_range {
-                .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                .memory = this_frame_resources->uniform_buffer_allocation_info.deviceMemory,
-                .offset = this_frame_resources->uniform_buffer_allocation_info.offset,
-                .size = this_frame_resources->uniform_buffer_allocation_info.size,
-            };
+            const VmaAllocation allocation = this_frame_resources->uniform_buffer_allocation;
 
             void* ptr_to_mapped_memory = NULL;
-            result = vk_dev_procs.MapMemory(
-                device_,
-                mapped_memory_range.memory,
-                mapped_memory_range.offset,
-                mapped_memory_range.size,
-                0, // flags
-                &ptr_to_mapped_memory
-            );
+            result = vmaMapMemory(vma_allocator_, allocation, &ptr_to_mapped_memory);
             assertVk(result);
 
             UniformBuffer uniform_data {
@@ -3615,97 +3586,58 @@ RenderResult render(
             };
             *(UniformBuffer*)ptr_to_mapped_memory = uniform_data;
 
-            result = vk_dev_procs.FlushMappedMemoryRanges(device_, 1, &mapped_memory_range);
+            result = vmaFlushAllocation(vma_allocator_, allocation, 0, sizeof(uniform_data));
             assertVk(result);
 
-            vk_dev_procs.UnmapMemory(device_, mapped_memory_range.memory);
+            vmaUnmapMemory(vma_allocator_, allocation);
         }
 
         {
-            VkMappedMemoryRange mapped_memory_range {
-                .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                .memory = this_frame_resources->voxels_buffer_allocation_info.deviceMemory,
-                .offset = this_frame_resources->voxels_buffer_allocation_info.offset,
-                .size = glm::ceilMultiple(
-                    voxel_count * sizeof(Voxel),
-                    physical_device_properties_.limits.nonCoherentAtomSize
-                ),
-            };
+            const VmaAllocation allocation = this_frame_resources->voxels_buffer_allocation;
 
             void* ptr_to_mapped_memory = NULL;
-            result = vk_dev_procs.MapMemory(
-                device_,
-                mapped_memory_range.memory,
-                mapped_memory_range.offset,
-                mapped_memory_range.size,
-                0, // flags
-                &ptr_to_mapped_memory
-            );
-
-            memcpy(ptr_to_mapped_memory, p_voxels, voxel_count * sizeof(Voxel));
-
-            result = vk_dev_procs.FlushMappedMemoryRanges(device_, 1, &mapped_memory_range);
+            result = vmaMapMemory(vma_allocator_, allocation, &ptr_to_mapped_memory);
             assertVk(result);
 
-            vk_dev_procs.UnmapMemory(device_, mapped_memory_range.memory);
+            const VkDeviceSize memcpy_size = voxel_count * sizeof(Voxel);
+            memcpy(ptr_to_mapped_memory, p_voxels, memcpy_size);
+
+            result = vmaFlushAllocation(vma_allocator_, allocation, 0, memcpy_size);
+            assertVk(result);
+
+            vmaUnmapMemory(vma_allocator_, allocation);
         }
 
         {
-            VkMappedMemoryRange mapped_memory_range {
-                .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                .memory = this_frame_resources->particles_buffer_allocation_info.deviceMemory,
-                .offset = this_frame_resources->particles_buffer_allocation_info.offset,
-                .size = glm::ceilMultiple(
-                    particle_count * sizeof(Particle),
-                    physical_device_properties_.limits.nonCoherentAtomSize
-                ),
-            };
+            const VmaAllocation allocation = this_frame_resources->particles_buffer_allocation;
 
             void* ptr_to_mapped_memory = NULL;
-            result = vk_dev_procs.MapMemory(
-                device_,
-                mapped_memory_range.memory,
-                mapped_memory_range.offset,
-                mapped_memory_range.size,
-                0, // flags
-                &ptr_to_mapped_memory
-            );
-
-            memcpy(ptr_to_mapped_memory, p_particles, particle_count * sizeof(Particle));
-
-            result = vk_dev_procs.FlushMappedMemoryRanges(device_, 1, &mapped_memory_range);
+            result = vmaMapMemory(vma_allocator_, allocation, &ptr_to_mapped_memory);
             assertVk(result);
 
-            vk_dev_procs.UnmapMemory(device_, mapped_memory_range.memory);
+            const VkDeviceSize memcpy_size = particle_count * sizeof(Particle);
+            memcpy(ptr_to_mapped_memory, p_particles, memcpy_size);
+
+            result = vmaFlushAllocation(vma_allocator_, allocation, 0, memcpy_size);
+            assertVk(result);
+
+            vmaUnmapMemory(vma_allocator_, allocation);
         }
 
         if (outlined_voxel_index_count != 0) {
-            VkMappedMemoryRange mapped_memory_range {
-                .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                .memory = this_frame_resources->outlined_voxels_index_buffer_allocation_info.deviceMemory,
-                .offset = this_frame_resources->outlined_voxels_index_buffer_allocation_info.offset,
-                .size = glm::ceilMultiple(
-                    outlined_voxel_index_count * sizeof(u32),
-                    physical_device_properties_.limits.nonCoherentAtomSize
-                ),
-            };
+            const VmaAllocation allocation = this_frame_resources->outlined_voxels_index_buffer_allocation;
 
             void* ptr_to_mapped_memory = NULL;
-            result = vk_dev_procs.MapMemory(
-                device_,
-                mapped_memory_range.memory,
-                mapped_memory_range.offset,
-                mapped_memory_range.size,
-                0, // flags
-                &ptr_to_mapped_memory
-            );
-
-            memcpy(ptr_to_mapped_memory, p_outlined_voxel_indices, outlined_voxel_index_count * sizeof(u32));
-
-            result = vk_dev_procs.FlushMappedMemoryRanges(device_, 1, &mapped_memory_range);
+            result = vmaMapMemory(vma_allocator_, allocation, &ptr_to_mapped_memory);
             assertVk(result);
 
-            vk_dev_procs.UnmapMemory(device_, mapped_memory_range.memory);
+            const VkDeviceSize memcpy_size = outlined_voxel_index_count * sizeof(u32);
+            memcpy(ptr_to_mapped_memory, p_outlined_voxel_indices, memcpy_size);
+
+            result = vmaFlushAllocation(vma_allocator_, allocation, 0, memcpy_size);
+            assertVk(result);
+
+            vmaUnmapMemory(vma_allocator_, allocation);
         }
     }
 
@@ -4081,6 +4013,11 @@ extern ShaderReloadResult reloadModifiedShaderSourceFiles(RenderResources render
 
 
     return ShaderReloadResult::success;
+}
+
+extern const VulkanContext* getVkContext(void) {
+    assert(initialized_);
+    return &vk_ctx_;
 }
 
 //
