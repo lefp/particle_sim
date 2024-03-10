@@ -309,6 +309,8 @@ static void createComputePipeline(
     VkShaderModule shader_module = VK_NULL_HANDLE;
     {
         size_t spirv_size = 0;
+        // TODO FIXME Create some central shader/pipeline manager so that we can hot-reload this without
+        // rewriting all the hot-reloading code that's currently in graphics.cpp.
         void* p_spirv = file_util::readEntireFile("build/shaders/fluid_sim.comp.spv", &spirv_size);
         alwaysAssert(p_spirv != NULL);
         alwaysAssert(spirv_size != 0);
