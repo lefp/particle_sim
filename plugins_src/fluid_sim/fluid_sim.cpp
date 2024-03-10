@@ -774,6 +774,8 @@ static GpuResources createGpuResources(
         alwaysAssert(workgroup_size <= max_workgroup_size);
         alwaysAssert(workgroup_count <= max_workgroup_count);
 
+        assert(workgroup_size * workgroup_count >= particle_count);
+
         resources.workgroup_size = workgroup_size;
         resources.workgroup_count = workgroup_count;
     }
@@ -1153,7 +1155,11 @@ extern "C" SimData create(
         s.gpu_resources = createGpuResources(vk_ctx, particle_count, hash_modulus);
     }
 
-    LOG_F(INFO, "Initialized fluid sim with %" PRIuFAST32 " particles.", s.particle_count);
+    LOG_F(
+         INFO,
+         "Initialized fluid sim with %" PRIuFAST32 " particles, workgroup_size=%u, workgroup_count=%u.",
+         s.particle_count, s.gpu_resources.workgroup_size, s.gpu_resources.workgroup_count
+     );
 
     return s;
 }
