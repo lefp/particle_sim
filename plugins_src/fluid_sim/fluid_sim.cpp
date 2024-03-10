@@ -33,7 +33,6 @@ using glm::uvec3;
 
 constexpr f32 PI = (f32)M_PI;
 
-constexpr u32 COMPUTE_PIPELINE_DEFAULT_WORKGROUP_SIZE = 128; // TODO FIXME tune?
 constexpr struct {
     u32 local_size_x = 0;
 } COMPUTE_SHADER_SPECIALIZATION_CONSTANT_IDS;
