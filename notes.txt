@@ -43,3 +43,9 @@ Some ideas:
 render depth and normals to storage image
 gaussian-blur storage image
 render to framebuffer
+
+
+Compute shader debugging:
+	- [x] Identify the problem:
+		- [x] Run 1 frame of the CPU version and GPU version with the same parameters and state
+		- [x] Compare the output positions and velocities. See what's different.

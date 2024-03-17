@@ -25,6 +25,7 @@
 namespace fluid_sim {
 
 using glm::vec3;
+using glm::vec4;
 using glm::uvec3;
 
 //
@@ -370,7 +371,7 @@ extern "C" void setParams(SimData* s, const SimParameters* params) {
     // TODO FIXME didn't really think about a good way to compute this
     s->parameters.spring_rest_length = s->parameters.particle_interaction_radius * 0.5f;
 
-    const f32 cell_size = 2.0f * s->parameters.particle_interaction_radius;
+    const f32 cell_size = s->parameters.particle_interaction_radius;
     s->parameters.cell_size = cell_size;
     s->parameters.cell_size_reciprocal = 1.0f / cell_size;
 
@@ -392,42 +393,42 @@ extern "C" void setParams(SimData* s, const SimParameters* params) {
 /// Get the index of the cell that contains the particle.
 static inline uvec3 cellIndex(vec3 particle, vec3 domain_min, f32 cell_size_reciprocal) {
 
-    return uvec3((domain_min + particle) * cell_size_reciprocal);
+    return uvec3((particle - domain_min) * cell_size_reciprocal);
 }
 
 
 static inline u32 cellMortonCode(uvec3 cell_index) {
     return
-        ((cell_index.x & 0b0000000001) <<  0) |
-        ((cell_index.y & 0b0000000001) <<  1) |
-        ((cell_index.z & 0b0000000001) <<  2) |
-        ((cell_index.x & 0b0000000010) <<  2) |
-        ((cell_index.y & 0b0000000010) <<  3) |
-        ((cell_index.z & 0b0000000010) <<  4) |
-        ((cell_index.x & 0b0000000100) <<  4) |
-        ((cell_index.y & 0b0000000100) <<  5) |
-        ((cell_index.z & 0b0000000100) <<  6) |
-        ((cell_index.x & 0b0000001000) <<  6) |
-        ((cell_index.y & 0b0000001000) <<  7) |
-        ((cell_index.z & 0b0000001000) <<  8) |
-        ((cell_index.x & 0b0000010000) <<  8) |
-        ((cell_index.y & 0b0000010000) <<  9) |
-        ((cell_index.z & 0b0000010000) << 10) |
-        ((cell_index.x & 0b0000100000) << 10) |
-        ((cell_index.y & 0b0000100000) << 11) |
-        ((cell_index.z & 0b0000100000) << 12) |
-        ((cell_index.x & 0b0001000000) << 12) |
-        ((cell_index.y & 0b0001000000) << 13) |
-        ((cell_index.z & 0b0001000000) << 14) |
-        ((cell_index.x & 0b0010000000) << 14) |
-        ((cell_index.y & 0b0010000000) << 15) |
-        ((cell_index.z & 0b0010000000) << 16) |
-        ((cell_index.x & 0b0100000000) << 16) |
-        ((cell_index.y & 0b0100000000) << 17) |
-        ((cell_index.z & 0b0100000000) << 18) |
-        ((cell_index.x & 0b1000000000) << 18) |
-        ((cell_index.y & 0b1000000000) << 19) |
-        ((cell_index.z & 0b1000000000) << 20) ;
+        ((cell_index.x &    1) <<  0) |
+        ((cell_index.y &    1) <<  1) |
+        ((cell_index.z &    1) <<  2) |
+        ((cell_index.x &    2) <<  2) |
+        ((cell_index.y &    2) <<  3) |
+        ((cell_index.z &    2) <<  4) |
+        ((cell_index.x &    4) <<  4) |
+        ((cell_index.y &    4) <<  5) |
+        ((cell_index.z &    4) <<  6) |
+        ((cell_index.x &    8) <<  6) |
+        ((cell_index.y &    8) <<  7) |
+        ((cell_index.z &    8) <<  8) |
+        ((cell_index.x &   16) <<  8) |
+        ((cell_index.y &   16) <<  9) |
+        ((cell_index.z &   16) << 10) |
+        ((cell_index.x &   64) << 10) |
+        ((cell_index.y &   64) << 11) |
+        ((cell_index.z &   64) << 12) |
+        ((cell_index.x &  128) << 12) |
+        ((cell_index.y &  128) << 13) |
+        ((cell_index.z &  128) << 14) |
+        ((cell_index.x &  256) << 14) |
+        ((cell_index.y &  256) << 15) |
+        ((cell_index.z &  256) << 16) |
+        ((cell_index.x &  512) << 16) |
+        ((cell_index.y &  512) << 17) |
+        ((cell_index.z &  512) << 18) |
+        ((cell_index.x & 1024) << 18) |
+        ((cell_index.y & 1024) << 19) |
+        ((cell_index.z & 1024) << 20) ;
 }
 
 
@@ -832,7 +833,7 @@ static GpuResources createGpuResources(
     {
         VkBufferCreateInfo buffer_info {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = particle_count * sizeof(vec3),
+            .size = particle_count * sizeof(vec4), // vec4 because std430 alignment
             .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 1,
@@ -853,7 +854,7 @@ static GpuResources createGpuResources(
     {
         VkBufferCreateInfo buffer_info {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = particle_count * sizeof(vec3),
+            .size = particle_count * sizeof(vec4), // vec4 because std430 alignment
             .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 1,
@@ -1006,7 +1007,43 @@ static void uploadBufferToHostVisibleGpuMemory(
     vmaUnmapMemory(vk_ctx->vma_allocator, dst);
 }
 
+static void uploadVec3BufferToHostVisibleGpuMemory_realignFromVec3ToVec4(
+    const VulkanContext* vk_ctx,
+    const u32fast vec3_count,
+    const vec3* src,
+    const VmaAllocation dst
+) {
 
+    VkResult result = VK_ERROR_UNKNOWN;
+
+
+    void* p_mapped_memory = NULL;
+    {
+        result = vmaMapMemory(vk_ctx->vma_allocator, dst, &p_mapped_memory);
+        assertVk(result);
+    }
+
+    {
+        const vec3* p_src = src;
+        vec4* p_dst = (vec4*)p_mapped_memory;
+        const vec3 *const p_src_end = p_src + vec3_count;
+
+        while (p_src < p_src_end)
+        {
+            *(vec3*)p_dst = *p_src;
+            p_src++;
+            p_dst++;
+        }
+    }
+
+    result = vmaFlushAllocation(vk_ctx->vma_allocator, dst, 0, vec3_count * sizeof(vec4));
+    assertVk(result);
+
+    vmaUnmapMemory(vk_ctx->vma_allocator, dst);
+}
+
+
+/*
 static void downloadBufferFromHostVisibleGpuMemory(
     const VulkanContext* vk_ctx,
     const u32fast size_bytes,
@@ -1029,7 +1066,50 @@ static void downloadBufferFromHostVisibleGpuMemory(
 
     memcpy(dst, p_mapped_memory, size_bytes);
 
+    // TODO FIXME: Why flush? You didn't modify the data.
     result = vmaFlushAllocation(vk_ctx->vma_allocator, src, 0, size_bytes);
+    assertVk(result);
+
+    vmaUnmapMemory(vk_ctx->vma_allocator, src);
+}
+*/
+
+
+static void downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
+    const VulkanContext* vk_ctx,
+    const u32fast vec3_count,
+    const VmaAllocation src,
+    vec3* dst
+) {
+
+    VkResult result = VK_ERROR_UNKNOWN;
+
+
+    const void* p_mapped_memory = NULL;
+    {
+        void* ptr = NULL;
+
+        result = vmaMapMemory(vk_ctx->vma_allocator, src, &ptr);
+        assertVk(result);
+
+        p_mapped_memory = ptr;
+    }
+
+    {
+        const vec4* p_src = (const vec4*)p_mapped_memory;
+        vec3* p_dst = dst;
+        const vec3 *const p_dst_end = p_dst + vec3_count;
+
+        while (p_dst < p_dst_end)
+        {
+            *p_dst = *(const vec3*)p_src;
+            p_src++;
+            p_dst++;
+        }
+    }
+
+    // TODO FIXME: Why flush? You didn't modify the data.
+    result = vmaFlushAllocation(vk_ctx->vma_allocator, src, 0, vec3_count * sizeof(vec4));
     assertVk(result);
 
     vmaUnmapMemory(vk_ctx->vma_allocator, src);
@@ -1057,15 +1137,16 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         );
     }
 
-    uploadBufferToHostVisibleGpuMemory(
+    // OPTIMIZE: maybe we should just keep the data aligned as vec4 on the host as well?
+    uploadVec3BufferToHostVisibleGpuMemory_realignFromVec3ToVec4(
         vk_ctx,
-        s->particle_count * sizeof(*s->p_positions),
+        s->particle_count,
         s->p_positions,
         s->gpu_resources.allocation_positions
     );
-    uploadBufferToHostVisibleGpuMemory(
+    uploadVec3BufferToHostVisibleGpuMemory_realignFromVec3ToVec4(
         vk_ctx,
-        s->particle_count * sizeof(*s->p_velocities),
+        s->particle_count,
         s->p_velocities,
         s->gpu_resources.allocation_velocities
     );
@@ -1098,15 +1179,16 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
 
 static void downloadDataFromGpu(SimData* s, const VulkanContext* vk_ctx) {
 
-    downloadBufferFromHostVisibleGpuMemory(
+    // OPTIMIZE: maybe we should just keep the data aligned as vec4 on the host as well?
+    downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
         vk_ctx,
-        s->particle_count * sizeof(*s->p_positions),
+        s->particle_count,
         s->gpu_resources.allocation_positions,
         s->p_positions
     );
-    downloadBufferFromHostVisibleGpuMemory(
+    downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
         vk_ctx,
-        s->particle_count * sizeof(*s->p_velocities),
+        s->particle_count,
         s->gpu_resources.allocation_velocities,
         s->p_velocities
     );

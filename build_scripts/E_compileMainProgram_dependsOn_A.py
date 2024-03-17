@@ -71,6 +71,7 @@ for shader_source_file in shader_source_files:
          + [
             'glslc',
             'src/' + shader_source_file,
+            '-g',
             '-o', SPIRV_DIR_PATH + '/' + shader_source_file + '.spv'
         ]
     )

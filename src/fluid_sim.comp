@@ -23,16 +23,16 @@ layout(binding = 1, std430) buffer Positions {
 layout(binding = 2, std430) buffer Velocities {
     vec3 velocities_[];
 };
-layout(binding = 3, std430) buffer C_begin {
+layout(binding = 3, std430) readonly buffer C_begin {
     uint C_begin_[];
 };
-layout(binding = 4, std430) buffer C_length {
+layout(binding = 4, std430) readonly buffer C_length {
     uint C_length_[];
 };
-layout(binding = 5, std430) buffer H_begin {
+layout(binding = 5, std430) readonly buffer H_begin {
     uint H_begin_[];
 };
-layout(binding = 6, std430) buffer H_length {
+layout(binding = 6, std430) readonly buffer H_length {
     uint H_length_[];
 };
 
@@ -49,7 +49,7 @@ layout(push_constant, std140) uniform PushConstants {
 /// Get the index of the cell that contains the particle.
 uvec3 cellIndex(vec3 particle, vec3 domain_min, float cell_size_reciprocal) {
 
-    return uvec3((domain_min + particle) * cell_size_reciprocal);
+    return uvec3((particle - domain_min) * cell_size_reciprocal);
 }
 
 uint cellMortonCode(uvec3 cell_index) {
@@ -164,11 +164,30 @@ vec3 accelerationDueToParticlesInCell(
 
         if (dist >= particle_interaction_radius_) continue;
         vec3 disp_unit = disp / dist;
+        if (dist < 1e-7) continue; // OPTIMIZE remove this check?
 
         accel += spring_stiffness_ * (dist - spring_rest_length_) * disp_unit;
     }
 
     return accel;
+}
+
+uvec3 offsetCell(uvec3 cell_idx, int x, int y, int z) {
+
+    // OPTIMIZE: 
+    //     1. figure out whether wrapping behavior is guaranteed for unsigned ints.
+    //     2. if yes, delete this function and just do `cell_idx + uvec3(x, y, z)` at the call site.
+
+    if (x == -1 && cell_idx.x == 0) cell_idx.x = 0xFFFFFFFF;
+    else cell_idx.x += x;
+
+    if (y == -1 && cell_idx.y == 0) cell_idx.y = 0xFFFFFFFF;
+    else cell_idx.y += y;
+
+    if (z == -1 && cell_idx.z == 0) cell_idx.z = 0xFFFFFFFF;
+    else cell_idx.z += z;
+
+    return cell_idx;
 }
 
 void main(void) {
@@ -185,34 +204,33 @@ void main(void) {
 
         const uvec3 cell_index_3d = cellIndex(pos_i, domain_min_, cell_size_reciprocal_);
 
-        // TODO FIXME: verify that uint `-1` is defined, and that the result doesn't break the sim.
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1, -1, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1, -1,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1, -1,  1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  0, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  0,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  0,  1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  1, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  1,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3(-1,  1,  1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0, -1, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0, -1,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0, -1,  1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  0, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  0,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  0,  1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  1, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  1,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 0,  1,  1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1, -1, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1, -1,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1, -1,  1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  0, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  0,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  0,  1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  1, -1), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  1,  0), domain_min_);
-        accel_i += accelerationDueToParticlesInCell(particle_idx, cell_index_3d + uvec3( 1,  1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1, -1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1, -1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1, -1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1,  0, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1,  0,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1,  0,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1,  1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1,  1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d, -1,  1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0, -1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0, -1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0, -1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0,  0, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0,  0,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0,  0,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0,  1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0,  1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  0,  1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1, -1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1, -1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1, -1,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1,  0, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1,  0,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1,  0,  1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1,  1, -1), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1,  1,  0), domain_min_);
+        accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1,  1,  1), domain_min_);
 
         new_velocity = velocities_[particle_idx];
         new_velocity += accel_i * delta_t_;
