@@ -111,8 +111,8 @@ if (common.isTracyEnabled()):
         [
             'g++',
             '-c', # note: ccache doesn't work without the -c flag
-            '-fPIC', '-shared',
-            '-o', './build/tracy.so',
+            '-fPIC',
+            '-o', './build/tracy.o',
             'libs/tracy/TracyClient.cpp',
             '-isystem', 'libs/tracy',
             '-std=c++11',
@@ -121,6 +121,18 @@ if (common.isTracyEnabled()):
         + common.getCompilerFlag_O()
         + ['-DNDEBUG']
     )
+    result.check_returncode()
+    result = sp.run(
+        [
+            'g++',
+            '-fPIC', '-shared',
+            './build/tracy.o',
+            '-o', './build/tracy.so',
+            '-isystem', 'libs/tracy',
+            '-std=c++11',
+        ]
+    )
+    result.check_returncode()
 
 # TODO whichever stages can be done in parallel, do those in parallel (using Popen)
 
