@@ -8,7 +8,7 @@
 
 namespace fluid_sim {
 
-using glm::vec3;
+using glm::vec4;
 
 //
 // ===========================================================================================================
@@ -66,11 +66,11 @@ struct GpuResources {
 
 struct SimData {
     u32fast particle_count;
-    vec3* p_positions;
-    vec3* p_velocities;
+    vec4* p_positions;
+    vec4* p_velocities;
 
-    vec3* p_particles_scratch_buffer1;
-    vec3* p_particles_scratch_buffer2;
+    vec4* p_particles_scratch_buffer1;
+    vec4* p_particles_scratch_buffer2;
 
     u32* p_cells_scratch_buffer1;
     u32* p_cells_scratch_buffer2;

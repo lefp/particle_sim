@@ -22,7 +22,7 @@ args = [
   { type = "const SimParameters*" },
   { type = "const VulkanContext*" },
   { type = "u32fast", name = "particle_count" },
-  { type = "const vec3*", name = "p_initial_positions" },
+  { type = "const vec4*", name = "p_initial_positions" },
 ]
 return = "SimData"
 

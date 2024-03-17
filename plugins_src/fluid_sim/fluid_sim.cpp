@@ -442,10 +442,10 @@ static inline u32 mortonCodeHash(u32 cell_morton_code, u32 hash_modulus) {
 /// buffer pointer.
 static void mergeSortByMortonCodes(
     const u64 arr_size,
-    vec3 **const pp_positions,
-    vec3 **const pp_velocities,
-    vec3 **const pp_scratch1,
-    vec3 **const pp_scratch2,
+    vec4 **const pp_positions,
+    vec4 **const pp_velocities,
+    vec4 **const pp_scratch1,
+    vec4 **const pp_scratch2,
     const vec3 domain_min,
     const f32 cell_size_reciprocal
 ) {
@@ -453,11 +453,11 @@ static void mergeSortByMortonCodes(
     ZoneScoped;
 
 
-    vec3* pos_arr1 = *pp_positions;
-    vec3* pos_arr2 = *pp_scratch1;
+    vec4* pos_arr1 = *pp_positions;
+    vec4* pos_arr2 = *pp_scratch1;
 
-    vec3* vel_arr1 = *pp_velocities;
-    vec3* vel_arr2 = *pp_scratch2;
+    vec4* vel_arr1 = *pp_velocities;
+    vec4* vel_arr2 = *pp_scratch2;
 
     assert(arr_size >= 2);
 
@@ -480,7 +480,7 @@ static void mergeSortByMortonCodes(
                 u32 morton_code_a;
                 if (idx_a < idx_a_max)
                 {
-                    vec3 particle_a = pos_arr1[idx_a];
+                    vec3 particle_a = vec3(pos_arr1[idx_a]);
                     const uvec3 cell_a = cellIndex(particle_a, domain_min, cell_size_reciprocal);
                     morton_code_a = cellMortonCode(cell_a);
                 }
@@ -489,7 +489,7 @@ static void mergeSortByMortonCodes(
                 u32 morton_code_b;
                 if (idx_b < idx_b_max)
                 {
-                    vec3 particle_b = pos_arr1[idx_b];
+                    vec3 particle_b = vec3(pos_arr1[idx_b]);
                     const uvec3 cell_b = cellIndex(particle_b, domain_min, cell_size_reciprocal);
                     morton_code_b = cellMortonCode(cell_b);
                 }
@@ -510,7 +510,7 @@ static void mergeSortByMortonCodes(
             }
         }
 
-        vec3* tmp = pos_arr1;
+        vec4* tmp = pos_arr1;
         pos_arr1 = pos_arr2;
         pos_arr2 = tmp;
 
@@ -532,7 +532,7 @@ static void mergeSortByCellHashes(
     u32 **const pp_lengths,
     u32 **const pp_scratch1,
     u32 **const pp_scratch2,
-    const vec3 *const p_particles,
+    const vec4 *const p_particles,
     const vec3 domain_min,
     const f32 cell_size_reciprocal,
     const u32 hash_modulus
@@ -568,7 +568,7 @@ static void mergeSortByCellHashes(
                 u32 cell_hash_a;
                 if (idx_a < idx_a_max) {
                     const u32 particle_idx = cells_arr1[idx_a];
-                    const uvec3 cell = cellIndex(p_particles[particle_idx], domain_min, cell_size_reciprocal);
+                    const uvec3 cell = cellIndex(vec3(p_particles[particle_idx]), domain_min, cell_size_reciprocal);
                     const u32 morton_code = cellMortonCode(cell);
                     cell_hash_a = mortonCodeHash(morton_code, hash_modulus);
                 }
@@ -577,7 +577,7 @@ static void mergeSortByCellHashes(
                 u32 cell_hash_b;
                 if (idx_b < idx_b_max) {
                     const u32 particle_idx = cells_arr1[idx_b];
-                    const uvec3 cell = cellIndex(p_particles[particle_idx], domain_min, cell_size_reciprocal);
+                    const uvec3 cell = cellIndex(vec3(p_particles[particle_idx]), domain_min, cell_size_reciprocal);
                     const u32 morton_code = cellMortonCode(cell);
                     cell_hash_b = mortonCodeHash(morton_code, hash_modulus);
                 }
@@ -665,7 +665,7 @@ static inline CompactCell cell3dToCell(const SimData* s, const uvec3 cell_idx_3d
         const u32 first_particle_in_cell_idx = s->p_cells[cell_idx];
         assert(first_particle_in_cell_idx < s->particle_count);
 
-        const vec3 first_particle_in_cell = s->p_positions[first_particle_in_cell_idx];
+        const vec3 first_particle_in_cell = vec3(s->p_positions[first_particle_in_cell_idx]);
         if (
             cellMortonCode(cellIndex(first_particle_in_cell, domain_min, s->parameters.cell_size_reciprocal))
             == morton_code
@@ -698,7 +698,7 @@ static inline vec3 accelerationDueToParticlesInCell(
     const CompactCell cell = cell3dToCell(s, cell_idx_3d, domain_min);
     if (cell.particle_count == 0) return vec3(0.0f); // cell doesn't exist
 
-    const vec3 pos = s->p_positions[target_particle_idx];
+    const vec3 pos = vec3(s->p_positions[target_particle_idx]);
 
     vec3 accel {};
 
@@ -711,7 +711,7 @@ static inline vec3 accelerationDueToParticlesInCell(
         //     E.g. if the particle list comes from a different cell than the target particle.
         if (i == target_particle_idx) continue;
 
-        vec3 disp = s->p_positions[i] - pos;
+        vec3 disp = vec3(s->p_positions[i]) - pos;
         f32 dist = glm::length(disp);
 
         if (dist >= s->parameters.particle_interaction_radius) continue;
@@ -1009,45 +1009,7 @@ static void uploadBufferToHostVisibleGpuMemory(
     vmaUnmapMemory(vk_ctx->vma_allocator, dst);
 }
 
-static void uploadVec3BufferToHostVisibleGpuMemory_realignFromVec3ToVec4(
-    const VulkanContext* vk_ctx,
-    const u32fast vec3_count,
-    const vec3* src,
-    const VmaAllocation dst
-) {
 
-    ZoneScoped;
-
-    VkResult result = VK_ERROR_UNKNOWN;
-
-
-    void* p_mapped_memory = NULL;
-    {
-        result = vmaMapMemory(vk_ctx->vma_allocator, dst, &p_mapped_memory);
-        assertVk(result);
-    }
-
-    {
-        const vec3* p_src = src;
-        vec4* p_dst = (vec4*)p_mapped_memory;
-        const vec3 *const p_src_end = p_src + vec3_count;
-
-        while (p_src < p_src_end)
-        {
-            *(vec3*)p_dst = *p_src;
-            p_src++;
-            p_dst++;
-        }
-    }
-
-    result = vmaFlushAllocation(vk_ctx->vma_allocator, dst, 0, vec3_count * sizeof(vec4));
-    assertVk(result);
-
-    vmaUnmapMemory(vk_ctx->vma_allocator, dst);
-}
-
-
-/*
 static void downloadBufferFromHostVisibleGpuMemory(
     const VulkanContext* vk_ctx,
     const u32fast size_bytes,
@@ -1068,54 +1030,13 @@ static void downloadBufferFromHostVisibleGpuMemory(
         p_mapped_memory = ptr;
     }
 
-    memcpy(dst, p_mapped_memory, size_bytes);
+    {
+        ZoneScopedN("memcpy");
+        memcpy(dst, p_mapped_memory, size_bytes);
+    }
 
     // TODO FIXME: Why flush? You didn't modify the data.
     result = vmaFlushAllocation(vk_ctx->vma_allocator, src, 0, size_bytes);
-    assertVk(result);
-
-    vmaUnmapMemory(vk_ctx->vma_allocator, src);
-}
-*/
-
-
-static void downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
-    const VulkanContext* vk_ctx,
-    const u32fast vec3_count,
-    const VmaAllocation src,
-    vec3* dst
-) {
-
-    ZoneScoped;
-
-    VkResult result = VK_ERROR_UNKNOWN;
-
-
-    const void* p_mapped_memory = NULL;
-    {
-        void* ptr = NULL;
-
-        result = vmaMapMemory(vk_ctx->vma_allocator, src, &ptr);
-        assertVk(result);
-
-        p_mapped_memory = ptr;
-    }
-
-    {
-        const vec4* p_src = (const vec4*)p_mapped_memory;
-        vec3* p_dst = dst;
-        const vec3 *const p_dst_end = p_dst + vec3_count;
-
-        while (p_dst < p_dst_end)
-        {
-            *p_dst = *(const vec3*)p_src;
-            p_src++;
-            p_dst++;
-        }
-    }
-
-    // TODO FIXME: Why flush? You didn't modify the data.
-    result = vmaFlushAllocation(vk_ctx->vma_allocator, src, 0, vec3_count * sizeof(vec4));
     assertVk(result);
 
     vmaUnmapMemory(vk_ctx->vma_allocator, src);
@@ -1145,16 +1066,15 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         );
     }
 
-    // OPTIMIZE: maybe we should just keep the data aligned as vec4 on the host as well?
-    uploadVec3BufferToHostVisibleGpuMemory_realignFromVec3ToVec4(
+    uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
-        s->particle_count,
+        s->particle_count * sizeof(vec4),
         s->p_positions,
         s->gpu_resources.allocation_positions
     );
-    uploadVec3BufferToHostVisibleGpuMemory_realignFromVec3ToVec4(
+    uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
-        s->particle_count,
+        s->particle_count * sizeof(vec4),
         s->p_velocities,
         s->gpu_resources.allocation_velocities
     );
@@ -1189,16 +1109,15 @@ static void downloadDataFromGpu(SimData* s, const VulkanContext* vk_ctx) {
 
     ZoneScoped;
 
-    // OPTIMIZE: maybe we should just keep the data aligned as vec4 on the host as well?
-    downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
+    downloadBufferFromHostVisibleGpuMemory(
         vk_ctx,
-        s->particle_count,
+        s->particle_count * sizeof(vec4),
         s->gpu_resources.allocation_positions,
         s->p_positions
     );
-    downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
+    downloadBufferFromHostVisibleGpuMemory(
         vk_ctx,
-        s->particle_count,
+        s->particle_count * sizeof(vec4),
         s->gpu_resources.allocation_velocities,
         s->p_velocities
     );
@@ -1209,7 +1128,7 @@ extern "C" SimData create(
     const SimParameters* params,
     const VulkanContext* vk_ctx,
     u32fast particle_count,
-    const vec3* p_initial_positions
+    const vec4* p_initial_positions
 ) {
 
     ZoneScoped;
@@ -1218,13 +1137,13 @@ extern "C" SimData create(
     {
         s.particle_count = particle_count;
 
-        s.p_positions = mallocArray(particle_count, vec3);
-        memcpy(s.p_positions, p_initial_positions, particle_count * sizeof(vec3));
+        s.p_positions = mallocArray(particle_count, vec4);
+        memcpy(s.p_positions, p_initial_positions, particle_count * sizeof(vec4));
 
-        s.p_velocities = callocArray(particle_count, vec3);
+        s.p_velocities = callocArray(particle_count, vec4);
 
-        s.p_particles_scratch_buffer1 = callocArray(particle_count, vec3);
-        s.p_particles_scratch_buffer2 = callocArray(particle_count, vec3);
+        s.p_particles_scratch_buffer1 = callocArray(particle_count, vec4);
+        s.p_particles_scratch_buffer2 = callocArray(particle_count, vec4);
 
         s.cell_count = 0;
         s.p_cells = callocArray(particle_count + 1, u32);
@@ -1282,8 +1201,8 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
     vec3 domain_max = vec3(-INFINITY);
     for (u32fast i = 0; i < particle_count; i++)
     {
-        domain_min = glm::min(s->p_positions[i], domain_min);
-        domain_max = glm::max(s->p_positions[i], domain_max);
+        domain_min = glm::min(vec3(s->p_positions[i]), domain_min);
+        domain_max = glm::max(vec3(s->p_positions[i]), domain_max);
     }
 
     {
@@ -1308,14 +1227,14 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
         if (particle_count > 0)
         {
             s->p_cells[0] = 0;
-            prev_morton_code = cellMortonCode(cellIndex(s->p_positions[0], domain_min, cell_size_reciprocal));
+            prev_morton_code = cellMortonCode(cellIndex(vec3(s->p_positions[0]), domain_min, cell_size_reciprocal));
         }
 
         u32fast cell_idx = 1;
         for (u32fast particle_idx = 1; particle_idx < particle_count; particle_idx++)
         {
             u32 morton_code =
-                cellMortonCode(cellIndex(s->p_positions[particle_idx], domain_min, cell_size_reciprocal));
+                cellMortonCode(cellIndex(vec3(s->p_positions[particle_idx]), domain_min, cell_size_reciprocal));
 
             if (morton_code == prev_morton_code) continue;
 
@@ -1357,7 +1276,7 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
         u32 prev_hash;
         {
             const u32 particle_idx = s->p_cells[0];
-            const vec3 particle = s->p_positions[particle_idx];
+            const vec3 particle = vec3(s->p_positions[particle_idx]);
             const uvec3 cell_idx_3d = cellIndex(particle, domain_min, cell_size_reciprocal);
             const u32 morton_code = cellMortonCode(cell_idx_3d);
             prev_hash = mortonCodeHash(morton_code, s->hash_modulus);
@@ -1368,7 +1287,7 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
         for (u32 cell_idx = 1; cell_idx < cell_count; cell_idx++)
         {
             const u32 particle_idx = s->p_cells[cell_idx];
-            const vec3 particle = s->p_positions[particle_idx];
+            const vec3 particle = vec3(s->p_positions[particle_idx]);
             const uvec3 cell_idx_3d = cellIndex(particle, domain_min, cell_size_reciprocal);
             const u32 morton_code = cellMortonCode(cell_idx_3d);
             hash = mortonCodeHash(morton_code, s->hash_modulus);

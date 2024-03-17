@@ -652,7 +652,7 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
     {
         u32fast particle_count = 1000;
 
-        vec3* p_initial_particles = mallocArray(particle_count, vec3);
+        vec4* p_initial_particles = callocArray(particle_count, vec4);
         defer(free(p_initial_particles));
 
         for (u32fast particle_idx = 0; particle_idx < particle_count; particle_idx++) {
@@ -663,7 +663,7 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
                 (f32)rand() / (f32)RAND_MAX,
             };
 
-            p_initial_particles[particle_idx] = (random_0_to_1 - 0.5f) * 1.0f;
+            *(vec3*)(&p_initial_particles[particle_idx]) = (random_0_to_1 - 0.5f) * 1.0f;
         }
 
         sim_data = fluid_sim_procs_->create(
