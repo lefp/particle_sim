@@ -990,6 +990,8 @@ static void uploadBufferToHostVisibleGpuMemory(
     const VmaAllocation dst
 ) {
 
+    ZoneScoped;
+
     VkResult result = VK_ERROR_UNKNOWN;
 
 
@@ -1013,6 +1015,8 @@ static void uploadVec3BufferToHostVisibleGpuMemory_realignFromVec3ToVec4(
     const vec3* src,
     const VmaAllocation dst
 ) {
+
+    ZoneScoped;
 
     VkResult result = VK_ERROR_UNKNOWN;
 
@@ -1082,6 +1086,8 @@ static void downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
     vec3* dst
 ) {
 
+    ZoneScoped;
+
     VkResult result = VK_ERROR_UNKNOWN;
 
 
@@ -1117,6 +1123,8 @@ static void downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
 
 
 static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
+
+    ZoneScoped;
 
     {
         const UniformBufferData uniform_data {
@@ -1178,6 +1186,8 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
 
 
 static void downloadDataFromGpu(SimData* s, const VulkanContext* vk_ctx) {
+
+    ZoneScoped;
 
     // OPTIMIZE: maybe we should just keep the data aligned as vec4 on the host as well?
     downloadVec3BufferFromHostVisibleGpuMemory_realignFromVec4ToVec3(
@@ -1435,21 +1445,25 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
         result = vk_ctx->procs_dev.EndCommandBuffer(s->gpu_resources.command_buffer);
         assertVk(result);
 
-        const VkSubmitInfo submit_info {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .waitSemaphoreCount = 0,
-            .pWaitSemaphores = NULL,
-            .pWaitDstStageMask = 0,
-            .commandBufferCount = 1,
-            .pCommandBuffers = &s->gpu_resources.command_buffer,
-            .signalSemaphoreCount = 0,
-            .pSignalSemaphores = NULL,
-        };
-        result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
-        assertVk(result);
+        {
+            ZoneScopedN("SubmitCommandBufferAndWaitForFences");
 
-        result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, true, UINT64_MAX);
-        assertVk(result);
+            const VkSubmitInfo submit_info {
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                .waitSemaphoreCount = 0,
+                .pWaitSemaphores = NULL,
+                .pWaitDstStageMask = 0,
+                .commandBufferCount = 1,
+                .pCommandBuffers = &s->gpu_resources.command_buffer,
+                .signalSemaphoreCount = 0,
+                .pSignalSemaphores = NULL,
+            };
+            result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
+            assertVk(result);
+
+            result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, true, UINT64_MAX);
+            assertVk(result);
+        }
 
         result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
         assertVk(result);
