@@ -1030,7 +1030,11 @@ static void downloadBufferFromHostVisibleGpuMemory(
         p_mapped_memory = ptr;
     }
 
+    result = vmaInvalidateAllocation(vk_ctx->vma_allocator, src, 0, size_bytes);
+    assertVk(result);
+
     {
+
         ZoneScopedN("memcpy");
         memcpy(dst, p_mapped_memory, size_bytes);
     }
