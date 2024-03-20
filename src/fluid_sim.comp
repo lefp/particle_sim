@@ -52,39 +52,23 @@ uvec3 cellIndex(vec3 particle, vec3 domain_min, float cell_size_reciprocal) {
     return uvec3((particle - domain_min) * cell_size_reciprocal);
 }
 
+// For some input integer with bits [... b3 b2 b1 b0]
+// returns [... 0 0 b3 0 0 b2 0 0 b1 0 0 b0].
+uint separateBitsByTwo(uint x) {
+    // https://fgiesen.wordpress.com/2009/12/13/decoding-morton-codes/
+    x &= 0x000003ff;
+    x = (x ^ (x << 16)) & 0xff0000ff;
+    x = (x ^ (x <<  8)) & 0x0300f00f;
+    x = (x ^ (x <<  4)) & 0x030c30c3;
+    x = (x ^ (x <<  2)) & 0x09249249;
+    return x;
+}
+
 uint cellMortonCode(uvec3 cell_index) {
-    // TODO FIXME OPTIMIZE: there are much faster ways to do bit interspersion
     return
-        ((cell_index.x &    1) <<  0) |
-        ((cell_index.y &    1) <<  1) |
-        ((cell_index.z &    1) <<  2) |
-        ((cell_index.x &    2) <<  2) |
-        ((cell_index.y &    2) <<  3) |
-        ((cell_index.z &    2) <<  4) |
-        ((cell_index.x &    4) <<  4) |
-        ((cell_index.y &    4) <<  5) |
-        ((cell_index.z &    4) <<  6) |
-        ((cell_index.x &    8) <<  6) |
-        ((cell_index.y &    8) <<  7) |
-        ((cell_index.z &    8) <<  8) |
-        ((cell_index.x &   16) <<  8) |
-        ((cell_index.y &   16) <<  9) |
-        ((cell_index.z &   16) << 10) |
-        ((cell_index.x &   64) << 10) |
-        ((cell_index.y &   64) << 11) |
-        ((cell_index.z &   64) << 12) |
-        ((cell_index.x &  128) << 12) |
-        ((cell_index.y &  128) << 13) |
-        ((cell_index.z &  128) << 14) |
-        ((cell_index.x &  256) << 14) |
-        ((cell_index.y &  256) << 15) |
-        ((cell_index.z &  256) << 16) |
-        ((cell_index.x &  512) << 16) |
-        ((cell_index.y &  512) << 17) |
-        ((cell_index.z &  512) << 18) |
-        ((cell_index.x & 1024) << 18) |
-        ((cell_index.y & 1024) << 19) |
-        ((cell_index.z & 1024) << 20) ;
+        (separateBitsByTwo(cell_index.x)     ) |
+        (separateBitsByTwo(cell_index.y) << 1) |
+        (separateBitsByTwo(cell_index.z) << 2) ;
 }
 
 uint mortonCodeHash(uint cell_morton_code, uint hash_modulus) {
