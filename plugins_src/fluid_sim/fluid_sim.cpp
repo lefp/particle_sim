@@ -841,8 +841,9 @@ static GpuResources createGpuResources(
         };
         VmaAllocationCreateInfo buffer_alloc_info {
             .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .usage = VMA_MEMORY_USAGE_AUTO,
-            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // OPTIMIZE use a staging buffer instead?
+            // TODO FIXME OPTIMIZE: make this device-local; use a staging buffer for a one-time initialization
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
@@ -862,8 +863,9 @@ static GpuResources createGpuResources(
         };
         VmaAllocationCreateInfo buffer_alloc_info {
             .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .usage = VMA_MEMORY_USAGE_AUTO,
-            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // OPTIMIZE use a staging buffer instead?
+            // TODO FIXME OPTIMIZE: make this device-local; use a staging buffer for a one-time initialization
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
