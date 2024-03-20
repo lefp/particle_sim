@@ -53,6 +53,7 @@ uvec3 cellIndex(vec3 particle, vec3 domain_min, float cell_size_reciprocal) {
 }
 
 uint cellMortonCode(uvec3 cell_index) {
+    // TODO FIXME OPTIMIZE: there are much faster ways to do bit interspersion
     return
         ((cell_index.x &    1) <<  0) |
         ((cell_index.y &    1) <<  1) |

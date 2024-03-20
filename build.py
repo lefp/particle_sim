@@ -119,6 +119,7 @@ if (common.isTracyEnabled()):
         ]
         + common.getCompilerFlags_TracyDefines()
         + common.getCompilerFlag_O()
+        + common.getCompilerFlags_m()
         + ['-DNDEBUG']
     )
     result.check_returncode()

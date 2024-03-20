@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cinttypes>
 #include <cmath>
+#include <x86intrin.h>
 
 #define GLM_FORCE_EXPLICIT_CTOR
 #include <glm/glm.hpp>
@@ -397,38 +398,17 @@ static inline uvec3 cellIndex(vec3 particle, vec3 domain_min, f32 cell_size_reci
 }
 
 
+// TODO FIXME OPTIMIZE:
+//     1. This will not work on ARM.
+//     2. Even on x86, this will only work with CPUs supporting BMI2.
+//     3. On AMD Zen 1 and Zen 2, PDEP is slow as shit. https://fgiesen.wordpress.com/2022/09/09/morton-codes-addendum/
 static inline u32 cellMortonCode(uvec3 cell_index) {
-    return
-        ((cell_index.x &    1) <<  0) |
-        ((cell_index.y &    1) <<  1) |
-        ((cell_index.z &    1) <<  2) |
-        ((cell_index.x &    2) <<  2) |
-        ((cell_index.y &    2) <<  3) |
-        ((cell_index.z &    2) <<  4) |
-        ((cell_index.x &    4) <<  4) |
-        ((cell_index.y &    4) <<  5) |
-        ((cell_index.z &    4) <<  6) |
-        ((cell_index.x &    8) <<  6) |
-        ((cell_index.y &    8) <<  7) |
-        ((cell_index.z &    8) <<  8) |
-        ((cell_index.x &   16) <<  8) |
-        ((cell_index.y &   16) <<  9) |
-        ((cell_index.z &   16) << 10) |
-        ((cell_index.x &   64) << 10) |
-        ((cell_index.y &   64) << 11) |
-        ((cell_index.z &   64) << 12) |
-        ((cell_index.x &  128) << 12) |
-        ((cell_index.y &  128) << 13) |
-        ((cell_index.z &  128) << 14) |
-        ((cell_index.x &  256) << 14) |
-        ((cell_index.y &  256) << 15) |
-        ((cell_index.z &  256) << 16) |
-        ((cell_index.x &  512) << 16) |
-        ((cell_index.y &  512) << 17) |
-        ((cell_index.z &  512) << 18) |
-        ((cell_index.x & 1024) << 18) |
-        ((cell_index.y & 1024) << 19) |
-        ((cell_index.z & 1024) << 20) ;
+
+    u32 result = 0;
+    result |= _pdep_u32(cell_index.x, 0b00'001001001001001001001001001001);
+    result |= _pdep_u32(cell_index.y, 0b00'010010010010010010010010010010);
+    result |= _pdep_u32(cell_index.z, 0b00'100100100100100100100100100100);
+    return result;
 }
 
 

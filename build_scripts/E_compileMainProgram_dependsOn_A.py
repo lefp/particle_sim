@@ -25,6 +25,7 @@ COMMON_COMPILE_FLAGS: list[str] = (
     common.getCompilerFlag_g() +
     common.getCompilerFlag_O() +
     common.getCompilerFlags_TracyDefines() +
+    common.getCompilerFlags_m() +
     ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES']
 )
 

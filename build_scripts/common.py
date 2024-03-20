@@ -19,6 +19,11 @@ def getLibNames() -> list[str]:
     return lib_names
 
 
+def getCompilerFlags_m() -> list[str]:
+    # TODO FIXME you'll have to remove -march=native once you start thinking about portability
+    return ['-march=native'] 
+
+
 def getCompilerFlag_O() -> list[str]:
     env_str = os.environ.get("ANGAME_NO_OPTIMIZE")
     if (env_str is not None and int(env_str) == 1):
