@@ -43,9 +43,17 @@ struct GpuResources {
     VmaAllocation allocation_positions;
     VmaAllocationInfo allocation_info_positions;
 
+    VkBuffer buffer_staging_positions;
+    VmaAllocation allocation_staging_positions;
+    VmaAllocationInfo allocation_info_staging_positions;
+
     VkBuffer buffer_velocities;
     VmaAllocation allocation_velocities;
     VmaAllocationInfo allocation_info_velocities;
+
+    VkBuffer buffer_staging_velocities;
+    VmaAllocation allocation_staging_velocities;
+    VmaAllocationInfo allocation_info_staging_velocities;
 
     VkBuffer buffer_C_begin;
     VmaAllocation allocation_C_begin;

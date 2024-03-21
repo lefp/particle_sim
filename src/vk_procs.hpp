@@ -34,6 +34,7 @@
     X(CmdBindPipeline) \
     X(CmdBindIndexBuffer) \
     X(CmdBindVertexBuffers) \
+    X(CmdCopyBuffer) \
     X(CmdCopyImage) \
     X(CmdDispatch) \
     X(CmdDraw) \

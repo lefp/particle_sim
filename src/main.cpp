@@ -650,7 +650,7 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
 
     fluid_sim::SimData sim_data {};
     {
-        u32fast particle_count = 10000;
+        u32fast particle_count = 100000;
 
         vec4* p_initial_particles = callocArray(particle_count, vec4);
         defer(free(p_initial_particles));

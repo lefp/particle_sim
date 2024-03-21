@@ -56,12 +56,19 @@ uvec3 cellIndex(vec3 particle, vec3 domain_min, float cell_size_reciprocal) {
 // returns [... 0 0 b3 0 0 b2 0 0 b1 0 0 b0].
 uint separateBitsByTwo(uint x) {
     // https://fgiesen.wordpress.com/2009/12/13/decoding-morton-codes/
-    x &= 0x000003ff;
-    x = (x ^ (x << 16)) & 0xff0000ff;
-    x = (x ^ (x <<  8)) & 0x0300f00f;
-    x = (x ^ (x <<  4)) & 0x030c30c3;
-    x = (x ^ (x <<  2)) & 0x09249249;
+    // TODO FIXME OPTIMIZE there's a faster way to do this:
+    //     https://fgiesen.wordpress.com/2022/09/09/morton-codes-addendum/
+    x &= 0x000003ff;                  // 0b0000'0000'0000'0000'0000'0011'1111'1111
+    x = (x ^ (x << 16)) & 0xff0000ff; // 0b1111'1111'0000'0000'0000'0000'1111'1111
+    x = (x ^ (x <<  8)) & 0x0300f00f; // 0b0000'0011'0000'0000'1111'0000'0000'1111
+    x = (x ^ (x <<  4)) & 0x030c30c3; // 0b0000'0011'0000'1100'0011'0000'1100'0011
+    x = (x ^ (x <<  2)) & 0x09249249; // 0b0000'1001'0010'0100'1001'0010'0100'1001
     return x;
+
+
+
+
+    // [ z9 z8 z7 z6 z5 z4 z3 z2 z1 z0 y9 y8 y7 y6 y5 y4 y3 y2 y1 y0 x9 x8 x7 x6 x5 x4 x3 x2 x1 x0 ]
 }
 
 uint cellMortonCode(uvec3 cell_index) {

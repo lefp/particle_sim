@@ -814,20 +814,39 @@ static GpuResources createGpuResources(
         VkBufferCreateInfo buffer_info {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = particle_count * sizeof(vec4), // vec4 because std430 alignment
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 1,
             .pQueueFamilyIndices = &vk_ctx->queue_family_index,
         };
         VmaAllocationCreateInfo buffer_alloc_info {
-            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            // TODO FIXME OPTIMIZE: make this device-local; use a staging buffer for a one-time initialization
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_positions, &resources.allocation_positions, &resources.allocation_info_positions
+        );
+        assertVk(result);
+    }
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = particle_count * sizeof(vec4), // vec4 because std430 alignment
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT, // hints that caching should be enabled
             .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
             .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_positions, &resources.allocation_positions, &resources.allocation_info_positions
+            &resources.buffer_staging_positions, &resources.allocation_staging_positions, &resources.allocation_info_staging_positions
         );
         assertVk(result);
     }
@@ -836,20 +855,39 @@ static GpuResources createGpuResources(
         VkBufferCreateInfo buffer_info {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = particle_count * sizeof(vec4), // vec4 because std430 alignment
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 1,
             .pQueueFamilyIndices = &vk_ctx->queue_family_index,
         };
         VmaAllocationCreateInfo buffer_alloc_info {
-            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            // TODO FIXME OPTIMIZE: make this device-local; use a staging buffer for a one-time initialization
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_velocities, &resources.allocation_velocities, &resources.allocation_info_velocities
+        );
+        assertVk(result);
+    }
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = particle_count * sizeof(vec4), // vec4 because std430 alignment
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT, // hints that caching should be enabled
             .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
             .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_velocities, &resources.allocation_velocities, &resources.allocation_info_velocities
+            &resources.buffer_staging_velocities, &resources.allocation_staging_velocities, &resources.allocation_info_staging_velocities
         );
         assertVk(result);
     }
@@ -1056,14 +1094,66 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         vk_ctx,
         s->particle_count * sizeof(vec4),
         s->p_positions,
-        s->gpu_resources.allocation_positions
+        s->gpu_resources.allocation_staging_positions
     );
     uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
         s->particle_count * sizeof(vec4),
         s->p_velocities,
-        s->gpu_resources.allocation_velocities
+        s->gpu_resources.allocation_staging_velocities
     );
+
+    {
+        VkCommandBufferBeginInfo begin_info {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        };
+        VkResult result = vk_ctx->procs_dev.BeginCommandBuffer(s->gpu_resources.command_buffer, &begin_info);
+        assertVk(result);
+
+        VkBufferCopy copy_info_positions {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = s->gpu_resources.allocation_info_staging_positions.size,
+        };
+        vk_ctx->procs_dev.CmdCopyBuffer(
+            s->gpu_resources.command_buffer,
+            s->gpu_resources.buffer_staging_positions,
+            s->gpu_resources.buffer_positions,
+            1, // regionCount
+            &copy_info_positions
+        );
+
+        VkBufferCopy copy_info_velocities {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = s->gpu_resources.allocation_info_staging_velocities.size,
+        };
+        vk_ctx->procs_dev.CmdCopyBuffer(
+            s->gpu_resources.command_buffer,
+            s->gpu_resources.buffer_staging_velocities,
+            s->gpu_resources.buffer_velocities,
+            1, // regionCount
+            &copy_info_velocities
+        );
+
+        result = vk_ctx->procs_dev.EndCommandBuffer(s->gpu_resources.command_buffer);
+        assertVk(result);
+
+        VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = NULL,
+            .pWaitDstStageMask = NULL,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &s->gpu_resources.command_buffer,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = NULL,
+        };
+        result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
+        assertVk(result);
+    }
+
     uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
         s->cell_count * sizeof(*s->p_cells),
@@ -1088,6 +1178,16 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         s->H_length,
         s->gpu_resources.allocation_H_length
     );
+
+    // OPTIMIZE:
+    //     Instead of signaling a fence in the queue submission and waiting for it here, we can signal a
+    //     semaphore that the compute shader dispatch waits for.
+    VkResult result =
+        vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, VK_TRUE, UINT64_MAX);
+    assertVk(result);
+
+    result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
+    assertVk(result);
 }
 
 
@@ -1095,16 +1195,75 @@ static void downloadDataFromGpu(SimData* s, const VulkanContext* vk_ctx) {
 
     ZoneScoped;
 
+    {
+        VkCommandBufferBeginInfo begin_info {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        };
+        VkResult result = vk_ctx->procs_dev.BeginCommandBuffer(s->gpu_resources.command_buffer, &begin_info);
+        assertVk(result);
+
+        VkBufferCopy copy_info_positions {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = s->gpu_resources.allocation_info_staging_positions.size,
+        };
+        vk_ctx->procs_dev.CmdCopyBuffer(
+            s->gpu_resources.command_buffer,
+            s->gpu_resources.buffer_positions,
+            s->gpu_resources.buffer_staging_positions,
+            1, // regionCount
+            &copy_info_positions
+        );
+
+        VkBufferCopy copy_info_velocities {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = s->gpu_resources.allocation_info_staging_velocities.size,
+        };
+        vk_ctx->procs_dev.CmdCopyBuffer(
+            s->gpu_resources.command_buffer,
+            s->gpu_resources.buffer_velocities,
+            s->gpu_resources.buffer_staging_velocities,
+            1, // regionCount
+            &copy_info_velocities
+        );
+
+        result = vk_ctx->procs_dev.EndCommandBuffer(s->gpu_resources.command_buffer);
+        assertVk(result);
+
+        VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = NULL,
+            .pWaitDstStageMask = NULL,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &s->gpu_resources.command_buffer,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = NULL,
+        };
+        result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
+        assertVk(result);
+
+
+        result =
+            vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, VK_TRUE, UINT64_MAX);
+        assertVk(result);
+
+        result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
+        assertVk(result);
+    }
+
     downloadBufferFromHostVisibleGpuMemory(
         vk_ctx,
         s->particle_count * sizeof(vec4),
-        s->gpu_resources.allocation_positions,
+        s->gpu_resources.allocation_staging_positions,
         s->p_positions
     );
     downloadBufferFromHostVisibleGpuMemory(
         vk_ctx,
         s->particle_count * sizeof(vec4),
-        s->gpu_resources.allocation_velocities,
+        s->gpu_resources.allocation_staging_velocities,
         s->p_velocities
     );
 }
