@@ -55,6 +55,9 @@
     X(CreateSemaphore) \
     X(CreateShaderModule) \
     X(CreateSwapchainKHR) \
+    X(DestroyCommandPool) \
+    X(DestroyDescriptorPool) \
+    X(DestroyDescriptorSetLayout) \
     X(DestroyFence) \
     X(DestroyImageView) \
     X(DestroyPipeline) \
@@ -65,6 +68,7 @@
     X(EndCommandBuffer) \
     X(FlushMappedMemoryRanges) \
     X(FreeCommandBuffers) \
+    X(FreeDescriptorSets) \
     X(GetDeviceQueue) \
     X(GetFenceStatus) \
     X(GetSwapchainImagesKHR) \

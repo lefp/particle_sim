@@ -26,12 +26,17 @@ struct GpuResources {
     u32 workgroup_size;
     u32 workgroup_count;
 
+
     VkCommandPool command_pool;
     VkCommandBuffer command_buffer;
+
+    VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_set;
     VkDescriptorSetLayout descriptor_set_layout;
+
     VkPipeline pipeline;
     VkPipelineLayout pipeline_layout;
+
     VkFence fence;
 
 

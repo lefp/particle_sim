@@ -78,7 +78,8 @@ static void createDescriptorSet(
     const VulkanContext* vk_ctx,
     const VkBuffer p_buffers[7],
     VkDescriptorSet* descriptor_set_out,
-    VkDescriptorSetLayout* layout_out
+    VkDescriptorSetLayout* layout_out,
+    VkDescriptorPool* pool_out
 ) {
 
     VkResult result = VK_ERROR_UNKNOWN;
@@ -166,6 +167,7 @@ static void createDescriptorSet(
         result = vk_ctx->procs_dev.CreateDescriptorPool(vk_ctx->device, &pool_info, NULL, &descriptor_pool);
         assertVk(result);
     }
+    *pool_out = descriptor_pool;
 
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     {
@@ -987,7 +989,10 @@ static GpuResources createGpuResources(
             resources.buffer_H_begin,
             resources.buffer_H_length,
         };
-        createDescriptorSet(vk_ctx, buffers, &resources.descriptor_set, &resources.descriptor_set_layout);
+        createDescriptorSet(
+            vk_ctx, buffers,
+            &resources.descriptor_set, &resources.descriptor_set_layout, &resources.descriptor_pool
+        );
     }
 
     createComputePipeline(
@@ -1000,6 +1005,38 @@ static GpuResources createGpuResources(
 
 
     return resources;
+}
+
+
+static void destroyGpuResources(GpuResources* res, const VulkanContext* vk_ctx) {
+
+    ZoneScoped;
+
+    VkResult result = vk_ctx->procs_dev.QueueWaitIdle(vk_ctx->queue);
+    assertVk(result);
+
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_uniforms, res->allocation_uniforms);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_positions, res->allocation_positions);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_staging_positions, res->allocation_staging_positions);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_velocities, res->allocation_velocities);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_staging_velocities, res->allocation_staging_velocities);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_C_begin, res->allocation_C_begin);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_C_length, res->allocation_C_length);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_H_begin, res->allocation_H_begin);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_H_length, res->allocation_H_length);
+
+    vk_ctx->procs_dev.FreeCommandBuffers(vk_ctx->device, res->command_pool, 1, &res->command_buffer);
+    vk_ctx->procs_dev.DestroyCommandPool(vk_ctx->device, res->command_pool, NULL);
+
+    result = vk_ctx->procs_dev.FreeDescriptorSets(vk_ctx->device, res->descriptor_pool, 1, &res->descriptor_set);
+    assertVk(result);
+    vk_ctx->procs_dev.DestroyDescriptorPool(vk_ctx->device, res->descriptor_pool, NULL);
+    vk_ctx->procs_dev.DestroyDescriptorSetLayout(vk_ctx->device, res->descriptor_set_layout, NULL);
+
+    vk_ctx->procs_dev.DestroyPipeline(vk_ctx->device, res->pipeline, NULL);
+    vk_ctx->procs_dev.DestroyPipelineLayout(vk_ctx->device, res->pipeline_layout, NULL);
+
+    vk_ctx->procs_dev.DestroyFence(vk_ctx->device, res->fence, NULL);
 }
 
 
@@ -1321,14 +1358,28 @@ extern "C" SimData create(
 }
 
 
-extern "C" void destroy(SimData* s) {
+extern "C" void destroy(SimData* s, const VulkanContext* vk_ctx) {
 
-    // TODO FIXME free all the other arrays you allocated
-    // TODO FIXME destroy all the GPU resources
+    destroyGpuResources(&s->gpu_resources, vk_ctx);
 
     free(s->p_positions);
     free(s->p_velocities);
+
+    free(s->p_particles_scratch_buffer1);
+    free(s->p_particles_scratch_buffer2);
+
+    free(s->p_cells_scratch_buffer1);
+    free(s->p_cells_scratch_buffer2);
+
+    free(s->p_cells);
+    free(s->p_cell_lengths);
+
+    free(s->H_begin);
+    free(s->H_length);
+
     s->particle_count = 0;
+    s->cell_count = 0;
+    s->hash_modulus = 0;
 }
 
 
