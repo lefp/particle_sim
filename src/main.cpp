@@ -269,6 +269,15 @@ bool fluid_sim_plugin_filewatch_enabled_ = false;
 bool fluid_sim_plugin_autoreload_enabled_ = false;
 
 
+// TODO FIXME I fucking hate this. It will lead to bugs. We need a proper GPU dependency graph/queue system.
+VkSemaphore render_finished_semaphore_ = VK_NULL_HANDLE;
+bool render_finished_semaphore_will_be_signalled_ = false;
+VkSemaphore sim_finished_semaphore_ = VK_NULL_HANDLE;
+bool sim_finished_semaphore_will_be_signalled_ = false;
+
+VkFence general_purpose_fence_ = VK_NULL_HANDLE;
+
+
 //
 // ===========================================================================================================
 //
@@ -340,6 +349,35 @@ static void checkedGlfwGetCursorPos(GLFWwindow* window, double* x_out, double* y
     // TODO maybe downgrade this from ERROR to INFO, if it's an expected occurence and is fine.
     else if (err_code == GLFW_PLATFORM_ERROR) LOG_F(ERROR, "Failed to get cursor position: GLFW_PLATFORM_ERROR");
     else ABORT_F("GLFW error %i, description: `%s`.", err_code, err_description);
+}
+
+
+// The fence must be in the unsignalled state.
+// This procedure will signal, wait for, and reset the fence before returning.
+static void clearSemaphore(const VulkanContext* vk_ctx, VkSemaphore sem, VkFence fence) {
+
+    assert(sem != VK_NULL_HANDLE);
+
+    VkResult result = VK_ERROR_UNKNOWN;
+
+
+    VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+    VkSubmitInfo submit_info {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &sem,
+        .pWaitDstStageMask = &wait_dst_stage_mask,
+    };
+    result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, fence);
+    assertVk(result);
+
+
+    result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &fence, true, UINT64_MAX);
+    assertVk(result);
+
+    result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &fence);
+    assertVk(result);
 }
 
 
@@ -988,6 +1026,46 @@ int main(int argc, char** argv) {
     assertGraphics(result_gfx);
 
 
+    {
+        VkResult result = VK_ERROR_UNKNOWN;
+        const VulkanContext* vk_ctx = gfx::getVkContext();
+
+
+        VkFenceCreateInfo fence_info { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        result = vk_ctx->procs_dev.CreateFence(vk_ctx->device, &fence_info, NULL, &general_purpose_fence_);
+        assertVk(result);
+
+
+        VkSemaphoreCreateInfo semaphore_info { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+
+        result = vk_ctx->procs_dev.CreateSemaphore(
+            vk_ctx->device, &semaphore_info, NULL, &sim_finished_semaphore_
+        );
+        assertVk(result);
+
+        result = vk_ctx->procs_dev.CreateSemaphore(
+            vk_ctx->device, &semaphore_info, NULL, &render_finished_semaphore_
+        );
+        assertVk(result);
+
+
+        VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &render_finished_semaphore_,
+        };
+        result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, general_purpose_fence_);
+        assertVk(result);
+        render_finished_semaphore_will_be_signalled_ = true;
+
+        result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &general_purpose_fence_, true, UINT64_MAX);
+        assertVk(result);
+
+        result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &general_purpose_fence_);
+        assertVk(result);
+    }
+
+
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // don't initialize OpenGL, because we're using Vulkan
     GLFWwindow* window = glfwCreateWindow(
         (int)DEFAULT_WINDOW_EXTENT.width, (int)DEFAULT_WINDOW_EXTENT.height, "an game", NULL, NULL
@@ -1147,10 +1225,19 @@ int main(int argc, char** argv) {
             fluid_sim_procs_->advance(
                 &sim_data,
                 gfx::getVkContext(),
-                (f32)delta_t_seconds
+                (f32)delta_t_seconds,
+                render_finished_semaphore_will_be_signalled_ ? render_finished_semaphore_ : VK_NULL_HANDLE,
+                sim_finished_semaphore_
             );
+            render_finished_semaphore_will_be_signalled_ = false;
+            sim_finished_semaphore_will_be_signalled_ = true;
             // }
         }
+        else if (render_finished_semaphore_will_be_signalled_) {
+            clearSemaphore(gfx::getVkContext(), render_finished_semaphore_, general_purpose_fence_);
+            render_finished_semaphore_will_be_signalled_ = false;
+        }
+
         // TODO FIXME OPTIMIZE this is kinda dumb
         for (u32fast i = 0; i < sim_data.particle_count; i++) {
             p_particles[i].coord = sim_data.p_positions[i];
@@ -1259,7 +1346,14 @@ int main(int argc, char** argv) {
                 // different times in the same frame.
                 glfwPollEvents();
                 checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
+
+                // TODO FIXME: having to remember to reset these things every time you `continue` to the next
+                // main loop iteration is going to lead to bugs. Do something more sane.
                 ImGui::EndFrame();
+                if (sim_finished_semaphore_will_be_signalled_) {
+                    clearSemaphore(gfx::getVkContext(), sim_finished_semaphore_, general_purpose_fence_);
+                    sim_finished_semaphore_will_be_signalled_ = false;
+                }
                 continue; // main loop
             }
         }
@@ -1331,7 +1425,13 @@ int main(int argc, char** argv) {
                     );
                     assertGraphics(gfx_result);
 
+                    // TODO FIXME: having to remember to reset these things every time you `continue` to the
+                    // next main loop iteration is going to lead to bugs. Do something more sane.
                     ImGui::EndFrame();
+                    if (sim_finished_semaphore_will_be_signalled_) {
+                        clearSemaphore(gfx::getVkContext(), sim_finished_semaphore_, general_purpose_fence_);
+                        sim_finished_semaphore_will_be_signalled_ = false;
+                    }
                     continue; // main loop
                 }
             }
@@ -1705,18 +1805,35 @@ int main(int argc, char** argv) {
             p_selected_voxel_indices_,
             (u32)sim_data.particle_count,
             p_particles,
-            false
+            false,
+            sim_finished_semaphore_will_be_signalled_ ? sim_finished_semaphore_ : VK_NULL_HANDLE,
+            render_finished_semaphore_
         );
+        sim_finished_semaphore_will_be_signalled_ = false;
 
         switch (render_result) {
             case gfx::RenderResult::error_surface_resources_out_of_date:
-            case gfx::RenderResult::success_surface_resources_out_of_date:
             {
+                render_finished_semaphore_will_be_signalled_ = false;
+                clearSemaphore(gfx::getVkContext(), sim_finished_semaphore_, general_purpose_fence_);
+
                 LOG_F(INFO, "Surface resources out of date.");
                 window_or_surface_out_of_date_ = true;
-                continue; // main loop
+                break;
             }
-            case gfx::RenderResult::success: break;
+            case gfx::RenderResult::success_surface_resources_out_of_date:
+            {
+                render_finished_semaphore_will_be_signalled_ = true;
+
+                LOG_F(INFO, "Surface resources out of date.");
+                window_or_surface_out_of_date_ = true;
+                break;
+            }
+            case gfx::RenderResult::success:
+            {
+                render_finished_semaphore_will_be_signalled_ = true;
+                break;
+            }
         }
 
         frame_counter++;

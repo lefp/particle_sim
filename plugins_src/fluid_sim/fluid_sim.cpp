@@ -1384,9 +1384,17 @@ extern "C" void destroy(SimData* s, const VulkanContext* vk_ctx) {
 }
 
 
-extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
+extern "C" void advance(
+    SimData* s,
+    const VulkanContext* vk_ctx,
+    f32 delta_t,
+    VkSemaphore optional_wait_semaphore,
+    VkSemaphore optional_signal_semaphore
+) {
 
     ZoneScoped;
+
+    VkResult result = VK_ERROR_UNKNOWN;
 
 
     assert(delta_t > 1e-5); // assert nonzero
@@ -1506,11 +1514,37 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
     }
 
 
+    // OPTIMIZE we can probably wait later than here
+    if (optional_wait_semaphore != VK_NULL_HANDLE) {
+
+        ZoneScoped;
+
+        const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+        VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &optional_wait_semaphore,
+            .pWaitDstStageMask = &wait_stage,
+            .commandBufferCount = 0,
+            .pCommandBuffers = NULL,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = NULL,
+        };
+        result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
+        assertVk(result);
+
+        result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, true, UINT64_MAX);
+        assertVk(result);
+
+        result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
+        assertVk(result);
+    }
+
     uploadDataToGpu(s, vk_ctx);
-    // TODO: if a renderer directly uses our positions buffer, wait for the renderer to finish
 
 
-    VkResult result = vk_ctx->procs_dev.ResetCommandBuffer(s->gpu_resources.command_buffer, 0);
+    result = vk_ctx->procs_dev.ResetCommandBuffer(s->gpu_resources.command_buffer, 0);
     assertVk(result);
 
     VkCommandBufferBeginInfo begin_info {
@@ -1575,8 +1609,8 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
             .pWaitDstStageMask = 0,
             .commandBufferCount = 1,
             .pCommandBuffers = &s->gpu_resources.command_buffer,
-            .signalSemaphoreCount = 0,
-            .pSignalSemaphores = NULL,
+            .signalSemaphoreCount = optional_signal_semaphore == VK_NULL_HANDLE ? (u32)0 : (u32)1,
+            .pSignalSemaphores = &optional_signal_semaphore,
         };
         result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
         assertVk(result);

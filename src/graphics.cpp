@@ -3548,7 +3548,9 @@ RenderResult render(
     const u32* p_outlined_voxel_indices,
     u32 particle_count,
     const Particle* p_particles,
-    bool fancy_particle_rendering
+    bool fancy_particle_rendering,
+    VkSemaphore optional_wait_semaphore, // optional
+    VkSemaphore optional_signal_semaphore // optional
 ) {
 
     ZoneScoped;
@@ -3822,18 +3824,31 @@ RenderResult render(
     assertVk(result);
 
 
-    constexpr u32 wait_semaphore_count = 1;
-    const VkSemaphore wait_semaphores[wait_semaphore_count] {
+    constexpr u32 wait_semaphore_base_count = 1;
+    const u32 wait_semaphore_count =
+        wait_semaphore_base_count +
+        (optional_wait_semaphore == VK_NULL_HANDLE ? 0 : 1);
+
+    const VkSemaphore wait_semaphores[wait_semaphore_base_count + 1] {
         swapchain_image_acquired_semaphore,
+        optional_wait_semaphore
     };
-    const VkPipelineStageFlags wait_dst_stage_mask[wait_semaphore_count] {
+    const VkPipelineStageFlags wait_dst_stage_mask[wait_semaphore_base_count + 1] {
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
     };
 
-    constexpr u32 signal_semaphore_count = 1;
-    const VkSemaphore signal_semaphores[signal_semaphore_count] {
+
+    constexpr u32 signal_semaphore_base_count = 1;
+    const u32 signal_semaphore_count =
+        signal_semaphore_base_count +
+        (optional_signal_semaphore == VK_NULL_HANDLE ? 0 : 1);
+
+    const VkSemaphore signal_semaphores[signal_semaphore_base_count + 1] {
         this_frame_resources->render_finished_semaphore,
+        optional_signal_semaphore
     };
+
 
     const VkSubmitInfo submit_info {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
