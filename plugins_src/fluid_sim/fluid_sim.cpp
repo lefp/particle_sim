@@ -7,11 +7,12 @@
 #define GLM_FORCE_EXPLICIT_CTOR
 #include <glm/glm.hpp>
 #include <loguru/loguru.hpp>
-#include <tracy/tracy/Tracy.hpp>
 #define VMA_IMPLEMENTATION
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #include <VulkanMemoryAllocator/vk_mem_alloc.h>
+#include <tracy/tracy/Tracy.hpp>
+#include <tracy/tracy/TracyVulkan.hpp>
 
 #include "../src/types.hpp"
 #include "../src/error_util.hpp"
@@ -1508,16 +1509,18 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
     uploadDataToGpu(s, vk_ctx);
     // TODO: if a renderer directly uses our positions buffer, wait for the renderer to finish
 
-    {
-        VkResult result = vk_ctx->procs_dev.ResetCommandBuffer(s->gpu_resources.command_buffer, 0);
-        assertVk(result);
 
-        VkCommandBufferBeginInfo begin_info {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        };
-        result = vk_ctx->procs_dev.BeginCommandBuffer(s->gpu_resources.command_buffer, &begin_info);
-        assertVk(result);
+    VkResult result = vk_ctx->procs_dev.ResetCommandBuffer(s->gpu_resources.command_buffer, 0);
+    assertVk(result);
+
+    VkCommandBufferBeginInfo begin_info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+    result = vk_ctx->procs_dev.BeginCommandBuffer(s->gpu_resources.command_buffer, &begin_info);
+    assertVk(result);
+    {
+        TracyVkZone(vk_ctx->tracy_vk_ctx, s->gpu_resources.command_buffer, "sim");
 
         const PushConstants push_constants {
             .domain_min = domain_min,
@@ -1557,32 +1560,34 @@ extern "C" void advance(SimData* s, const VulkanContext* vk_ctx, f32 delta_t) {
             1 // groupCountZ
         );
 
-        result = vk_ctx->procs_dev.EndCommandBuffer(s->gpu_resources.command_buffer);
+        TracyVkCollect(vk_ctx->tracy_vk_ctx, s->gpu_resources.command_buffer);
+    }
+    result = vk_ctx->procs_dev.EndCommandBuffer(s->gpu_resources.command_buffer);
+    assertVk(result);
+
+    {
+        ZoneScopedN("SubmitCommandBufferAndWaitForFences");
+
+        const VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = NULL,
+            .pWaitDstStageMask = 0,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &s->gpu_resources.command_buffer,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = NULL,
+        };
+        result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
         assertVk(result);
 
-        {
-            ZoneScopedN("SubmitCommandBufferAndWaitForFences");
-
-            const VkSubmitInfo submit_info {
-                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                .waitSemaphoreCount = 0,
-                .pWaitSemaphores = NULL,
-                .pWaitDstStageMask = 0,
-                .commandBufferCount = 1,
-                .pCommandBuffers = &s->gpu_resources.command_buffer,
-                .signalSemaphoreCount = 0,
-                .pSignalSemaphores = NULL,
-            };
-            result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
-            assertVk(result);
-
-            result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, true, UINT64_MAX);
-            assertVk(result);
-        }
-
-        result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
+        result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, true, UINT64_MAX);
         assertVk(result);
     }
+
+    result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
+    assertVk(result);
+
 
     downloadDataFromGpu(s, vk_ctx);
 };

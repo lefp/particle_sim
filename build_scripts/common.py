@@ -47,7 +47,7 @@ def getCompilerFlag_g() -> list[str]:
 
 def getCompilerFlags_TracyDefines() -> list[str]:
     if isTracyEnabled():
-        return ['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND', '-DTRACY_NO_BROADCAST']
+        return ['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND', '-DTRACY_NO_BROADCAST', '-DTRACY_VK_USE_SYMBOL_TABLE']
     else:
         return []
 

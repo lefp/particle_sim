@@ -33,6 +33,7 @@
 #include <shaderc/shaderc.h>
 
 #include <tracy/tracy/Tracy.hpp>
+#include <tracy/tracy/TracyVulkan.hpp>
 
 #include "types.hpp"
 #include "math_util.hpp"
@@ -2640,6 +2641,42 @@ extern void init(const char* app_name, const char* specific_named_device_request
     }
 
 
+    tracy::VkCtx* tracy_vk_ctx = NULL;
+    #ifdef TRACY_ENABLE
+    {
+        VkCommandPool tracy_command_pool = VK_NULL_HANDLE;
+        {
+            VkCommandPoolCreateInfo command_pool_info {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+                .queueFamilyIndex = queue_family_,
+            };
+            result = vk_dev_procs.CreateCommandPool(device_, &command_pool_info, NULL, &tracy_command_pool);
+            assertVk(result);
+        }
+
+        VkCommandBuffer tracy_command_buffer = NULL;
+        {
+            VkCommandBufferAllocateInfo cmd_buf_alloc_info {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                .commandPool = tracy_command_pool,
+                .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                .commandBufferCount = 1,
+            };
+            result = vk_dev_procs.AllocateCommandBuffers(device_, &cmd_buf_alloc_info, &tracy_command_buffer);
+            assertVk(result);
+        }
+
+        // TODO FIXME Use TracyVkContextCalibrated? (See Tracy manual for additonal required parameters)
+        tracy_vk_ctx = TracyVkContext(
+            instance_, physical_device_, device_, queue_, tracy_command_buffer,
+            vk_base_procs.GetInstanceProcAddr, vk_inst_procs.GetDeviceProcAddr
+        );
+        alwaysAssert(tracy_vk_ctx != NULL);
+    }
+    #endif
+
+
     // TODO FIXME: use this to store all these things, instead of just copying them over into it
     vk_ctx_ = VulkanContext {
         .procs_base = vk_base_procs,
@@ -2653,6 +2690,8 @@ extern void init(const char* app_name, const char* specific_named_device_request
         .queue = queue_,
 
         .physical_device_properties = physical_device_properties_,
+
+        .tracy_vk_ctx = tracy_vk_ctx,
     };
 
 
@@ -3672,6 +3711,7 @@ RenderResult render(
     result = vk_dev_procs.BeginCommandBuffer(command_buffer, &begin_info);
     assertVk(result);
     {
+        TracyVkZone(vk_ctx_.tracy_vk_ctx, command_buffer, "render");
         ZoneScopedN("cmd buf record");
 
         {
@@ -3775,6 +3815,8 @@ RenderResult render(
                 &color_image_barrier // pImageMemoryBarriers
             );
         }
+
+        TracyVkCollect(vk_ctx_.tracy_vk_ctx, command_buffer);
     }
     result = vk_dev_procs.EndCommandBuffer(command_buffer);
     assertVk(result);
