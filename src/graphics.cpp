@@ -525,6 +525,29 @@ static void _assertGraphics(Result result, const char* file, int line) {
 #define assertGraphics(result) _assertGraphics(result, __FILE__, __LINE__)
 
 
+// Use for clearing / signalling semaphores.
+static void emptyQueueSubmit(
+    const VulkanContext* vk_ctx,
+    VkSemaphore optional_wait_semaphore,
+    VkSemaphore optional_signal_semaphore,
+    VkFence optional_signal_fence
+) {
+
+    VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+    VkSubmitInfo submit_info {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = optional_wait_semaphore == VK_NULL_HANDLE ? (u32)0 : (u32)1,
+        .pWaitSemaphores = &optional_wait_semaphore,
+        .pWaitDstStageMask = &wait_dst_stage_mask,
+        .signalSemaphoreCount = optional_signal_semaphore == VK_NULL_HANDLE ? (u32)0 : (u32)1,
+        .pSignalSemaphores = &optional_signal_semaphore,
+    };
+    VkResult result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, optional_signal_fence);
+    assertVk(result);
+}
+
+
 /// If no satisfactory device is found, `device_out` is set to `VK_NULL_HANDLE`.
 /// You may request a specific physical device using `specific_physical_device_request`.
 ///     That device is selected iff it exists and satisfies requirements (ignoring `device_type_priorities`).
@@ -3562,6 +3585,7 @@ RenderResult render(
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
             LOG_F(INFO, "acquireNextImageKHR returned VK_ERROR_OUT_OF_DATE_KHR. `render()` returning early.");
+            emptyQueueSubmit(&vk_ctx_, optional_wait_semaphore, optional_signal_semaphore, VK_NULL_HANDLE);
             return RenderResult::error_surface_resources_out_of_date;
         }
         else if (result == VK_SUBOPTIMAL_KHR) {} // do nothing; we'll handle it after vkQueuePresentKHR

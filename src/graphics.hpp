@@ -138,6 +138,8 @@ Result createRenderer(
 );
 
 /// If `imgui_draw_data` is non-null, calls `ImGui_ImplVulkan_RenderDrawData`.
+/// `optional_wait_semaphore` will be eventually be cleared, and `optional_signal_semaphore` will eventually
+/// be signalled, even if rendering fails.
 RenderResult render(
     SurfaceResources surface,
     VkRect2D window_subregion,

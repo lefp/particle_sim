@@ -1810,30 +1810,17 @@ int main(int argc, char** argv) {
             render_finished_semaphore_
         );
         sim_finished_semaphore_will_be_signalled_ = false;
+        render_finished_semaphore_will_be_signalled_ = true;
 
         switch (render_result) {
             case gfx::RenderResult::error_surface_resources_out_of_date:
-            {
-                render_finished_semaphore_will_be_signalled_ = false;
-                clearSemaphore(gfx::getVkContext(), sim_finished_semaphore_, general_purpose_fence_);
-
-                LOG_F(INFO, "Surface resources out of date.");
-                window_or_surface_out_of_date_ = true;
-                break;
-            }
             case gfx::RenderResult::success_surface_resources_out_of_date:
             {
-                render_finished_semaphore_will_be_signalled_ = true;
-
                 LOG_F(INFO, "Surface resources out of date.");
                 window_or_surface_out_of_date_ = true;
                 break;
             }
-            case gfx::RenderResult::success:
-            {
-                render_finished_semaphore_will_be_signalled_ = true;
-                break;
-            }
+            case gfx::RenderResult::success: break;
         }
 
         frame_counter++;
