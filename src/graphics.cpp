@@ -387,10 +387,6 @@ struct RenderResourcesImpl {
         VmaAllocation outlined_voxels_index_buffer_allocation;
         VmaAllocationInfo outlined_voxels_index_buffer_allocation_info;
 
-        VkBuffer particles_buffer;
-        VmaAllocation particles_buffer_allocation;
-        VmaAllocationInfo particles_buffer_allocation_info;
-
         VkDescriptorSet descriptor_set;
 
         // Lifetime: as long as this RenderResourcesImpl is attached to a SurfaceImpl.
@@ -2214,6 +2210,7 @@ static bool recordCommandBuffer(
     u32 voxel_count,
     u32 outlined_voxel_count,
     u32 particle_count,
+    VkBuffer particles_vertex_buffer,
     VkExtent2D dst_image_extent,
     VkRect2D dst_image_roi,
     VkImageView dst_image_view,
@@ -2342,7 +2339,7 @@ static bool recordCommandBuffer(
 
             VkDeviceSize offset_in_vertex_buf = 0;
             vk_dev_procs.CmdBindVertexBuffers(
-                command_buffer, 0, 1, &p_frame_resources->particles_buffer, &offset_in_vertex_buf
+                command_buffer, 0, 1, &particles_vertex_buffer, &offset_in_vertex_buf
             );
 
             vk_dev_procs.CmdDraw(command_buffer, 36, particle_count, 0, 0);
@@ -3084,7 +3081,11 @@ extern Result updateSurfaceResources(
 }
 
 
-extern Result createRenderer(RenderResources* render_resources_out) {
+extern Result createRenderer(
+    RenderResources* render_resources_out,
+    VkDeviceSize particles_buffer_size,
+    VkBuffer particles_buffer
+) {
     ZoneScoped;
 
     VkResult result;
@@ -3238,31 +3239,6 @@ extern Result createRenderer(RenderResources* render_resources_out) {
             assertVk(result);
         }
 
-        VkBuffer* p_particles_buffer = &this_frame_resources->particles_buffer;
-        VmaAllocation* p_particles_buffer_allocation = &this_frame_resources->particles_buffer_allocation;
-        VmaAllocationInfo* p_particles_buffer_allocation_info = &this_frame_resources->particles_buffer_allocation_info;
-        {
-            // TODO are we guaranteed to have a memory type supporting both HOST_VISIBLE and USAGE_VERTEX_BUFFER?
-            VkBufferCreateInfo particles_buffer_info {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = MAX_VOXEL_COUNT * sizeof(Particle),
-                .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                .queueFamilyIndexCount = 1,
-                .pQueueFamilyIndices = &queue_family_,
-            };
-            VmaAllocationCreateInfo particles_buffer_alloc_info {
-                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-                .usage = VMA_MEMORY_USAGE_AUTO,
-                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-            };
-            result = vmaCreateBuffer(
-                vma_allocator_, &particles_buffer_info, &particles_buffer_alloc_info,
-                p_particles_buffer, p_particles_buffer_allocation, p_particles_buffer_allocation_info
-            );
-            assertVk(result);
-        }
-
         VkBuffer* p_outlined_voxels_index_buffer = &this_frame_resources->outlined_voxels_index_buffer;
         VmaAllocation* p_outlined_voxels_index_buffer_allocation = &this_frame_resources->outlined_voxels_index_buffer_allocation;
         VmaAllocationInfo* p_outlined_voxels_index_buffer_allocation_info = &this_frame_resources->outlined_voxels_index_buffer_allocation_info;
@@ -3344,10 +3320,9 @@ extern Result createRenderer(RenderResources* render_resources_out) {
 
         {
             descriptor_buffer_infos[descriptor_write_idx] = VkDescriptorBufferInfo {
-                .buffer = p_render_resources->frame_resources_array[frame_idx].particles_buffer,
+                .buffer = particles_buffer,
                 .offset = 0,
-                // TODO FIXME create a constant MAX_PARTICLE_COUNT and use it here and other places.
-                .range = MAX_VOXEL_COUNT * sizeof(Particle),
+                .range = particles_buffer_size,
             };
             descriptor_writes[descriptor_write_idx] = VkWriteDescriptorSet {
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -3547,7 +3522,7 @@ RenderResult render(
     u32 outlined_voxel_index_count,
     const u32* p_outlined_voxel_indices,
     u32 particle_count,
-    const Particle* p_particles,
+    VkBuffer particles_vertex_buffer,
     bool fancy_particle_rendering,
     VkSemaphore optional_wait_semaphore, // optional
     VkSemaphore optional_signal_semaphore // optional
@@ -3642,22 +3617,6 @@ RenderResult render(
 
             const VkDeviceSize memcpy_size = voxel_count * sizeof(Voxel);
             memcpy(ptr_to_mapped_memory, p_voxels, memcpy_size);
-
-            result = vmaFlushAllocation(vma_allocator_, allocation, 0, memcpy_size);
-            assertVk(result);
-
-            vmaUnmapMemory(vma_allocator_, allocation);
-        }
-
-        {
-            const VmaAllocation allocation = this_frame_resources->particles_buffer_allocation;
-
-            void* ptr_to_mapped_memory = NULL;
-            result = vmaMapMemory(vma_allocator_, allocation, &ptr_to_mapped_memory);
-            assertVk(result);
-
-            const VkDeviceSize memcpy_size = particle_count * sizeof(Particle);
-            memcpy(ptr_to_mapped_memory, p_particles, memcpy_size);
 
             result = vmaFlushAllocation(vma_allocator_, allocation, 0, memcpy_size);
             assertVk(result);
@@ -3766,6 +3725,7 @@ RenderResult render(
             voxel_count,
             outlined_voxel_index_count,
             particle_count,
+            particles_vertex_buffer,
             p_surface_resources->swapchain_extent,
             window_subregion,
             p_surface_resources->swapchain_image_views[acquired_swapchain_image_idx],

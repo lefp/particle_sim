@@ -1626,6 +1626,16 @@ extern "C" void advance(
     downloadDataFromGpu(s, vk_ctx);
 };
 
+
+extern "C" void getPositionsVertexBuffer(
+    const SimData* s,
+    VkBuffer* buffer_out,
+    VkDeviceSize* buffer_size_out
+) {
+    *buffer_out = s->gpu_resources.buffer_positions;
+    *buffer_size_out = s->particle_count * sizeof(vec4);
+}
+
 //
 // ===========================================================================================================
 //

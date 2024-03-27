@@ -701,7 +701,16 @@ static fluid_sim::SimData initFluidSim(const fluid_sim::SimParameters* params) {
                 (f32)rand() / (f32)RAND_MAX,
             };
 
+            u8vec4 color = u8vec4(
+                0.f, 50.f + 150.f * ((f32)particle_idx / (f32)particle_count), 255.f,
+                255.f
+            );
+
             *(vec3*)(&p_initial_particles[particle_idx]) = (random_0_to_1 - 0.5f) * 5.0f;
+
+            // TODO FIXME: This relies on the fact that the fluid simulator doesn't modify the w component;
+            // but the fluid simulator makes no such guarantee.
+            p_initial_particles[particle_idx].w = *(f32*)(&color);
         }
 
         sim_data = fluid_sim_procs_->create(
@@ -1021,11 +1030,6 @@ int main(int argc, char** argv) {
     gfx::setGridEnabled(grid_shader_enabled_);
 
 
-    gfx::RenderResources gfx_renderer {};
-    gfx::Result result_gfx = gfx::createRenderer(&gfx_renderer);
-    assertGraphics(result_gfx);
-
-
     {
         VkResult result = VK_ERROR_UNKNOWN;
         const VulkanContext* vk_ctx = gfx::getVkContext();
@@ -1100,25 +1104,6 @@ int main(int argc, char** argv) {
     // something that doesn't waste resources
 
 
-    memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
-
-    gfx::SurfaceResources gfx_surface {};
-    result_gfx = gfx::createSurfaceResources(
-        vk_surface,
-        present_mode_priorities_,
-        VkExtent2D { .width = (u32)window_size_.x, .height = (u32)window_size_.y },
-        &gfx_surface,
-        &present_mode_
-    );
-    // TODO handle error_window_size_zero
-    assertGraphics(result_gfx);
-
-    window_draw_region_ = centeredSubregion_16x9((u32)window_size_.x, (u32)window_size_.y);
-
-
-    gfx::attachSurfaceToRenderer(gfx_surface, gfx_renderer);
-
-
     ImGuiContext* imgui_context = ImGui::CreateContext();
     alwaysAssert(imgui_context != NULL);
 
@@ -1167,16 +1152,36 @@ int main(int argc, char** argv) {
 
     fluid_sim_plugin_versions_.push(fluid_sim_procs_);
 
-
     fluid_sim::SimData sim_data = initFluidSim(&fluid_sim_params_);
 
-    gfx::Particle* p_particles = callocArray(sim_data.particle_count, gfx::Particle);
-    for (u32fast i = 0; i < sim_data.particle_count; i++) {
-        p_particles[i].color = u8vec4(
-            0.f, 50.f + 150.f * ((f32)i / (f32)sim_data.particle_count), 255.f,
-            255.f
-        );
-    }
+
+    gfx::RenderResources gfx_renderer {};
+
+    VkBuffer sim_vkbuffer = VK_NULL_HANDLE;
+    VkDeviceSize sim_vkbuffer_size = 0;
+    fluid_sim_procs_->getPositionsVertexBuffer(&sim_data, &sim_vkbuffer, &sim_vkbuffer_size);
+
+    gfx::Result result_gfx = gfx::createRenderer(&gfx_renderer, sim_vkbuffer_size, sim_vkbuffer);
+    assertGraphics(result_gfx);
+
+
+    memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
+
+    gfx::SurfaceResources gfx_surface {};
+    result_gfx = gfx::createSurfaceResources(
+        vk_surface,
+        present_mode_priorities_,
+        VkExtent2D { .width = (u32)window_size_.x, .height = (u32)window_size_.y },
+        &gfx_surface,
+        &present_mode_
+    );
+    // TODO handle error_window_size_zero
+    assertGraphics(result_gfx);
+
+    window_draw_region_ = centeredSubregion_16x9((u32)window_size_.x, (u32)window_size_.y);
+
+
+    gfx::attachSurfaceToRenderer(gfx_surface, gfx_renderer);
 
 
     checkedGlfwGetCursorPos(window, &cursor_pos_.x, &cursor_pos_.y);
@@ -1236,11 +1241,6 @@ int main(int argc, char** argv) {
         else if (render_finished_semaphore_will_be_signalled_) {
             clearSemaphore(gfx::getVkContext(), render_finished_semaphore_, general_purpose_fence_);
             render_finished_semaphore_will_be_signalled_ = false;
-        }
-
-        // TODO FIXME OPTIMIZE this is kinda dumb
-        for (u32fast i = 0; i < sim_data.particle_count; i++) {
-            p_particles[i].coord = sim_data.p_positions[i];
         }
 
         // autoreload
@@ -1804,7 +1804,7 @@ int main(int argc, char** argv) {
             (u32)selected_voxel_index_count_,
             p_selected_voxel_indices_,
             (u32)sim_data.particle_count,
-            p_particles,
+            sim_vkbuffer,
             false,
             sim_finished_semaphore_will_be_signalled_ ? sim_finished_semaphore_ : VK_NULL_HANDLE,
             render_finished_semaphore_

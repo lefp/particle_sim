@@ -131,7 +131,11 @@ void destroySurfaceResources(SurfaceResources);
 void attachSurfaceToRenderer(SurfaceResources surface, RenderResources renderer);
 void detachSurfaceFromRenderer(SurfaceResources surface, RenderResources renderer);
 
-Result createRenderer(RenderResources* render_resources_out);
+Result createRenderer(
+    RenderResources* render_resources_out,
+    VkDeviceSize particles_buffer_size,
+    VkBuffer particles_buffer
+);
 
 /// If `imgui_draw_data` is non-null, calls `ImGui_ImplVulkan_RenderDrawData`.
 RenderResult render(
@@ -147,7 +151,7 @@ RenderResult render(
     u32 outlined_voxel_index_count,
     const u32* p_outlined_voxel_indices,
     u32 particle_count,
-    const Particle* p_particles,
+    VkBuffer particles_vertex_buffer,
     bool fancy_particle_rendering,
     VkSemaphore optional_wait_semaphore, // optional
     VkSemaphore optional_signal_semaphore // optional

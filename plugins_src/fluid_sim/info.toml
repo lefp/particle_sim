@@ -44,3 +44,12 @@ args = [
 ]
 return = "void"
 
+[[procedures]]
+name = "getPositionsVertexBuffer"
+args = [
+  { type = "const SimData*" },
+  { type = "VkBuffer*", name = "buffer_out" },
+  { type = "VkDeviceSize*", name = "buffer_size_out" },
+]
+return = "void"
+
