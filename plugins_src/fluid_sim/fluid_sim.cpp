@@ -430,6 +430,9 @@ static inline uvec3 cellIndex(vec3 particle, vec3 domain_min, f32 cell_size_reci
 //     3. On AMD Zen 1 and Zen 2, PDEP is slow as shit. https://fgiesen.wordpress.com/2022/09/09/morton-codes-addendum/
 static inline u32 cellMortonCode(uvec3 cell_index) {
 
+    // OPTIMIZE: if you do this using inline assembly instead of the intrinsics, you can use 1 less register
+    // and avoid the `or`s, if the compiler isn't already smart enough to do that.
+
     u32 result = 0;
     result |= _pdep_u32(cell_index.x, 0b00'001001001001001001001001001001);
     result |= _pdep_u32(cell_index.y, 0b00'010010010010010010010010010010);
