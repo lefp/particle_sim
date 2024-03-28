@@ -85,8 +85,14 @@ struct SimData {
     vec4* p_particles_scratch_buffer1;
     vec4* p_particles_scratch_buffer2;
 
+    // TODO FIXME: delete these, you can use the other scratch buffers
     u32* p_cells_scratch_buffer1;
     u32* p_cells_scratch_buffer2;
+
+    u32* p_scratch_u32_buffer_1;
+    u32* p_scratch_u32_buffer_2;
+    u32* p_scratch_u32_buffer_3;
+    u32* p_scratch_u32_buffer_4;
 
     // This is `\mathbb{C}_compact^begin` in the paper "Multi-Level Memory Structures for Simulating and
     // Rendering Smoothed Particle Hydrodynamics" by Winchenbach and Kolb.

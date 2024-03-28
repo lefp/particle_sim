@@ -46,8 +46,6 @@ constexpr struct {
 
 #define SWAP(a, b) \
 { \
-    static_assert(typeof(a) == typeof(b)); \
-    \
     typeof(a) _tmp = a; \
     a = b; \
     b = _tmp; \
@@ -446,29 +444,30 @@ static inline u32 mortonCodeHash(u32 cell_morton_code, u32 hash_modulus) {
 }
 
 
-/// Merge sort the particles by their Morton codes.
+/// Merge sort the Morton codes.
 /// If the result is written to a scratch buffer, swaps the scratch buffer pointer with the appropriate data
 /// buffer pointer.
-static void mergeSortByMortonCodes(
+static void mergeSortMortonCodes(
     const u64 arr_size,
-    vec4 **const pp_positions,
-    vec4 **const pp_velocities,
-    vec4 **const pp_scratch1,
-    vec4 **const pp_scratch2,
-    const vec3 domain_min,
-    const f32 cell_size_reciprocal
+    u32 **const pp_morton_codes,
+    u32 **const pp_permutation_out,
+    u32 **const pp_scratch1,
+    u32 **const pp_scratch2
 ) {
 
     ZoneScoped;
 
-
-    vec4* pos_arr1 = *pp_positions;
-    vec4* pos_arr2 = *pp_scratch1;
-
-    vec4* vel_arr1 = *pp_velocities;
-    vec4* vel_arr2 = *pp_scratch2;
-
     assert(arr_size >= 2);
+
+
+    u32* morton_code_arr1 = *pp_morton_codes;
+    u32* morton_code_arr2 = *pp_scratch1;
+
+    u32* permutation_arr1 = *pp_scratch2;
+    u32* permutation_arr2 = *pp_permutation_out;
+
+    for (u32 i = 0; i < (u32)arr_size; i++) permutation_arr1[i] = i;
+
 
     for (u64 bucket_size = 1; bucket_size < arr_size; bucket_size *= 2)
     {
@@ -487,51 +486,97 @@ static void mergeSortByMortonCodes(
             for (; idx_dst < idx_dst_max; idx_dst++)
             {
                 u32 morton_code_a;
-                if (idx_a < idx_a_max)
-                {
-                    vec3 particle_a = vec3(pos_arr1[idx_a]);
-                    const uvec3 cell_a = cellIndex(particle_a, domain_min, cell_size_reciprocal);
-                    morton_code_a = cellMortonCode(cell_a);
-                }
+                if (idx_a < idx_a_max) morton_code_a = morton_code_arr1[idx_a];
                 else morton_code_a = UINT32_MAX;
 
                 u32 morton_code_b;
-                if (idx_b < idx_b_max)
-                {
-                    vec3 particle_b = vec3(pos_arr1[idx_b]);
-                    const uvec3 cell_b = cellIndex(particle_b, domain_min, cell_size_reciprocal);
-                    morton_code_b = cellMortonCode(cell_b);
-                }
+                if (idx_b < idx_b_max) morton_code_b = morton_code_arr1[idx_b];
                 else morton_code_b = UINT32_MAX;
 
                 if (morton_code_a <= morton_code_b)
                 {
-                    pos_arr2[idx_dst] = pos_arr1[idx_a];
-                    vel_arr2[idx_dst] = vel_arr1[idx_a];
+                    morton_code_arr2[idx_dst] = morton_code_arr1[idx_a];
+                    permutation_arr2[idx_dst] = permutation_arr1[idx_a];
                     idx_a++;
                 }
                 else
                 {
-                    pos_arr2[idx_dst] = pos_arr1[idx_b];
-                    vel_arr2[idx_dst] = vel_arr1[idx_b];
+                    morton_code_arr2[idx_dst] = morton_code_arr1[idx_b];
+                    permutation_arr2[idx_dst] = permutation_arr1[idx_b];
                     idx_b++;
                 }
             }
         }
 
-        vec4* tmp = pos_arr1;
-        pos_arr1 = pos_arr2;
-        pos_arr2 = tmp;
-
-        tmp = vel_arr1;
-        vel_arr1 = vel_arr2;
-        vel_arr2 = tmp;
+        SWAP(morton_code_arr1, morton_code_arr2);
+        SWAP(permutation_arr1, permutation_arr2);
     }
 
-    *pp_positions = pos_arr1;
-    *pp_velocities = vel_arr1;
-    *pp_scratch1 = pos_arr2;
-    *pp_scratch2 = vel_arr2;
+    *pp_morton_codes = morton_code_arr1;
+    *pp_permutation_out = permutation_arr1;
+    *pp_scratch1 = morton_code_arr2;
+    *pp_scratch2 = permutation_arr2;
+}
+
+
+static void sortParticles(
+
+    const vec3 domain_min,
+    const f32 cell_size_reciprocal,
+
+    const u64 particle_count,
+
+    vec4** pp_positions,
+    vec4** pp_velocities,
+
+    vec4** pp_positions_scratch,
+    vec4** pp_velocities_scratch,
+
+    u32 *const p_scratch1,
+    u32 *const p_scratch2,
+    u32 *const p_scratch3,
+    u32 *const p_scratch4
+) {
+
+    u32* p_morton_codes = p_scratch1;
+    u32* p_permutation = p_scratch2;
+    u32* p_scratch_a = p_scratch3;
+    u32* p_scratch_b = p_scratch4;
+
+    vec4* p_positions_in = *pp_positions;
+    vec4* p_velocities_in = *pp_velocities;
+    vec4* p_positions_out = *pp_positions_scratch;
+    vec4* p_velocities_out = *pp_velocities_scratch;
+
+    for (u32fast i = 0; i < particle_count; i++)
+    {
+        p_morton_codes[i] =
+            cellMortonCode(cellIndex(vec3(p_positions_in[i]), domain_min, cell_size_reciprocal));
+    }
+
+    mergeSortMortonCodes(
+        particle_count,
+        &p_morton_codes,
+        &p_permutation,
+        &p_scratch_a,
+        &p_scratch_b
+    );
+
+    for (u32fast i = 0; i < particle_count; i++)
+    {
+        u32fast src_idx = p_permutation[i];
+
+        p_positions_out[i] = p_positions_in[src_idx];
+        p_positions_out[i] = p_positions_in[src_idx];
+
+        p_velocities_out[i] = p_velocities_in[src_idx];
+        p_velocities_out[i] = p_velocities_in[src_idx];
+    }
+
+    *pp_positions = p_positions_out;
+    *pp_velocities = p_velocities_out;
+    *pp_positions_scratch = p_positions_in;
+    *pp_velocities_scratch = p_velocities_in;
 }
 
 
@@ -1359,6 +1404,11 @@ extern "C" SimData create(
         s.p_cells_scratch_buffer1 = callocArray(particle_count + 1, u32);
         s.p_cells_scratch_buffer2 = callocArray(particle_count + 1, u32);
 
+        s.p_scratch_u32_buffer_1 = callocArray(particle_count + 1, u32);
+        s.p_scratch_u32_buffer_2 = callocArray(particle_count + 1, u32);
+        s.p_scratch_u32_buffer_3 = callocArray(particle_count + 1, u32);
+        s.p_scratch_u32_buffer_4 = callocArray(particle_count + 1, u32);
+
         // smallest prime number larger than the maximum number of particles
         // OPTIMIZE profile this and optimize if too slow
         u32fast hash_modulus = getNextPrimeNumberExclusive(particle_count);
@@ -1457,10 +1507,23 @@ extern "C" void advance(
         (void)cell_count; // to prevent "unused variable" complaints when compiling with NDEBUG
     }
 
-    mergeSortByMortonCodes(
+    sortParticles(
+
+        domain_min,
+        cell_size_reciprocal,
+
         particle_count,
-        &s->p_positions, &s->p_velocities, &s->p_particles_scratch_buffer1, &s->p_particles_scratch_buffer2,
-        domain_min, cell_size_reciprocal
+
+        &s->p_positions,
+        &s->p_velocities,
+
+        &s->p_particles_scratch_buffer1,
+        &s->p_particles_scratch_buffer2,
+
+        s->p_scratch_u32_buffer_1,
+        s->p_scratch_u32_buffer_2,
+        s->p_scratch_u32_buffer_3,
+        s->p_scratch_u32_buffer_4
     );
 
     // fill cell list
