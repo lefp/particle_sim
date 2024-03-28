@@ -30,6 +30,7 @@ return = "SimData"
 name = "destroy"
 args = [
   { type = "SimData*" },
+  { type = "const VulkanContext*" },
 ]
 return = "void"
 

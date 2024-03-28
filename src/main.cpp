@@ -1157,18 +1157,20 @@ int main(int argc, char** argv) {
 
     gfx::RenderResources gfx_renderer {};
 
-    VkBuffer sim_vkbuffer = VK_NULL_HANDLE;
-    VkDeviceSize sim_vkbuffer_size = 0;
-    fluid_sim_procs_->getPositionsVertexBuffer(&sim_data, &sim_vkbuffer, &sim_vkbuffer_size);
+    {
+        VkBuffer sim_vkbuffer = VK_NULL_HANDLE;
+        VkDeviceSize sim_vkbuffer_size = 0;
+        fluid_sim_procs_->getPositionsVertexBuffer(&sim_data, &sim_vkbuffer, &sim_vkbuffer_size);
 
-    gfx::Result result_gfx = gfx::createRenderer(&gfx_renderer, sim_vkbuffer_size, sim_vkbuffer);
-    assertGraphics(result_gfx);
+        gfx::Result result_gfx = gfx::createRenderer(&gfx_renderer, sim_vkbuffer_size, sim_vkbuffer);
+        assertGraphics(result_gfx);
+    }
 
 
     memcpy(present_mode_priorities_, DEFAULT_PRESENT_MODE_PRIORITIES, sizeof(present_mode_priorities_));
 
     gfx::SurfaceResources gfx_surface {};
-    result_gfx = gfx::createSurfaceResources(
+    gfx::Result result_gfx = gfx::createSurfaceResources(
         vk_surface,
         present_mode_priorities_,
         VkExtent2D { .width = (u32)window_size_.x, .height = (u32)window_size_.y },
@@ -1462,7 +1464,7 @@ int main(int argc, char** argv) {
                 if (res.sim_params_modified) fluid_sim_procs_->setParams(&sim_data, &fluid_sim_params_);
 
                 if (res.button_pressed_reset_state) {
-                    fluid_sim_procs_->destroy(&sim_data);
+                    fluid_sim_procs_->destroy(&sim_data, gfx::getVkContext());
                     sim_data = initFluidSim(&fluid_sim_params_);
                 }
 
@@ -1790,6 +1792,10 @@ int main(int argc, char** argv) {
 
         ImGui::Render();
         ImDrawData* imgui_draw_data = ImGui::GetDrawData();
+
+        VkBuffer sim_vkbuffer = VK_NULL_HANDLE;
+        VkDeviceSize sim_vkbuffer_size = 0;
+        fluid_sim_procs_->getPositionsVertexBuffer(&sim_data, &sim_vkbuffer, &sim_vkbuffer_size);
 
         gfx::RenderResult render_result = gfx::render(
             gfx_surface,
