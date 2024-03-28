@@ -75,6 +75,29 @@ struct PushConstants {
 };
 
 
+// Use for clearing / signalling semaphores.
+static void emptyQueueSubmit(
+    const VulkanContext* vk_ctx,
+    VkSemaphore optional_wait_semaphore,
+    VkSemaphore optional_signal_semaphore,
+    VkFence optional_signal_fence
+) {
+
+    VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+    VkSubmitInfo submit_info {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = optional_wait_semaphore == VK_NULL_HANDLE ? (u32)0 : (u32)1,
+        .pWaitSemaphores = &optional_wait_semaphore,
+        .pWaitDstStageMask = &wait_dst_stage_mask,
+        .signalSemaphoreCount = optional_signal_semaphore == VK_NULL_HANDLE ? (u32)0 : (u32)1,
+        .pSignalSemaphores = &optional_signal_semaphore,
+    };
+    VkResult result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, optional_signal_fence);
+    assertVk(result);
+}
+
+
 static void createDescriptorSet(
     const VulkanContext* vk_ctx,
     const VkBuffer p_buffers[7],
@@ -1345,6 +1368,10 @@ extern "C" SimData create(
         setParams(&s, params);
 
         s.gpu_resources = createGpuResources(vk_ctx, particle_count, hash_modulus);
+
+        uploadDataToGpu(&s, vk_ctx);
+        // signal the fence, so that we don't deadlock when waiting for it in `advance()`.
+        emptyQueueSubmit(vk_ctx, VK_NULL_HANDLE, VK_NULL_HANDLE, s.gpu_resources.fence);
     }
 
     LOG_F(
@@ -1394,8 +1421,19 @@ extern "C" void advance(
 
     VkResult result = VK_ERROR_UNKNOWN;
 
-
     assert(delta_t > 1e-5); // assert nonzero
+
+
+    {
+        ZoneScopedN("WaitForFences");
+        result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, true, UINT64_MAX);
+        assertVk(result);
+    }
+    result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
+    assertVk(result);
+
+    downloadDataFromGpu(s, vk_ctx);
+
 
     const u32fast particle_count = s->particle_count;
     const f32 cell_size_reciprocal = s->parameters.cell_size_reciprocal;
@@ -1598,7 +1636,7 @@ extern "C" void advance(
     assertVk(result);
 
     {
-        ZoneScopedN("SubmitCommandBufferAndWaitForFences");
+        ZoneScopedN("SubmitCommandBuffer");
 
         const VkSubmitInfo submit_info {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -1612,16 +1650,7 @@ extern "C" void advance(
         };
         result = vk_ctx->procs_dev.QueueSubmit(vk_ctx->queue, 1, &submit_info, s->gpu_resources.fence);
         assertVk(result);
-
-        result = vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, true, UINT64_MAX);
-        assertVk(result);
     }
-
-    result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
-    assertVk(result);
-
-
-    downloadDataFromGpu(s, vk_ctx);
 };
 
 

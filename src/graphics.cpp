@@ -525,7 +525,7 @@ static void _assertGraphics(Result result, const char* file, int line) {
 #define assertGraphics(result) _assertGraphics(result, __FILE__, __LINE__)
 
 
-// Use for clearing / signalling semaphores.
+// Use for clearing / signalling semaphores, and signalling fences.
 static void emptyQueueSubmit(
     const VulkanContext* vk_ctx,
     VkSemaphore optional_wait_semaphore,
