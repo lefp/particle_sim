@@ -1029,8 +1029,6 @@ static void destroyGpuResources(GpuResources* res, const VulkanContext* vk_ctx) 
     vk_ctx->procs_dev.FreeCommandBuffers(vk_ctx->device, res->command_pool, 1, &res->command_buffer);
     vk_ctx->procs_dev.DestroyCommandPool(vk_ctx->device, res->command_pool, NULL);
 
-    result = vk_ctx->procs_dev.FreeDescriptorSets(vk_ctx->device, res->descriptor_pool, 1, &res->descriptor_set);
-    assertVk(result);
     vk_ctx->procs_dev.DestroyDescriptorPool(vk_ctx->device, res->descriptor_pool, NULL);
     vk_ctx->procs_dev.DestroyDescriptorSetLayout(vk_ctx->device, res->descriptor_set_layout, NULL);
 
