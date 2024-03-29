@@ -490,7 +490,7 @@ static inline void mergeSort_merge(
 /// If the result is written to a scratch buffer, swaps the scratch buffer pointer with the appropriate data
 /// buffer pointer.
 static void mergeSortMortonCodes(
-    const u64 arr_size, // TODO why is this u64? switch to u32fast here and in the procedure body
+    const u32fast arr_size,
     u32 **const pp_morton_codes,
     u32 **const pp_permutation_out,
     u32 **const pp_scratch1,
@@ -511,19 +511,19 @@ static void mergeSortMortonCodes(
     for (u32 i = 0; i < (u32)arr_size; i++) permutation_arr1[i] = i;
 
 
-    for (u64 bucket_size = 1; bucket_size < arr_size; bucket_size *= 2)
+    for (u32fast bucket_size = 1; bucket_size < arr_size; bucket_size *= 2)
     {
-        const u64 bucket_count = arr_size / bucket_size;
+        const u32fast bucket_count = arr_size / bucket_size;
 
-        for (u64 bucket_idx = 0; bucket_idx < bucket_count; bucket_idx += 2)
+        for (u32fast bucket_idx = 0; bucket_idx < bucket_count; bucket_idx += 2)
         {
-            u64 idx_a = (bucket_idx    ) * bucket_size;
-            u64 idx_b = (bucket_idx + 1) * bucket_size;
-            u64 idx_dst = idx_a;
+            u32fast idx_a = (bucket_idx    ) * bucket_size;
+            u32fast idx_b = (bucket_idx + 1) * bucket_size;
+            u32fast idx_dst = idx_a;
 
-            const u64 idx_a_max = glm::min(idx_a + bucket_size, arr_size);
-            const u64 idx_b_max = glm::min(idx_b + bucket_size, arr_size);
-            const u64 idx_dst_max = glm::min(idx_dst + 2*bucket_size, arr_size);
+            const u32fast idx_a_max = glm::min(idx_a + bucket_size, arr_size);
+            const u32fast idx_b_max = glm::min(idx_b + bucket_size, arr_size);
+            const u32fast idx_dst_max = glm::min(idx_dst + 2*bucket_size, arr_size);
 
             mergeSort_merge(
                 morton_code_arr1,
@@ -551,7 +551,7 @@ static void sortParticles(
     const vec3 domain_min,
     const f32 cell_size_reciprocal,
 
-    const u64 particle_count,
+    const u32fast particle_count,
 
     vec4** pp_positions,
     vec4** pp_velocities,
@@ -608,7 +608,7 @@ static void sortParticles(
 
 
 static void mergeSortByCellHashes(
-    const u64 array_size,
+    const u32fast array_size,
     u32 **const pp_cells,
     u32 **const pp_lengths,
     u32 **const pp_scratch1,
@@ -630,19 +630,19 @@ static void mergeSortByCellHashes(
     u32* lens_arr1 = *pp_lengths;
     u32* lens_arr2 = *pp_scratch2;
 
-    for (u64 bucket_size = 1; bucket_size < array_size; bucket_size *= 2)
+    for (u32fast bucket_size = 1; bucket_size < array_size; bucket_size *= 2)
     {
-        const u64 bucket_count = array_size / bucket_size;
+        const u32fast bucket_count = array_size / bucket_size;
 
-        for (u64 bucket_idx = 0; bucket_idx < bucket_count; bucket_idx += 2)
+        for (u32fast bucket_idx = 0; bucket_idx < bucket_count; bucket_idx += 2)
         {
-            u64 idx_a = (bucket_idx    ) * bucket_size;
-            u64 idx_b = (bucket_idx + 1) * bucket_size;
-            u64 idx_dst = idx_a;
+            u32fast idx_a = (bucket_idx    ) * bucket_size;
+            u32fast idx_b = (bucket_idx + 1) * bucket_size;
+            u32fast idx_dst = idx_a;
 
-            const u64 idx_a_max = glm::min(idx_a + bucket_size, array_size);
-            const u64 idx_b_max = glm::min(idx_b + bucket_size, array_size);
-            const u64 idx_dst_max = glm::min(idx_dst + 2*bucket_size, array_size);
+            const u32fast idx_a_max = glm::min(idx_a + bucket_size, array_size);
+            const u32fast idx_b_max = glm::min(idx_b + bucket_size, array_size);
+            const u32fast idx_dst_max = glm::min(idx_dst + 2*bucket_size, array_size);
 
             for (; idx_dst < idx_dst_max; idx_dst++)
             {
