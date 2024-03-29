@@ -457,7 +457,7 @@ static void mergeSortMortonCodes(
 
     ZoneScoped;
 
-    assert(arr_size >= 2);
+    if (arr_size < 2) return;
 
 
     u32* morton_code_arr1 = *pp_morton_codes;
