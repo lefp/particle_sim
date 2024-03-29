@@ -444,78 +444,6 @@ static inline u32 mortonCodeHash(u32 cell_morton_code, u32 hash_modulus) {
 }
 
 
-static void radixSortMortonCodes(
-    const u64 arr_size,
-    u32 **const pp_morton_codes,
-    u32 **const pp_permutation_out,
-    u32 **const pp_scratch1,
-    u32 **const pp_scratch2,
-    u32 **const pp_scratch3,
-    u32 **const pp_scratch4
-) {
-
-    ZoneScoped;
-
-    if (arr_size < 2) return;
-
-
-    u32* morton_code_arr1 = *pp_morton_codes;
-    u32* morton_code_arr2 = *pp_scratch1;
-    u32* morton_code_arr3 = *pp_scratch2;
-
-    u32* permutation_arr1 = *pp_scratch3;
-    u32* permutation_arr2 = *pp_scratch4;
-    u32* permutation_arr3 = *pp_permutation_out;
-
-    for (u32 i = 0; i < (u32)arr_size; i++) permutation_arr1[i] = i;
-
-
-    u32 mask = 0b00'000000000000000000000000000001;
-
-    while (mask <= 0b00'100000000000000000000000000000) // the Morton codes don't use the top two bits
-    {
-        u32 idx_arr2 = 0;
-        u32 idx_arr3 = 0;
-
-        for (u32 i = 0; i < arr_size; i++)
-        {
-            u32 morton_code = morton_code_arr1[i];
-            u32 permutation_val = permutation_arr1[i];
-
-            if (morton_code & mask)
-            {
-                morton_code_arr2[idx_arr2] = morton_code;
-                permutation_arr2[idx_arr2] = permutation_val;
-                idx_arr2++;
-            }
-            else
-            {
-                morton_code_arr3[idx_arr3] = morton_code;
-                permutation_arr3[idx_arr3] = permutation_val;
-                idx_arr3++;
-            }
-        }
-
-        assert(idx_arr2 + idx_arr3 == arr_size);
-        memcpy(&morton_code_arr3[idx_arr3], morton_code_arr2, idx_arr2 * sizeof(u32));
-        memcpy(&permutation_arr3[idx_arr3], permutation_arr2, idx_arr2 * sizeof(u32));
-
-        SWAP(morton_code_arr3, morton_code_arr1);
-        SWAP(permutation_arr3, permutation_arr1);
-
-        mask <<= 1;
-    }
-
-    *pp_morton_codes = morton_code_arr1;
-    *pp_scratch1 = morton_code_arr2;
-    *pp_scratch2 = morton_code_arr3;
-
-    *pp_permutation_out = permutation_arr1;
-    *pp_scratch3 = permutation_arr2;
-    *pp_scratch4 = permutation_arr3;
-}
-
-
 /// Merge sort the Morton codes.
 /// If the result is written to a scratch buffer, swaps the scratch buffer pointer with the appropriate data
 /// buffer pointer.
@@ -607,17 +535,13 @@ static void sortParticles(
     u32 *const p_scratch1,
     u32 *const p_scratch2,
     u32 *const p_scratch3,
-    u32 *const p_scratch4,
-    u32 *const p_scratch5,
-    u32 *const p_scratch6
+    u32 *const p_scratch4
 ) {
 
     u32* p_morton_codes = p_scratch1;
     u32* p_permutation = p_scratch2;
     u32* p_scratch_a = p_scratch3;
     u32* p_scratch_b = p_scratch4;
-    u32* p_scratch_c = p_scratch5;
-    u32* p_scratch_d = p_scratch6;
 
     vec4* p_positions_in = *pp_positions;
     vec4* p_velocities_in = *pp_velocities;
@@ -630,23 +554,13 @@ static void sortParticles(
             cellMortonCode(cellIndex(vec3(p_positions_in[i]), domain_min, cell_size_reciprocal));
     }
 
-    radixSortMortonCodes(
+    mergeSortMortonCodes(
         particle_count,
         &p_morton_codes,
         &p_permutation,
         &p_scratch_a,
-        &p_scratch_b,
-        &p_scratch_c,
-        &p_scratch_d
+        &p_scratch_b
     );
-    (void)mergeSortMortonCodes;
-    // mergeSortMortonCodes(
-    //     particle_count,
-    //     &p_morton_codes,
-    //     &p_permutation,
-    //     &p_scratch_a,
-    //     &p_scratch_b
-    // );
 
     for (u32fast i = 0; i < particle_count; i++)
     {
@@ -1609,9 +1523,7 @@ extern "C" void advance(
         s->p_scratch_u32_buffer_1,
         s->p_scratch_u32_buffer_2,
         s->p_scratch_u32_buffer_3,
-        s->p_scratch_u32_buffer_4,
-        s->p_cells_scratch_buffer1,
-        s->p_cells_scratch_buffer2
+        s->p_scratch_u32_buffer_4
     );
 
     // fill cell list
