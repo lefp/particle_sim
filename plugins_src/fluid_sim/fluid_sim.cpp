@@ -444,11 +444,53 @@ static inline u32 mortonCodeHash(u32 cell_morton_code, u32 hash_modulus) {
 }
 
 
+static inline void mergeSort_merge(
+
+    u32* morton_code_arr1,
+    u32* morton_code_arr2,
+    u32* permutation_arr1,
+    u32* permutation_arr2,
+
+    u32fast idx_a,
+    u32fast idx_b,
+    u32fast idx_dst,
+
+    u32fast idx_a_end,
+    u32fast idx_b_end,
+    u32fast idx_dst_end
+) {
+
+    for (; idx_dst < idx_dst_end; idx_dst++)
+    {
+        u32 morton_code_a;
+        if (idx_a < idx_a_end) morton_code_a = morton_code_arr1[idx_a];
+        else morton_code_a = UINT32_MAX;
+
+        u32 morton_code_b;
+        if (idx_b < idx_b_end) morton_code_b = morton_code_arr1[idx_b];
+        else morton_code_b = UINT32_MAX;
+
+        if (morton_code_a <= morton_code_b)
+        {
+            morton_code_arr2[idx_dst] = morton_code_arr1[idx_a];
+            permutation_arr2[idx_dst] = permutation_arr1[idx_a];
+            idx_a++;
+        }
+        else
+        {
+            morton_code_arr2[idx_dst] = morton_code_arr1[idx_b];
+            permutation_arr2[idx_dst] = permutation_arr1[idx_b];
+            idx_b++;
+        }
+    }
+}
+
+
 /// Merge sort the Morton codes.
 /// If the result is written to a scratch buffer, swaps the scratch buffer pointer with the appropriate data
 /// buffer pointer.
 static void mergeSortMortonCodes(
-    const u64 arr_size,
+    const u64 arr_size, // TODO why is this u64? switch to u32fast here and in the procedure body
     u32 **const pp_morton_codes,
     u32 **const pp_permutation_out,
     u32 **const pp_scratch1,
@@ -483,29 +525,14 @@ static void mergeSortMortonCodes(
             const u64 idx_b_max = glm::min(idx_b + bucket_size, arr_size);
             const u64 idx_dst_max = glm::min(idx_dst + 2*bucket_size, arr_size);
 
-            for (; idx_dst < idx_dst_max; idx_dst++)
-            {
-                u32 morton_code_a;
-                if (idx_a < idx_a_max) morton_code_a = morton_code_arr1[idx_a];
-                else morton_code_a = UINT32_MAX;
-
-                u32 morton_code_b;
-                if (idx_b < idx_b_max) morton_code_b = morton_code_arr1[idx_b];
-                else morton_code_b = UINT32_MAX;
-
-                if (morton_code_a <= morton_code_b)
-                {
-                    morton_code_arr2[idx_dst] = morton_code_arr1[idx_a];
-                    permutation_arr2[idx_dst] = permutation_arr1[idx_a];
-                    idx_a++;
-                }
-                else
-                {
-                    morton_code_arr2[idx_dst] = morton_code_arr1[idx_b];
-                    permutation_arr2[idx_dst] = permutation_arr1[idx_b];
-                    idx_b++;
-                }
-            }
+            mergeSort_merge(
+                morton_code_arr1,
+                morton_code_arr2,
+                permutation_arr1,
+                permutation_arr2,
+                idx_a, idx_b, idx_dst,
+                idx_a_max, idx_b_max, idx_dst_max
+            );
         }
 
         SWAP(morton_code_arr1, morton_code_arr2);
