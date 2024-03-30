@@ -6,6 +6,7 @@ other_source_files = [
   "libs/loguru/loguru.cpp",
   "src/error_util.cpp",
   "src/file_util.cpp",
+  "src/sort.cpp",
 ]
 
 [[procedures]]

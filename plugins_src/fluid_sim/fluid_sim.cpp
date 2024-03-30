@@ -22,6 +22,7 @@
 #include "../src/vk_procs.hpp"
 #include "../src/vulkan_context.hpp"
 #include "../src/defer.hpp"
+#include "../src/sort.hpp"
 #include "fluid_sim_types.hpp"
 
 namespace fluid_sim {
@@ -444,108 +445,6 @@ static inline u32 mortonCodeHash(u32 cell_morton_code, u32 hash_modulus) {
 }
 
 
-static inline void mergeSort_merge(
-
-    u32* morton_code_arr1,
-    u32* morton_code_arr2,
-    u32* permutation_arr1,
-    u32* permutation_arr2,
-
-    u32fast idx_a,
-    u32fast idx_b,
-    u32fast idx_dst,
-
-    u32fast idx_a_end,
-    u32fast idx_b_end,
-    u32fast idx_dst_end
-) {
-
-    for (; idx_dst < idx_dst_end; idx_dst++)
-    {
-        u32 morton_code_a;
-        if (idx_a < idx_a_end) morton_code_a = morton_code_arr1[idx_a];
-        else morton_code_a = UINT32_MAX;
-
-        u32 morton_code_b;
-        if (idx_b < idx_b_end) morton_code_b = morton_code_arr1[idx_b];
-        else morton_code_b = UINT32_MAX;
-
-        if (morton_code_a <= morton_code_b)
-        {
-            morton_code_arr2[idx_dst] = morton_code_arr1[idx_a];
-            permutation_arr2[idx_dst] = permutation_arr1[idx_a];
-            idx_a++;
-        }
-        else
-        {
-            morton_code_arr2[idx_dst] = morton_code_arr1[idx_b];
-            permutation_arr2[idx_dst] = permutation_arr1[idx_b];
-            idx_b++;
-        }
-    }
-}
-
-
-/// Merge sort the Morton codes.
-/// If the result is written to a scratch buffer, swaps the scratch buffer pointer with the appropriate data
-/// buffer pointer.
-static void mergeSortMortonCodes(
-    const u32fast arr_size,
-    u32 **const pp_morton_codes,
-    u32 **const pp_permutation_out,
-    u32 **const pp_scratch1,
-    u32 **const pp_scratch2
-) {
-
-    ZoneScoped;
-
-    if (arr_size < 2) return;
-
-
-    u32* morton_code_arr1 = *pp_morton_codes;
-    u32* morton_code_arr2 = *pp_scratch1;
-
-    u32* permutation_arr1 = *pp_scratch2;
-    u32* permutation_arr2 = *pp_permutation_out;
-
-    for (u32 i = 0; i < (u32)arr_size; i++) permutation_arr1[i] = i;
-
-
-    for (u32fast bucket_size = 1; bucket_size < arr_size; bucket_size *= 2)
-    {
-        const u32fast bucket_count = arr_size / bucket_size + (arr_size % bucket_size != 0);
-
-        for (u32fast bucket_idx = 0; bucket_idx < bucket_count; bucket_idx += 2)
-        {
-            u32fast idx_a = (bucket_idx    ) * bucket_size;
-            u32fast idx_b = (bucket_idx + 1) * bucket_size;
-            u32fast idx_dst = idx_a;
-
-            const u32fast idx_a_max = glm::min(idx_a + bucket_size, arr_size);
-            const u32fast idx_b_max = glm::min(idx_b + bucket_size, arr_size);
-            const u32fast idx_dst_max = glm::min(idx_dst + 2*bucket_size, arr_size);
-
-            mergeSort_merge(
-                morton_code_arr1,
-                morton_code_arr2,
-                permutation_arr1,
-                permutation_arr2,
-                idx_a, idx_b, idx_dst,
-                idx_a_max, idx_b_max, idx_dst_max
-            );
-        }
-
-        SWAP(morton_code_arr1, morton_code_arr2);
-        SWAP(permutation_arr1, permutation_arr2);
-    }
-
-    *pp_morton_codes = morton_code_arr1;
-    *pp_permutation_out = permutation_arr1;
-    *pp_scratch1 = morton_code_arr2;
-    *pp_scratch2 = permutation_arr2;
-}
-
-
 static void sortParticles(
 
     const vec3 domain_min,
@@ -580,13 +479,17 @@ static void sortParticles(
         p_morton_codes[i] =
             cellMortonCode(cellIndex(vec3(p_positions_in[i]), domain_min, cell_size_reciprocal));
     }
+    for (u32 i = 0; i < particle_count; i++)
+    {
+        p_permutation[i] = i;
+    }
 
-    mergeSortMortonCodes(
+    mergeSort(
         particle_count,
-        &p_morton_codes,
-        &p_permutation,
-        &p_scratch_a,
-        &p_scratch_b
+        p_morton_codes,
+        p_permutation,
+        p_scratch_a,
+        p_scratch_b
     );
 
     for (u32fast i = 0; i < particle_count; i++)
