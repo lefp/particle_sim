@@ -513,7 +513,7 @@ static void mergeSortMortonCodes(
 
     for (u32fast bucket_size = 1; bucket_size < arr_size; bucket_size *= 2)
     {
-        const u32fast bucket_count = arr_size / bucket_size;
+        const u32fast bucket_count = arr_size / bucket_size + (arr_size % bucket_size != 0);
 
         for (u32fast bucket_idx = 0; bucket_idx < bucket_count; bucket_idx += 2)
         {
