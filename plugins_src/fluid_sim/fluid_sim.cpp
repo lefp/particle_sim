@@ -464,6 +464,8 @@ static void sortParticles(
     u32 *const p_scratch4
 ) {
 
+    ZoneScoped;
+
     u32* p_morton_codes = p_scratch1;
     u32* p_permutation = p_scratch2;
     u32* p_scratch_a = p_scratch3;
@@ -474,14 +476,18 @@ static void sortParticles(
     vec4* p_positions_out = *pp_positions_scratch;
     vec4* p_velocities_out = *pp_velocities_scratch;
 
-    for (u32fast i = 0; i < particle_count; i++)
     {
-        p_morton_codes[i] =
-            cellMortonCode(cellIndex(vec3(p_positions_in[i]), domain_min, cell_size_reciprocal));
+        ZoneScopedN("init morton codes");
+
+        for (u32fast i = 0; i < particle_count; i++)
+        {
+            p_morton_codes[i] =
+                cellMortonCode(cellIndex(vec3(p_positions_in[i]), domain_min, cell_size_reciprocal));
+        }
     }
-    for (u32 i = 0; i < particle_count; i++)
     {
-        p_permutation[i] = i;
+        ZoneScopedN("init permutation");
+        for (u32 i = 0; i < particle_count; i++) p_permutation[i] = i;
     }
 
     mergeSortMultiThreaded(
@@ -493,15 +499,19 @@ static void sortParticles(
         p_scratch_b
     );
 
-    for (u32fast i = 0; i < particle_count; i++)
     {
-        u32fast src_idx = p_permutation[i];
+        ZoneScopedN("sort by permutation");
 
-        p_positions_out[i] = p_positions_in[src_idx];
-        p_positions_out[i] = p_positions_in[src_idx];
+        for (u32fast i = 0; i < particle_count; i++)
+        {
+            u32fast src_idx = p_permutation[i];
 
-        p_velocities_out[i] = p_velocities_in[src_idx];
-        p_velocities_out[i] = p_velocities_in[src_idx];
+            p_positions_out[i] = p_positions_in[src_idx];
+            p_positions_out[i] = p_positions_in[src_idx];
+
+            p_velocities_out[i] = p_velocities_in[src_idx];
+            p_velocities_out[i] = p_velocities_in[src_idx];
+        }
     }
 
     *pp_positions = p_positions_out;
@@ -1424,10 +1434,14 @@ extern "C" void advance(
 
     vec3 domain_min = vec3(INFINITY);
     vec3 domain_max = vec3(-INFINITY);
-    for (u32fast i = 0; i < particle_count; i++)
     {
-        domain_min = glm::min(vec3(s->p_positions[i]), domain_min);
-        domain_max = glm::max(vec3(s->p_positions[i]), domain_max);
+        ZoneScopedN("compute domain");
+
+        for (u32fast i = 0; i < particle_count; i++)
+        {
+            domain_min = glm::min(vec3(s->p_positions[i]), domain_min);
+            domain_max = glm::max(vec3(s->p_positions[i]), domain_max);
+        }
     }
 
     {
