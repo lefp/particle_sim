@@ -7,18 +7,19 @@
 // ===========================================================================================================
 //
 
-// TODO FIXME these should all be `static inline`, not just `inline`
-
 namespace math {
-    inline u32 min(u32 a, u32 b) {
+    template <typename T>
+    static inline T min(T a, T b) {
         return a < b ? a : b;
     }
 
-    inline u32 max(u32 a, u32 b) {
+    template <typename T>
+    static inline T max(T a, T b) {
         return a > b ? a : b;
     }
 
-    inline u32 clamp(u32 val, u32 min, u32 max) {
+    template <typename T>
+    static inline T clamp(T val, T min, T max) {
         return math::min(max, math::max(min, val));
     }
 }

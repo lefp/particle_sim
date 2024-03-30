@@ -123,7 +123,7 @@ struct ArrayList {
 
         const u32 old_size = this->size;
 
-        if (old_size == this->capacity) this->reserveAdditional(math::max(1, old_size / 2));
+        if (old_size == this->capacity) this->reserveAdditional(math::max((u32)1, old_size / 2));
 
         this->size++;
         return this->ptr + old_size;
@@ -133,7 +133,7 @@ struct ArrayList {
 
         const u32 old_size = this->size;
 
-        if (old_size == this->capacity) this->reserveAdditional(math::max(1, old_size / 2));
+        if (old_size == this->capacity) this->reserveAdditional(math::max((u32)1, old_size / 2));
 
         this->size++;
         T* new_ptr = this->ptr + old_size;
@@ -147,7 +147,7 @@ struct ArrayList {
 
         const u32 sz = this->size;
 
-        if (sz == this->capacity) this->reserveAdditional(math::max(1, sz / 2));
+        if (sz == this->capacity) this->reserveAdditional(math::max((u32)1, sz / 2));
 
         this->ptr[sz] = val;
         this->size++;
