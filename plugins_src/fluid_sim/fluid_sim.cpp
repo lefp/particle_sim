@@ -484,7 +484,8 @@ static void sortParticles(
         p_permutation[i] = i;
     }
 
-    mergeSort(
+    mergeSortMultiThreaded(
+        6,
         particle_count,
         p_morton_codes,
         p_permutation,

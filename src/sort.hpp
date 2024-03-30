@@ -14,7 +14,16 @@ void mergeSort(
     u32 *const p_vals,
     u32 *const p_scratch1,
     u32 *const p_scratch2,
-    const u32 skip_to_bucket_size = 1
+    const u32fast skip_to_bucket_size = 1
+);
+
+void mergeSortMultiThreaded(
+    const u32fast thread_count,
+    const u32fast arr_size,
+    u32 *const p_keys,
+    u32 *const p_vals,
+    u32 *const p_scratch1,
+    u32 *const p_scratch2
 );
 
 //
