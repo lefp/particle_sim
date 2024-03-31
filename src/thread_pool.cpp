@@ -3,6 +3,8 @@
 #include <cstring>
 #include <pthread.h>
 
+#include <tracy/tracy/Tracy.hpp>
+
 #include "types.hpp"
 #include "error_util.hpp"
 #include "thread_pool.hpp"
@@ -55,7 +57,10 @@ struct ThreadPool
 
 static void* threadProcedure(void *const p_task_queue)
 {
+    ZoneScoped;
+
     ThreadPool *const queue = (ThreadPool*)p_task_queue;
+
 
     int result = pthread_mutex_lock(&queue->mutex);
     alwaysAssert(result == 0);
@@ -64,16 +69,20 @@ static void* threadProcedure(void *const p_task_queue)
     {
         // wait for a task to be enqueued --------------------------------------------------------------------
 
-        while (queue->tasklist_first_idx == IDX_NONE)
         {
-            result = pthread_cond_wait(&queue->new_task_available_condition, &queue->mutex);
-            alwaysAssert(result == 0);
+            ZoneScopedN("wait for task");
 
-            if (queue->all_threads_should_quit)
+            while (queue->tasklist_first_idx == IDX_NONE)
             {
-                result = pthread_mutex_lock(&queue->mutex);
+                result = pthread_cond_wait(&queue->new_task_available_condition, &queue->mutex);
                 alwaysAssert(result == 0);
-                pthread_exit(NULL);
+
+                if (queue->all_threads_should_quit)
+                {
+                    result = pthread_mutex_unlock(&queue->mutex);
+                    alwaysAssert(result == 0);
+                    pthread_exit(NULL);
+                }
             }
         }
 
@@ -91,7 +100,10 @@ static void* threadProcedure(void *const p_task_queue)
 
         // execute the task ----------------------------------------------------------------------------------
 
-        task->p_procedure(task->p_arg);
+        {
+            ZoneScopedN("execute task");
+            task->p_procedure(task->p_arg);
+        }
 
         // mark the task complete ----------------------------------------------------------------------------
 
@@ -109,6 +121,8 @@ static void* threadProcedure(void *const p_task_queue)
 
 extern ThreadPool* create(u32 thread_count, u32 max_queue_size)
 {
+    ZoneScoped;
+
     alwaysAssert(thread_count > 0);
     alwaysAssert(max_queue_size > 0);
 
@@ -170,6 +184,9 @@ extern ThreadPool* create(u32 thread_count, u32 max_queue_size)
 
 extern TaskId enqueueTask(ThreadPool* queue, PFN_TaskProc p_procedure, void* p_arg)
 {
+    ZoneScoped;
+
+
     int result = pthread_mutex_lock(&queue->mutex);
     alwaysAssert(result == 0);
 
@@ -202,6 +219,9 @@ extern TaskId enqueueTask(ThreadPool* queue, PFN_TaskProc p_procedure, void* p_a
 
 extern void waitForTask(ThreadPool* queue, const TaskId task_id)
 {
+    ZoneScoped;
+
+
     int result = pthread_mutex_lock(&queue->mutex);
     alwaysAssert(result == 0);
 
@@ -218,9 +238,8 @@ extern void waitForTask(ThreadPool* queue, const TaskId task_id)
 
 extern void destroy(ThreadPool* queue)
 {
-    // @nocompile iterate through free-list, destroying all the semaphores
-    // @nocompile destroy all the threads
-    // @nocompile destroy local variables
+    ZoneScoped;
+
 
     int result = pthread_mutex_lock(&queue->mutex);
     alwaysAssert(result == 0);
@@ -263,10 +282,9 @@ extern void destroy(ThreadPool* queue)
             task_idx = queue->p_tasks[task_idx].tasklist_next_idx;
         }
     }
-    free(queue->p_tasks);
 
-    free(queue->p_threads);
     free(queue->p_tasks);
+    free(queue->p_threads);
 
     result = pthread_cond_destroy(&queue->new_task_available_condition);
     alwaysAssert(result == 0);
