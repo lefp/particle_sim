@@ -450,6 +450,7 @@ static inline u32 mortonCodeHash(u32 cell_morton_code, u32 hash_modulus) {
 static void sortParticles(
 
     thread_pool::ThreadPool* thread_pool,
+    u32 thread_count,
 
     const vec3 domain_min,
     const f32 cell_size_reciprocal,
@@ -494,9 +495,10 @@ static void sortParticles(
         for (u32 i = 0; i < particle_count; i++) p_permutation[i] = i;
     }
 
+    alwaysAssert(thread_count > 0);
     mergeSortMultiThreaded(
         thread_pool,
-        6,
+        thread_count,
         particle_count,
         p_morton_codes,
         p_permutation,
@@ -1372,10 +1374,33 @@ extern "C" SimData create(
         // signal the fence, so that we don't deadlock when waiting for it in `advance()`.
         emptyQueueSubmit(vk_ctx, VK_NULL_HANDLE, VK_NULL_HANDLE, s.gpu_resources.fence);
 
-        // TODO FIXME WARNING
-        // 1. auto-detect the processor count.
-        // 2. put the thread pool in some central place where it can be accessed from multiple modules.
-        s.thread_pool = thread_pool::create(6, 6);
+
+        {
+            long processor_count = sysconf(_SC_NPROCESSORS_ONLN);
+
+            if (processor_count < 0)
+            {
+                const int err = errno;
+                const char* err_description = strerror(err);
+                if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
+
+                LOG_F(
+                    ERROR, "Failed to get processor count, will use count=1; (errno %i, description `%s`).",
+                    err, err_description
+                );
+                processor_count = 1;
+            }
+            else if (processor_count == 0)
+            {
+                LOG_F(ERROR, "Failed to get processor count (got 0), will use count=1.");
+                processor_count = 1;
+            }
+
+            s.processor_count = (u32)processor_count;
+        }
+
+        // TODO Put the thread pool in some central place where it can be accessed from multiple modules.
+        s.thread_pool = thread_pool::create(s.processor_count, s.processor_count);
         alwaysAssert(s.thread_pool != NULL);
     }
 
@@ -1468,6 +1493,7 @@ extern "C" void advance(
     sortParticles(
 
         s->thread_pool,
+        s->processor_count,
 
         domain_min,
         cell_size_reciprocal,

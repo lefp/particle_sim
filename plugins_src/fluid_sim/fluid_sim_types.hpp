@@ -116,6 +116,7 @@ struct SimData {
 
     GpuResources gpu_resources;
 
+    u32 processor_count;
     thread_pool::ThreadPool* thread_pool;
 };
 
