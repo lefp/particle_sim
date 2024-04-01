@@ -26,6 +26,7 @@
 #include "str_util.hpp"
 #include "defer.hpp"
 #include "thread_pool.hpp"
+#include "sort.hpp"
 
 #include "plugin.hpp"
 #include "../plugins_src/fluid_sim/fluid_sim_types.hpp"

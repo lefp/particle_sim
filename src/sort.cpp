@@ -24,10 +24,8 @@
 
 static inline void mergeSort_merge(
 
-    u32* keys_1,
-    u32* keys_2,
-    u32* vals_1,
-    u32* vals_2,
+    KeyVal* arr_in,
+    KeyVal* arr_out,
 
     u32fast idx_a,
     u32fast idx_b,
@@ -41,23 +39,21 @@ static inline void mergeSort_merge(
     for (; idx_dst < idx_dst_end; idx_dst++)
     {
         u32 key_a;
-        if (idx_a < idx_a_end) key_a = keys_1[idx_a];
+        if (idx_a < idx_a_end) key_a = arr_in[idx_a].key;
         else key_a = UINT32_MAX;
 
         u32 key_b;
-        if (idx_b < idx_b_end) key_b = keys_1[idx_b];
+        if (idx_b < idx_b_end) key_b = arr_in[idx_b].key;
         else key_b = UINT32_MAX;
 
         if (key_a <= key_b)
         {
-            keys_2[idx_dst] = keys_1[idx_a];
-            vals_2[idx_dst] = vals_1[idx_a];
+            arr_out[idx_dst] = arr_in[idx_a];
             idx_a++;
         }
         else
         {
-            keys_2[idx_dst] = keys_1[idx_b];
-            vals_2[idx_dst] = vals_1[idx_b];
+            arr_out[idx_dst] = arr_in[idx_b];
             idx_b++;
         }
     }
@@ -65,10 +61,8 @@ static inline void mergeSort_merge(
 
 extern void mergeSort(
     const u32fast arr_size,
-    u32 *const p_keys,
-    u32 *const p_vals,
-    u32 *const p_scratch1,
-    u32 *const p_scratch2,
+    KeyVal *const p_arr,
+    KeyVal *const p_scratch,
     const u32fast skip_to_bucket_size
 ) {
 
@@ -77,11 +71,8 @@ extern void mergeSort(
     if (arr_size < 2) return;
 
 
-    u32* keys_arr1 = p_keys;
-    u32* keys_arr2 = p_scratch1;
-
-    u32* vals_arr1 = p_vals;
-    u32* vals_arr2 = p_scratch2;
+    KeyVal* arr1 = p_arr;
+    KeyVal* arr2 = p_scratch;
 
 
     for (u32fast bucket_size = skip_to_bucket_size; bucket_size < arr_size; bucket_size *= 2)
@@ -99,36 +90,28 @@ extern void mergeSort(
             const u32fast idx_dst_max = math::min(idx_dst + 2*bucket_size, arr_size);
 
             mergeSort_merge(
-                keys_arr1,
-                keys_arr2,
-                vals_arr1,
-                vals_arr2,
+                arr1,
+                arr2,
                 idx_a, idx_b, idx_dst,
                 idx_a_max, idx_b_max, idx_dst_max
             );
         }
 
-        SWAP(keys_arr1, keys_arr2);
-        SWAP(vals_arr1, vals_arr2);
+        SWAP(arr1, arr2);
     }
 
-    if (keys_arr1 != p_keys)
+    if (arr1 != p_arr)
     {
-        memcpy(p_keys, keys_arr1, arr_size * sizeof(u32));
-    }
-    if (vals_arr1 != p_vals)
-    {
-        memcpy(p_vals, vals_arr1, arr_size * sizeof(u32));
+        // TODO profile this
+        memcpy(p_arr, arr1, arr_size * sizeof(KeyVal));
     }
 }
 
 struct MergeSortThreadParams {
     u32fast array_size;
     u32fast skip_to_bucket_size;
-    u32* p_keys;
-    u32* p_vals;
-    u32* p_scratch1;
-    u32* p_scratch2;
+    KeyVal* p_array;
+    KeyVal* p_scratch;
 };
 static void mergeSortMultiThreaded_thread(void* p_params_struct)
 {
@@ -136,10 +119,8 @@ static void mergeSortMultiThreaded_thread(void* p_params_struct)
 
     mergeSort(
         params->array_size,
-        params->p_keys,
-        params->p_vals,
-        params->p_scratch1,
-        params->p_scratch2,
+        params->p_array,
+        params->p_scratch,
         params->skip_to_bucket_size
     );
 };
@@ -148,10 +129,8 @@ extern void mergeSortMultiThreaded(
     thread_pool::ThreadPool* thread_pool,
     u32fast thread_count,
     const u32fast arr_size,
-    u32 *const p_keys,
-    u32 *const p_vals,
-    u32 *const p_scratch1,
-    u32 *const p_scratch2
+    KeyVal *const p_arr,
+    KeyVal *const p_scratch
 ) {
 
     ZoneScoped;
@@ -162,7 +141,7 @@ extern void mergeSortMultiThreaded(
 
     if (arr_size < thread_count or thread_count == 1)
     {
-        mergeSort(arr_size, p_keys, p_vals, p_scratch1, p_scratch2);
+        mergeSort(arr_size, p_arr, p_scratch);
         return;
     }
 
@@ -188,28 +167,22 @@ extern void mergeSortMultiThreaded(
         {
             ZoneScopedN("spawn threads");
 
-            u32* param_p_keys = p_keys;
-            u32* param_p_vals = p_vals;
-            u32* param_p_scratch1 = p_scratch1;
-            u32* param_p_scratch2 = p_scratch2;
+            KeyVal* param_p_arr = p_arr;
+            KeyVal* param_p_scratch = p_scratch;
 
             for (u32fast i = 0; i < thread_count; i++)
             {
                 thread_params[i] = MergeSortThreadParams {
                     .array_size = block_size,
                     .skip_to_bucket_size = 1,
-                    .p_keys = param_p_keys,
-                    .p_vals = param_p_vals,
-                    .p_scratch1 = param_p_scratch1,
-                    .p_scratch2 = param_p_scratch2,
+                    .p_array = param_p_arr,
+                    .p_scratch = param_p_scratch,
                 };
 
                 tasks[i] = thread_pool::enqueueTask(thread_pool, mergeSortMultiThreaded_thread, &thread_params[i]);
 
-                param_p_keys += block_size;
-                param_p_vals += block_size;
-                param_p_scratch1 += block_size;
-                param_p_scratch2 += block_size;
+                param_p_arr += block_size;
+                param_p_scratch += block_size;
 
                 assert(remaining_element_count >= block_size);
                 remaining_element_count -= block_size;
@@ -221,10 +194,8 @@ extern void mergeSortMultiThreaded(
             const u32fast idx_start = arr_size - remaining_element_count;
             mergeSort(
                 remaining_element_count,
-                p_keys + idx_start,
-                p_vals + idx_start,
-                p_scratch1 + idx_start,
-                p_scratch2 + idx_start
+                p_arr + idx_start,
+                p_scratch + idx_start
             );
         }
 
@@ -257,10 +228,8 @@ extern void mergeSortMultiThreaded(
                 thread_params[i] = MergeSortThreadParams {
                     .array_size = block_size,
                     .skip_to_bucket_size = old_block_size,
-                    .p_keys = p_keys + idx_start,
-                    .p_vals = p_vals + idx_start,
-                    .p_scratch1 = p_scratch1 + idx_start,
-                    .p_scratch2 = p_scratch2 + idx_start,
+                    .p_array = p_arr + idx_start,
+                    .p_scratch = p_scratch + idx_start,
                 };
 
                 tasks[i] = thread_pool::enqueueTask(thread_pool, mergeSortMultiThreaded_thread, &thread_params[i]);
@@ -277,10 +246,8 @@ extern void mergeSortMultiThreaded(
         {
             mergeSort(
                 remaining_block_size,
-                p_keys + idx_start,
-                p_vals + idx_start,
-                p_scratch1 + idx_start,
-                p_scratch2 + idx_start,
+                p_arr + idx_start,
+                p_scratch + idx_start,
                 old_block_size
             );
         }
@@ -292,5 +259,5 @@ extern void mergeSortMultiThreaded(
     }
 
     assert(block_size <= arr_size);
-    mergeSort(arr_size, p_keys, p_vals, p_scratch1, p_scratch2, block_size / 2);
+    mergeSort(arr_size, p_arr, p_scratch, block_size / 2);
 };

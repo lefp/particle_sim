@@ -9,12 +9,15 @@
 // ===========================================================================================================
 //
 
+struct KeyVal {
+    u32 key;
+    u32 val;
+};
+
 void mergeSort(
     const u32fast arr_size,
-    u32 *const p_keys,
-    u32 *const p_vals,
-    u32 *const p_scratch1,
-    u32 *const p_scratch2,
+    KeyVal *const p_arr,
+    KeyVal *const p_scratch,
     const u32fast skip_to_bucket_size = 1
 );
 
@@ -22,10 +25,8 @@ void mergeSortMultiThreaded(
     thread_pool::ThreadPool* thread_pool,
     const u32fast thread_count,
     const u32fast arr_size,
-    u32 *const p_keys,
-    u32 *const p_vals,
-    u32 *const p_scratch1,
-    u32 *const p_scratch2
+    KeyVal *const p_keys,
+    KeyVal *const p_scratch
 );
 
 //

@@ -6,6 +6,7 @@
 // #include "../../libs/glm/glm.hpp"
 // #include "../../src/vk_procs.hpp"
 // #include "../../src/thread_pool.hpp"
+// #include "../../src/sort.hpp"
 
 namespace fluid_sim {
 
@@ -90,10 +91,14 @@ struct SimData {
     u32* p_cells_scratch_buffer1;
     u32* p_cells_scratch_buffer2;
 
+    // TODO FIXME: determine whether you actually need all these
     u32* p_scratch_u32_buffer_1;
     u32* p_scratch_u32_buffer_2;
     u32* p_scratch_u32_buffer_3;
     u32* p_scratch_u32_buffer_4;
+
+    KeyVal* p_scratch_keyval_buffer_1;
+    KeyVal* p_scratch_keyval_buffer_2;
 
     // This is `\mathbb{C}_compact^begin` in the paper "Multi-Level Memory Structures for Simulating and
     // Rendering Smoothed Particle Hydrodynamics" by Winchenbach and Kolb.

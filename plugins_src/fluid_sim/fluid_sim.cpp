@@ -463,18 +463,14 @@ static void sortParticles(
     vec4** pp_positions_scratch,
     vec4** pp_velocities_scratch,
 
-    u32 *const p_scratch1,
-    u32 *const p_scratch2,
-    u32 *const p_scratch3,
-    u32 *const p_scratch4
+    KeyVal *const p_scratch1,
+    KeyVal *const p_scratch2
 ) {
 
     ZoneScoped;
 
-    u32* p_morton_codes = p_scratch1;
-    u32* p_permutation = p_scratch2;
-    u32* p_scratch_a = p_scratch3;
-    u32* p_scratch_b = p_scratch4;
+    KeyVal* p_keyvals = p_scratch1;
+    KeyVal* p_scratch = p_scratch2;
 
     vec4* p_positions_in = *pp_positions;
     vec4* p_velocities_in = *pp_velocities;
@@ -484,15 +480,12 @@ static void sortParticles(
     {
         ZoneScopedN("init morton codes");
 
-        for (u32fast i = 0; i < particle_count; i++)
+        for (u32 i = 0; i < particle_count; i++)
         {
-            p_morton_codes[i] =
+            p_keyvals[i].key =
                 cellMortonCode(cellIndex(vec3(p_positions_in[i]), domain_min, cell_size_reciprocal));
+            p_keyvals[i].val = i;
         }
-    }
-    {
-        ZoneScopedN("init permutation");
-        for (u32 i = 0; i < particle_count; i++) p_permutation[i] = i;
     }
 
     alwaysAssert(thread_count > 0);
@@ -500,10 +493,8 @@ static void sortParticles(
         thread_pool,
         thread_count,
         particle_count,
-        p_morton_codes,
-        p_permutation,
-        p_scratch_a,
-        p_scratch_b
+        p_keyvals,
+        p_scratch
     );
 
     {
@@ -511,7 +502,7 @@ static void sortParticles(
 
         for (u32fast i = 0; i < particle_count; i++)
         {
-            u32fast src_idx = p_permutation[i];
+            u32fast src_idx = p_keyvals[i].val;
 
             p_positions_out[i] = p_positions_in[src_idx];
             p_positions_out[i] = p_positions_in[src_idx];
@@ -1357,6 +1348,9 @@ extern "C" SimData create(
         s.p_scratch_u32_buffer_3 = callocArray(particle_count + 1, u32);
         s.p_scratch_u32_buffer_4 = callocArray(particle_count + 1, u32);
 
+        s.p_scratch_keyval_buffer_1 = callocArray(particle_count + 1, KeyVal);
+        s.p_scratch_keyval_buffer_2 = callocArray(particle_count + 1, KeyVal);
+
         // smallest prime number larger than the maximum number of particles
         // OPTIMIZE profile this and optimize if too slow
         u32fast hash_modulus = getNextPrimeNumberExclusive(particle_count);
@@ -1429,6 +1423,14 @@ extern "C" void destroy(SimData* s, const VulkanContext* vk_ctx) {
 
     free(s->p_cells_scratch_buffer1);
     free(s->p_cells_scratch_buffer2);
+
+    free(s->p_scratch_u32_buffer_1);
+    free(s->p_scratch_u32_buffer_2);
+    free(s->p_scratch_u32_buffer_3);
+    free(s->p_scratch_u32_buffer_4);
+
+    free(s->p_scratch_keyval_buffer_1);
+    free(s->p_scratch_keyval_buffer_2);
 
     free(s->p_cells);
     free(s->p_cell_lengths);
@@ -1507,10 +1509,8 @@ extern "C" void advance(
         &s->p_particles_scratch_buffer1,
         &s->p_particles_scratch_buffer2,
 
-        s->p_scratch_u32_buffer_1,
-        s->p_scratch_u32_buffer_2,
-        s->p_scratch_u32_buffer_3,
-        s->p_scratch_u32_buffer_4
+        s->p_scratch_keyval_buffer_1,
+        s->p_scratch_keyval_buffer_2
     );
 
     // fill cell list
