@@ -1,12 +1,13 @@
 #include <cstring>
-#include <pthread.h>
 
 #include <tracy/tracy/Tracy.hpp>
 
 #include "types.hpp"
 #include "math_util.hpp"
 #include "error_util.hpp"
+#include "thread_pool.hpp"
 #include "sort.hpp"
+#include "defer.hpp"
 
 // TODO FIXME we should fuzz-test these algorithms
 
@@ -128,7 +129,7 @@ struct MergeSortThreadParams {
     u32* p_scratch1;
     u32* p_scratch2;
 };
-static void* mergeSortMultiThreaded_thread(void* p_params_struct)
+static void mergeSortMultiThreaded_thread(void* p_params_struct)
 {
     const MergeSortThreadParams* params = (const MergeSortThreadParams*)p_params_struct;
 
@@ -139,11 +140,10 @@ static void* mergeSortMultiThreaded_thread(void* p_params_struct)
         params->p_scratch1,
         params->p_scratch2
     );
-
-    return NULL;
 };
 
 extern void mergeSortMultiThreaded(
+    thread_pool::ThreadPool* thread_pool,
     const u32fast thread_count,
     const u32fast arr_size,
     u32 *const p_keys,
@@ -169,8 +169,14 @@ extern void mergeSortMultiThreaded(
     // Because spawning a thread just to have it sort 2 values is dumb.
 
 
-    pthread_t* threads = (pthread_t*)calloc(thread_count, sizeof(pthread_t));
+    // OPTIMIZE: Instead of heap-allocating here (this function may be called every frame!), we can write a
+    // `mergeSortMultithreaded_init()` procedure that does the alloc once.
+
+    thread_pool::TaskId* tasks = (thread_pool::TaskId*)calloc(thread_count, sizeof(thread_pool::TaskId));
+    defer(free(tasks));
+
     MergeSortThreadParams* thread_params = (MergeSortThreadParams*)calloc(thread_count, sizeof(MergeSortThreadParams));
+    defer(free(thread_params));
 
     const u32fast block_size = arr_size / thread_count;
     u32fast remaining_element_count = arr_size;
@@ -193,8 +199,7 @@ extern void mergeSortMultiThreaded(
                 .p_scratch2 = param_p_scratch2,
             };
 
-            int result = pthread_create(&threads[i], NULL, mergeSortMultiThreaded_thread, &thread_params[i]);
-            alwaysAssert(result == 0);
+            tasks[i] = thread_pool::enqueueTask(thread_pool, mergeSortMultiThreaded_thread, &thread_params[i]);
 
             param_p_keys += block_size;
             param_p_vals += block_size;
@@ -223,9 +228,7 @@ extern void mergeSortMultiThreaded(
 
         for (u32 i = 0; i < thread_count; i++)
         {
-            void* procedure_retval;
-            int result = pthread_join(threads[i], &procedure_retval);
-            alwaysAssert(result == 0);
+            thread_pool::waitForTask(thread_pool, tasks[i]);
         }
     }
 

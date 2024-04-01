@@ -3,6 +3,7 @@
 
 // #include "types.hpp"
 // #include "math_util.hpp"
+// #include "thread_pool.hpp"
 
 //
 // ===========================================================================================================
@@ -18,6 +19,7 @@ void mergeSort(
 );
 
 void mergeSortMultiThreaded(
+    thread_pool::ThreadPool* thread_pool,
     const u32fast thread_count,
     const u32fast arr_size,
     u32 *const p_keys,

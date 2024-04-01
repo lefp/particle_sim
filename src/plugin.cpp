@@ -21,6 +21,7 @@
 #include "VulkanMemoryAllocator/vk_mem_alloc.h"
 #include "vk_procs.hpp"
 #include "vulkan_context.hpp"
+#include "thread_pool.hpp"
 #include "../build/A_generatePluginHeaders/plugin_infos.hpp"
 
 namespace plugin {

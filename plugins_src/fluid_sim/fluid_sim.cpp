@@ -22,7 +22,9 @@
 #include "../src/vk_procs.hpp"
 #include "../src/vulkan_context.hpp"
 #include "../src/defer.hpp"
+#include "../src/thread_pool.hpp"
 #include "../src/sort.hpp"
+#include "../src/thread_pool.hpp"
 #include "fluid_sim_types.hpp"
 
 namespace fluid_sim {
@@ -447,6 +449,8 @@ static inline u32 mortonCodeHash(u32 cell_morton_code, u32 hash_modulus) {
 
 static void sortParticles(
 
+    thread_pool::ThreadPool* thread_pool,
+
     const vec3 domain_min,
     const f32 cell_size_reciprocal,
 
@@ -491,6 +495,7 @@ static void sortParticles(
     }
 
     mergeSortMultiThreaded(
+        thread_pool,
         6,
         particle_count,
         p_morton_codes,
@@ -1366,6 +1371,12 @@ extern "C" SimData create(
         uploadDataToGpu(&s, vk_ctx);
         // signal the fence, so that we don't deadlock when waiting for it in `advance()`.
         emptyQueueSubmit(vk_ctx, VK_NULL_HANDLE, VK_NULL_HANDLE, s.gpu_resources.fence);
+
+        // TODO FIXME WARNING
+        // 1. auto-detect the processor count.
+        // 2. put the thread pool in some central place where it can be accessed from multiple modules.
+        s.thread_pool = thread_pool::create(6, 6);
+        alwaysAssert(s.thread_pool != NULL);
     }
 
     LOG_F(
@@ -1379,6 +1390,8 @@ extern "C" SimData create(
 
 
 extern "C" void destroy(SimData* s, const VulkanContext* vk_ctx) {
+
+    thread_pool::destroy(s->thread_pool);
 
     destroyGpuResources(&s->gpu_resources, vk_ctx);
 
@@ -1453,6 +1466,8 @@ extern "C" void advance(
     }
 
     sortParticles(
+
+        s->thread_pool,
 
         domain_min,
         cell_size_reciprocal,

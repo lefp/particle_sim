@@ -5,6 +5,7 @@
 // #include "../../src/types.hpp"
 // #include "../../libs/glm/glm.hpp"
 // #include "../../src/vk_procs.hpp"
+// #include "../../src/thread_pool.hpp"
 
 namespace fluid_sim {
 
@@ -114,6 +115,8 @@ struct SimData {
     } parameters;
 
     GpuResources gpu_resources;
+
+    thread_pool::ThreadPool* thread_pool;
 };
 
 //
