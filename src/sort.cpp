@@ -124,6 +124,7 @@ extern void mergeSort(
 
 struct MergeSortThreadParams {
     u32fast array_size;
+    u32fast skip_to_bucket_size;
     u32* p_keys;
     u32* p_vals;
     u32* p_scratch1;
@@ -138,13 +139,14 @@ static void mergeSortMultiThreaded_thread(void* p_params_struct)
         params->p_keys,
         params->p_vals,
         params->p_scratch1,
-        params->p_scratch2
+        params->p_scratch2,
+        params->skip_to_bucket_size
     );
 };
 
 extern void mergeSortMultiThreaded(
     thread_pool::ThreadPool* thread_pool,
-    const u32fast thread_count,
+    u32fast thread_count,
     const u32fast arr_size,
     u32 *const p_keys,
     u32 *const p_vals,
@@ -178,59 +180,117 @@ extern void mergeSortMultiThreaded(
     MergeSortThreadParams* thread_params = (MergeSortThreadParams*)calloc(thread_count, sizeof(MergeSortThreadParams));
     defer(free(thread_params));
 
-    const u32fast block_size = arr_size / thread_count;
-    u32fast remaining_element_count = arr_size;
 
+    u32fast block_size = arr_size / thread_count;
     {
-        ZoneScopedN("spawn threads");
+        u32fast remaining_element_count = arr_size;
 
-        u32* param_p_keys = p_keys;
-        u32* param_p_vals = p_vals;
-        u32* param_p_scratch1 = p_scratch1;
-        u32* param_p_scratch2 = p_scratch2;
-
-        for (u32fast i = 0; i < thread_count; i++)
         {
-            thread_params[i] = MergeSortThreadParams {
-                .array_size = block_size,
-                .p_keys = param_p_keys,
-                .p_vals = param_p_vals,
-                .p_scratch1 = param_p_scratch1,
-                .p_scratch2 = param_p_scratch2,
-            };
+            ZoneScopedN("spawn threads");
 
-            tasks[i] = thread_pool::enqueueTask(thread_pool, mergeSortMultiThreaded_thread, &thread_params[i]);
+            u32* param_p_keys = p_keys;
+            u32* param_p_vals = p_vals;
+            u32* param_p_scratch1 = p_scratch1;
+            u32* param_p_scratch2 = p_scratch2;
 
-            param_p_keys += block_size;
-            param_p_vals += block_size;
-            param_p_scratch1 += block_size;
-            param_p_scratch2 += block_size;
+            for (u32fast i = 0; i < thread_count; i++)
+            {
+                thread_params[i] = MergeSortThreadParams {
+                    .array_size = block_size,
+                    .skip_to_bucket_size = 1,
+                    .p_keys = param_p_keys,
+                    .p_vals = param_p_vals,
+                    .p_scratch1 = param_p_scratch1,
+                    .p_scratch2 = param_p_scratch2,
+                };
 
-            assert(remaining_element_count >= block_size);
-            remaining_element_count -= block_size;
+                tasks[i] = thread_pool::enqueueTask(thread_pool, mergeSortMultiThreaded_thread, &thread_params[i]);
+
+                param_p_keys += block_size;
+                param_p_vals += block_size;
+                param_p_scratch1 += block_size;
+                param_p_scratch2 += block_size;
+
+                assert(remaining_element_count >= block_size);
+                remaining_element_count -= block_size;
+            }
+        }
+
+        if (remaining_element_count > 0)
+        {
+            const u32fast idx_start = arr_size - remaining_element_count;
+            mergeSort(
+                remaining_element_count,
+                p_keys + idx_start,
+                p_vals + idx_start,
+                p_scratch1 + idx_start,
+                p_scratch2 + idx_start
+            );
+        }
+
+        {
+            ZoneScopedN("join threads");
+
+            for (u32 i = 0; i < thread_count; i++)
+            {
+                thread_pool::waitForTask(thread_pool, tasks[i]);
+            }
         }
     }
 
-    if (remaining_element_count > 0)
+    while (true)
     {
-        const u32fast idx_start = arr_size - remaining_element_count;
-        mergeSort(
-            remaining_element_count,
-            p_keys + idx_start,
-            p_vals + idx_start,
-            p_scratch1 + idx_start,
-            p_scratch2 + idx_start
-        );
-    }
+        u32fast remaining_block_size = arr_size;
 
-    {
-        ZoneScopedN("join threads");
+        u32fast old_block_size = block_size;
+        block_size *= 2;
+        thread_count = arr_size / block_size;
+        if (thread_count < 2) break;
 
-        for (u32 i = 0; i < thread_count; i++)
+        u32fast idx_start = 0;
+
         {
-            thread_pool::waitForTask(thread_pool, tasks[i]);
+            ZoneScopedN("spawn threads");
+
+            for (u32fast i = 0; i < thread_count; i++)
+            {
+                thread_params[i] = MergeSortThreadParams {
+                    .array_size = block_size,
+                    .skip_to_bucket_size = old_block_size,
+                    .p_keys = p_keys + idx_start,
+                    .p_vals = p_vals + idx_start,
+                    .p_scratch1 = p_scratch1 + idx_start,
+                    .p_scratch2 = p_scratch2 + idx_start,
+                };
+
+                tasks[i] = thread_pool::enqueueTask(thread_pool, mergeSortMultiThreaded_thread, &thread_params[i]);
+
+                idx_start += block_size;
+                assert(remaining_block_size >= block_size);
+                remaining_block_size -= block_size;
+            }
+
+            assert(idx_start + remaining_block_size == arr_size);
+        }
+
+        if (remaining_block_size > 0)
+        {
+            mergeSort(
+                remaining_block_size,
+                p_keys + idx_start,
+                p_vals + idx_start,
+                p_scratch1 + idx_start,
+                p_scratch2 + idx_start,
+                old_block_size
+            );
+        }
+
+        {
+            ZoneScopedN("join threads");
+            for (u32fast i = 0; i < thread_count; i++) thread_pool::waitForTask(thread_pool, tasks[i]);
         }
     }
 
-    mergeSort(arr_size, p_keys, p_vals, p_scratch1, p_scratch2, block_size);
+    assert(block_size <= arr_size);
+    mergeSort(arr_size, p_keys, p_vals, p_scratch1, p_scratch2, block_size / 2);
 };
