@@ -1385,17 +1385,18 @@ extern "C" SimData create(
                 if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
 
                 LOG_F(
-                    ERROR, "Failed to get processor count, will use count=1; (errno %i, description `%s`).",
+                    ERROR, "Failed to get processor count; (errno %i, description `%s`).",
                     err, err_description
                 );
                 processor_count = 1;
             }
             else if (processor_count == 0)
             {
-                LOG_F(ERROR, "Failed to get processor count (got 0), will use count=1.");
+                LOG_F(ERROR, "Failed to get processor count (got 0).");
                 processor_count = 1;
             }
 
+            LOG_F(INFO, "Using processor_count=%li.", processor_count);
             s.processor_count = (u32)processor_count;
         }
 
