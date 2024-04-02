@@ -532,6 +532,7 @@ static void emptyQueueSubmit(
     VkSemaphore optional_signal_semaphore,
     VkFence optional_signal_fence
 ) {
+    ZoneScoped;
 
     VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
@@ -3612,6 +3613,8 @@ RenderResult render(
 
     // upload data
     {
+        ZoneScopedN("upload data");
+
         // OPTIMIZE keep stuff persistently mapped?
         {
             const VmaAllocation allocation = this_frame_resources->uniform_buffer_allocation;
