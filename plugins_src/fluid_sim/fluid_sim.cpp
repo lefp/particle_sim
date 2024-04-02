@@ -1343,11 +1343,6 @@ extern "C" SimData create(
         s.p_cells_scratch_buffer1 = callocArray(particle_count + 1, u32);
         s.p_cells_scratch_buffer2 = callocArray(particle_count + 1, u32);
 
-        s.p_scratch_u32_buffer_1 = callocArray(particle_count + 1, u32);
-        s.p_scratch_u32_buffer_2 = callocArray(particle_count + 1, u32);
-        s.p_scratch_u32_buffer_3 = callocArray(particle_count + 1, u32);
-        s.p_scratch_u32_buffer_4 = callocArray(particle_count + 1, u32);
-
         s.p_scratch_keyval_buffer_1 = callocArray(particle_count + 1, KeyVal);
         s.p_scratch_keyval_buffer_2 = callocArray(particle_count + 1, KeyVal);
 
@@ -1423,11 +1418,6 @@ extern "C" void destroy(SimData* s, const VulkanContext* vk_ctx) {
 
     free(s->p_cells_scratch_buffer1);
     free(s->p_cells_scratch_buffer2);
-
-    free(s->p_scratch_u32_buffer_1);
-    free(s->p_scratch_u32_buffer_2);
-    free(s->p_scratch_u32_buffer_3);
-    free(s->p_scratch_u32_buffer_4);
 
     free(s->p_scratch_keyval_buffer_1);
     free(s->p_scratch_keyval_buffer_2);

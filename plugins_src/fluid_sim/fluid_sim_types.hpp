@@ -87,15 +87,8 @@ struct SimData {
     vec4* p_particles_scratch_buffer1;
     vec4* p_particles_scratch_buffer2;
 
-    // TODO FIXME: delete these, you can use the other scratch buffers
     u32* p_cells_scratch_buffer1;
     u32* p_cells_scratch_buffer2;
-
-    // TODO FIXME: determine whether you actually need all these
-    u32* p_scratch_u32_buffer_1;
-    u32* p_scratch_u32_buffer_2;
-    u32* p_scratch_u32_buffer_3;
-    u32* p_scratch_u32_buffer_4;
 
     KeyVal* p_scratch_keyval_buffer_1;
     KeyVal* p_scratch_keyval_buffer_2;
