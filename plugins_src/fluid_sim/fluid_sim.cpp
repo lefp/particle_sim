@@ -519,13 +519,24 @@ static void sortParticles(
 }
 
 
-static void mergeSortByCellHashes(
-    const u32fast array_size,
+static void sortCells(
+
+    thread_pool::ThreadPool* thread_pool,
+    u32 thread_count,
+
+    const u32fast cell_count,
+
     u32 **const pp_cells,
     u32 **const pp_lengths,
-    u32 **const pp_scratch1,
-    u32 **const pp_scratch2,
+    u32 **const pp_cells_scratch,
+    u32 **const pp_lengths_scratch,
+
+    KeyVal *const p_scratch1,
+    KeyVal *const p_scratch2,
+
+    // TODO OPTIMIZE: this might be faster if we take `p_cell_morton_codes` instead of `p_particles`.
     const vec4 *const p_particles,
+
     const vec3 domain_min,
     const f32 cell_size_reciprocal,
     const u32 hash_modulus
@@ -533,76 +544,58 @@ static void mergeSortByCellHashes(
 
     ZoneScoped;
 
+    KeyVal* p_keyvals = p_scratch1;
+    KeyVal* p_scratch = p_scratch2;
 
-    if (array_size < 2) return;
+    u32* p_cells_in = *pp_cells;
+    u32* p_lengths_in = *pp_lengths;
+    u32* p_cells_out = *pp_cells_scratch;
+    u32* p_lengths_out = *pp_lengths_scratch;
 
-    u32* cells_arr1 = *pp_cells;
-    u32* cells_arr2 = *pp_scratch1;
-
-    u32* lens_arr1 = *pp_lengths;
-    u32* lens_arr2 = *pp_scratch2;
-
-    for (u32fast bucket_size = 1; bucket_size < array_size; bucket_size *= 2)
     {
-        const u32fast bucket_count = array_size / bucket_size;
+        ZoneScopedN("init cell hashes");
 
-        for (u32fast bucket_idx = 0; bucket_idx < bucket_count; bucket_idx += 2)
+        for (u32 i = 0; i < cell_count; i++)
         {
-            u32fast idx_a = (bucket_idx    ) * bucket_size;
-            u32fast idx_b = (bucket_idx + 1) * bucket_size;
-            u32fast idx_dst = idx_a;
+            const u32 particle_idx = p_cells_in[i];
+            const uvec3 cell = cellIndex(vec3(p_particles[particle_idx]), domain_min, cell_size_reciprocal);
+            const u32 morton_code = cellMortonCode(cell);
+            const u32 cell_hash = mortonCodeHash(morton_code, hash_modulus);
 
-            const u32fast idx_a_max = glm::min(idx_a + bucket_size, array_size);
-            const u32fast idx_b_max = glm::min(idx_b + bucket_size, array_size);
-            const u32fast idx_dst_max = glm::min(idx_dst + 2*bucket_size, array_size);
-
-            for (; idx_dst < idx_dst_max; idx_dst++)
-            {
-                u32 cell_hash_a;
-                if (idx_a < idx_a_max) {
-                    const u32 particle_idx = cells_arr1[idx_a];
-                    const uvec3 cell = cellIndex(vec3(p_particles[particle_idx]), domain_min, cell_size_reciprocal);
-                    const u32 morton_code = cellMortonCode(cell);
-                    cell_hash_a = mortonCodeHash(morton_code, hash_modulus);
-                }
-                else cell_hash_a = UINT32_MAX;
-
-                u32 cell_hash_b;
-                if (idx_b < idx_b_max) {
-                    const u32 particle_idx = cells_arr1[idx_b];
-                    const uvec3 cell = cellIndex(vec3(p_particles[particle_idx]), domain_min, cell_size_reciprocal);
-                    const u32 morton_code = cellMortonCode(cell);
-                    cell_hash_b = mortonCodeHash(morton_code, hash_modulus);
-                }
-                else cell_hash_b = UINT32_MAX;
-
-                if (cell_hash_a <= cell_hash_b) {
-                    cells_arr2[idx_dst] = cells_arr1[idx_a];
-                    lens_arr2[idx_dst] = lens_arr1[idx_a];
-                    idx_a++;
-                }
-                else {
-                    cells_arr2[idx_dst] = cells_arr1[idx_b];
-                    lens_arr2[idx_dst] = lens_arr1[idx_b];
-                    idx_b++;
-                }
-            }
+            p_keyvals[i].key = cell_hash;
+            p_keyvals[i].val = i;
         }
-
-        u32* tmp = cells_arr1;
-        cells_arr1 = cells_arr2;
-        cells_arr2 = tmp;
-
-        tmp = lens_arr1;
-        lens_arr1 = lens_arr2;
-        lens_arr2 = tmp;
     }
 
-    *pp_cells = cells_arr1;
-    *pp_lengths = lens_arr1;
-    *pp_scratch1 = cells_arr2;
-    *pp_scratch2 = lens_arr2;
-}
+    alwaysAssert(thread_count > 0);
+    mergeSortMultiThreaded(
+        thread_pool,
+        thread_count,
+        cell_count,
+        p_keyvals,
+        p_scratch
+    );
+
+    {
+        ZoneScopedN("sort by permutation");
+
+        for (u32fast i = 0; i < cell_count; i++)
+        {
+            u32fast src_idx = p_keyvals[i].val;
+
+            p_cells_out[i] = p_cells_in[src_idx];
+            p_cells_out[i] = p_cells_in[src_idx];
+
+            p_lengths_out[i] = p_lengths_in[src_idx];
+            p_lengths_out[i] = p_lengths_in[src_idx];
+        }
+    }
+
+    *pp_cells = p_cells_out;
+    *pp_lengths = p_lengths_out;
+    *pp_cells_scratch = p_cells_in;
+    *pp_lengths_scratch = p_lengths_in;
+};
 
 
 static u32fast getNextPrimeNumberExclusive(u32fast n) {
@@ -1538,11 +1531,19 @@ extern "C" void advance(
             s->p_cell_lengths[cell_idx] = (u32)s->p_cells[cell_idx+1] - s->p_cells[cell_idx];
         }
 
-        mergeSortByCellHashes(
-            cell_count,
-            &s->p_cells, &s->p_cell_lengths, &s->p_cells_scratch_buffer1, &s->p_cells_scratch_buffer2,
+        sortCells(
+            s->thread_pool,
+            s->processor_count,
+            s->cell_count,
+            &s->p_cells,
+            &s->p_cell_lengths,
+            &s->p_cells_scratch_buffer1,
+            &s->p_cells_scratch_buffer2,
+            s->p_scratch_keyval_buffer_1,
+            s->p_scratch_keyval_buffer_2,
             s->p_positions,
-            domain_min, cell_size_reciprocal,
+            domain_min,
+            cell_size_reciprocal,
             s->hash_modulus
         );
     }
