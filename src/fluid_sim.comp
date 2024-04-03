@@ -226,6 +226,9 @@ void main(void) {
     }
 
     // don't update positions until other invocations are done reading them
+    // TODO @nocompile This barrier insufficient, because barriers only work within a workgroup,
+    // not across workgroups. So after this barrier, you might update a position before an invocation from
+    // another workgroup has read the old value.
     barrier();
     // TODO do we also need a memoryBarrier() here? I don't think so, because we're not about to read data
     // that was updated by other invocations.
