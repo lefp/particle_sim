@@ -36,8 +36,11 @@ struct GpuResources {
     VkDescriptorSet descriptor_set;
     VkDescriptorSetLayout descriptor_set_layout;
 
-    VkPipeline pipeline;
-    VkPipelineLayout pipeline_layout;
+    VkPipeline pipeline_updateVelocities;
+    VkPipelineLayout pipeline_layout_updateVelocities;
+
+    VkPipeline pipeline_updatePositions;
+    VkPipelineLayout pipeline_layout_updatePositions;
 
     VkFence fence;
 

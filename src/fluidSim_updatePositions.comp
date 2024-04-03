@@ -1,0 +1,39 @@
+#version 450
+
+layout(local_size_x_id = 0) in; // specialization constant
+
+layout(binding = 0, std140) uniform SimParams {
+    float rest_particle_density_;
+    float particle_interaction_radius_;
+    float spring_rest_length_;
+    float spring_stiffness_;
+    float cell_size_reciprocal_;
+
+    // stuff whose lifetime is the lifetime of the sim
+    uint particle_count_;
+    uint hash_modulus_;
+};
+
+layout(binding = 1, std430) buffer Positions {
+    vec3 positions_[];
+};
+layout(binding = 2, std430) buffer Velocities {
+    vec3 velocities_[];
+};
+
+layout(push_constant, std140) uniform PushConstants {
+
+    // stuff that probably changes every frame
+
+    vec3 domain_min_;
+    float delta_t_;
+    uint cell_count_;
+};
+
+void main(void) {
+
+    const uint particle_idx = gl_GlobalInvocationID.x;
+    const bool this_invocation_should_run = particle_idx < particle_count_;
+
+    if (this_invocation_should_run) positions_[particle_idx] += velocities_[particle_idx] * delta_t_;
+}

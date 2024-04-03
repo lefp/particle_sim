@@ -292,6 +292,7 @@ static void createDescriptorSet(
 
 static void createComputePipeline(
     const VulkanContext* vk_ctx,
+    const char *const spirv_filepath,
     const u32 workgroup_size,
     const VkDescriptorSetLayout descriptor_set_layout,
     VkPipeline* pipeline_out,
@@ -339,7 +340,7 @@ static void createComputePipeline(
         size_t spirv_size = 0;
         // TODO FIXME Create some central shader/pipeline manager so that we can hot-reload this without
         // rewriting all the hot-reloading code that's currently in graphics.cpp.
-        void* p_spirv = file_util::readEntireFile("build/shaders/fluid_sim.comp.spv", &spirv_size);
+        void* p_spirv = file_util::readEntireFile(spirv_filepath, &spirv_size);
         alwaysAssert(p_spirv != NULL);
         alwaysAssert(spirv_size != 0);
         defer(free(p_spirv));
@@ -1001,10 +1002,19 @@ static GpuResources createGpuResources(
 
     createComputePipeline(
         vk_ctx,
+        "build/shaders/fluidSim_updateVelocities.comp.spv",
         workgroup_size,
         resources.descriptor_set_layout,
-        &resources.pipeline,
-        &resources.pipeline_layout
+        &resources.pipeline_updatePositions,
+        &resources.pipeline_layout_updatePositions
+    );
+    createComputePipeline(
+        vk_ctx,
+        "build/shaders/fluidSim_updatePositions.comp.spv",
+        workgroup_size,
+        resources.descriptor_set_layout,
+        &resources.pipeline_updateVelocities,
+        &resources.pipeline_layout_updateVelocities
     );
 
 
@@ -1035,8 +1045,11 @@ static void destroyGpuResources(GpuResources* res, const VulkanContext* vk_ctx) 
     vk_ctx->procs_dev.DestroyDescriptorPool(vk_ctx->device, res->descriptor_pool, NULL);
     vk_ctx->procs_dev.DestroyDescriptorSetLayout(vk_ctx->device, res->descriptor_set_layout, NULL);
 
-    vk_ctx->procs_dev.DestroyPipeline(vk_ctx->device, res->pipeline, NULL);
-    vk_ctx->procs_dev.DestroyPipelineLayout(vk_ctx->device, res->pipeline_layout, NULL);
+    vk_ctx->procs_dev.DestroyPipeline(vk_ctx->device, res->pipeline_updatePositions, NULL);
+    vk_ctx->procs_dev.DestroyPipelineLayout(vk_ctx->device, res->pipeline_layout_updatePositions, NULL);
+
+    vk_ctx->procs_dev.DestroyPipeline(vk_ctx->device, res->pipeline_updateVelocities, NULL);
+    vk_ctx->procs_dev.DestroyPipelineLayout(vk_ctx->device, res->pipeline_layout_updateVelocities, NULL);
 
     vk_ctx->procs_dev.DestroyFence(vk_ctx->device, res->fence, NULL);
 }
@@ -1636,43 +1649,112 @@ extern "C" void advance(
     {
         TracyVkZone(vk_ctx->tracy_vk_ctx, s->gpu_resources.command_buffer, "sim");
 
-        const PushConstants push_constants {
-            .domain_min = domain_min,
-            .delta_t = delta_t,
-            .cell_count = (u32)s->cell_count
-        };
-        vk_ctx->procs_dev.CmdPushConstants(
-            s->gpu_resources.command_buffer,
-            s->gpu_resources.pipeline_layout,
-            VK_SHADER_STAGE_COMPUTE_BIT,
-            0, // offset
-            sizeof(PushConstants),
-            &push_constants
-        );
+        // update velocities
+        {
+            const PushConstants push_constants {
+                .domain_min = domain_min,
+                .delta_t = delta_t,
+                .cell_count = (u32)s->cell_count
+            };
+            vk_ctx->procs_dev.CmdPushConstants(
+                s->gpu_resources.command_buffer,
+                s->gpu_resources.pipeline_layout_updateVelocities,
+                VK_SHADER_STAGE_COMPUTE_BIT,
+                0, // offset
+                sizeof(PushConstants),
+                &push_constants
+            );
 
-        vk_ctx->procs_dev.CmdBindDescriptorSets(
-            s->gpu_resources.command_buffer,
-            VK_PIPELINE_BIND_POINT_COMPUTE,
-            s->gpu_resources.pipeline_layout,
-            0, // firstSet
-            1, // descriptorSetCount
-            &s->gpu_resources.descriptor_set,
-            0, // dynamicOffsetCount
-            NULL // pDynamicOffsets
-        );
+            vk_ctx->procs_dev.CmdBindDescriptorSets(
+                s->gpu_resources.command_buffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE,
+                s->gpu_resources.pipeline_layout_updateVelocities,
+                0, // firstSet
+                1, // descriptorSetCount
+                &s->gpu_resources.descriptor_set,
+                0, // dynamicOffsetCount
+                NULL // pDynamicOffsets
+            );
 
-        vk_ctx->procs_dev.CmdBindPipeline(
-            s->gpu_resources.command_buffer,
-            VK_PIPELINE_BIND_POINT_COMPUTE,
-            s->gpu_resources.pipeline
-        );
+            vk_ctx->procs_dev.CmdBindPipeline(
+                s->gpu_resources.command_buffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE,
+                s->gpu_resources.pipeline_updateVelocities
+            );
 
-        vk_ctx->procs_dev.CmdDispatch(
-            s->gpu_resources.command_buffer,
-            s->gpu_resources.workgroup_count, // groupCountX
-            1, // groupCountY
-            1 // groupCountZ
-        );
+            vk_ctx->procs_dev.CmdDispatch(
+                s->gpu_resources.command_buffer,
+                s->gpu_resources.workgroup_count, // groupCountX
+                1, // groupCountY
+                1 // groupCountZ
+            );
+        }
+
+        {
+            VkBufferMemoryBarrier buffer_memory_barrier {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .srcQueueFamilyIndex = vk_ctx->queue_family_index,
+                .dstQueueFamilyIndex = vk_ctx->queue_family_index,
+                .buffer = s->gpu_resources.buffer_positions,
+                .offset = 0,
+                .size = s->particle_count * sizeof(vec4),
+            };
+            vk_ctx->procs_dev.CmdPipelineBarrier(
+                s->gpu_resources.command_buffer,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                0, // dependencyFlags
+                0, // memoryBarrierCount
+                NULL, // pMemoryBarriers
+                1, // bufferMemoryBarrierCount
+                &buffer_memory_barrier, // pBufferMemoryBarriers
+                0, // imageMemoryBarrierCount
+                NULL // pImageMemoryBarriers
+            );
+        }
+
+        // update positions
+        {
+            const PushConstants push_constants {
+                .domain_min = domain_min,
+                .delta_t = delta_t,
+                .cell_count = (u32)s->cell_count
+            };
+            vk_ctx->procs_dev.CmdPushConstants(
+                s->gpu_resources.command_buffer,
+                s->gpu_resources.pipeline_layout_updatePositions,
+                VK_SHADER_STAGE_COMPUTE_BIT,
+                0, // offset
+                sizeof(PushConstants),
+                &push_constants
+            );
+
+            vk_ctx->procs_dev.CmdBindDescriptorSets(
+                s->gpu_resources.command_buffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE,
+                s->gpu_resources.pipeline_layout_updatePositions,
+                0, // firstSet
+                1, // descriptorSetCount
+                &s->gpu_resources.descriptor_set,
+                0, // dynamicOffsetCount
+                NULL // pDynamicOffsets
+            );
+
+            vk_ctx->procs_dev.CmdBindPipeline(
+                s->gpu_resources.command_buffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE,
+                s->gpu_resources.pipeline_updatePositions
+            );
+
+            vk_ctx->procs_dev.CmdDispatch(
+                s->gpu_resources.command_buffer,
+                s->gpu_resources.workgroup_count, // groupCountX
+                1, // groupCountY
+                1 // groupCountZ
+            );
+        }
 
         TracyVkCollect(vk_ctx->tracy_vk_ctx, s->gpu_resources.command_buffer);
     }

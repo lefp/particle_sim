@@ -182,8 +182,6 @@ void main(void) {
     const uint particle_idx = gl_GlobalInvocationID.x;
     const bool this_invocation_should_run = particle_idx < particle_count_;
 
-    vec3 new_velocity;
-
     if (this_invocation_should_run)
     {
         vec3 accel_i = vec3(0);
@@ -219,22 +217,10 @@ void main(void) {
         accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1,  1,  0), domain_min_);
         accel_i += accelerationDueToParticlesInCell(particle_idx, offsetCell(cell_index_3d,  1,  1,  1), domain_min_);
 
-        new_velocity = velocities_[particle_idx];
+        vec3 old_velocity = velocities_[particle_idx];
+        vec3 new_velocity = old_velocity;
         new_velocity += accel_i * delta_t_;
-        new_velocity -= 0.5f * delta_t_ * velocities_[particle_idx]; // damping
+        new_velocity -= 0.5f * delta_t_ * old_velocity; // damping
         velocities_[particle_idx] = new_velocity;
-    }
-
-    // don't update positions until other invocations are done reading them
-    // TODO @nocompile This barrier insufficient, because barriers only work within a workgroup,
-    // not across workgroups. So after this barrier, you might update a position before an invocation from
-    // another workgroup has read the old value.
-    barrier();
-    // TODO do we also need a memoryBarrier() here? I don't think so, because we're not about to read data
-    // that was updated by other invocations.
-
-    if (this_invocation_should_run)
-    {
-        positions_[particle_idx] += new_velocity * delta_t_;
     }
 }
