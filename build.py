@@ -52,6 +52,8 @@ for filepath in src_filepaths:
     file_contents: list[str] = f.readlines()
     f.close()
 
+    # TODO FIXME: if you find an `@directive` in a comment that isn't `@nocompile`, refuse to build.
+    #     This is to protect against mispellings, e.g. `@nocomple`
     for line_idx, line_contents in enumerate(file_contents):
         col: int = line_contents.find('@nocompile')
         if (col != -1):
