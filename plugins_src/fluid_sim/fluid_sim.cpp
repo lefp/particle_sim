@@ -812,7 +812,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_uniforms, &resources.allocation_uniforms, &resources.allocation_info_uniforms
+            &resources.buffer_uniforms.buffer,
+            &resources.buffer_uniforms.allocation,
+            &resources.buffer_uniforms.allocation_info
         );
         assertVk(result);
     }
@@ -833,7 +835,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_positions, &resources.allocation_positions, &resources.allocation_info_positions
+            &resources.buffer_positions.buffer,
+            &resources.buffer_positions.allocation,
+            &resources.buffer_positions.allocation_info
         );
         assertVk(result);
     }
@@ -853,7 +857,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_staging_positions, &resources.allocation_staging_positions, &resources.allocation_info_staging_positions
+            &resources.buffer_staging_positions.buffer,
+            &resources.buffer_staging_positions.allocation,
+            &resources.buffer_staging_positions.allocation_info
         );
         assertVk(result);
     }
@@ -874,7 +880,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_velocities, &resources.allocation_velocities, &resources.allocation_info_velocities
+            &resources.buffer_velocities.buffer,
+            &resources.buffer_velocities.allocation,
+            &resources.buffer_velocities.allocation_info
         );
         assertVk(result);
     }
@@ -894,7 +902,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_staging_velocities, &resources.allocation_staging_velocities, &resources.allocation_info_staging_velocities
+            &resources.buffer_staging_velocities.buffer,
+            &resources.buffer_staging_velocities.allocation,
+            &resources.buffer_staging_velocities.allocation_info
         );
         assertVk(result);
     }
@@ -915,7 +925,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_C_begin, &resources.allocation_C_begin, &resources.allocation_info_C_begin
+            &resources.buffer_C_begin.buffer,
+            &resources.buffer_C_begin.allocation,
+            &resources.buffer_C_begin.allocation_info
         );
         assertVk(result);
     }
@@ -936,7 +948,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_C_length, &resources.allocation_C_length, &resources.allocation_info_C_length
+            &resources.buffer_C_length.buffer,
+            &resources.buffer_C_length.allocation,
+            &resources.buffer_C_length.allocation_info
         );
         assertVk(result);
     }
@@ -957,7 +971,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_H_begin, &resources.allocation_H_begin, &resources.allocation_info_H_begin
+            &resources.buffer_H_begin.buffer,
+            &resources.buffer_H_begin.allocation,
+            &resources.buffer_H_begin.allocation_info
         );
         assertVk(result);
     }
@@ -978,7 +994,9 @@ static GpuResources createGpuResources(
         };
         result = vmaCreateBuffer(
             vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
-            &resources.buffer_H_length, &resources.allocation_H_length, &resources.allocation_info_H_length
+            &resources.buffer_H_length.buffer,
+            &resources.buffer_H_length.allocation,
+            &resources.buffer_H_length.allocation_info
         );
         assertVk(result);
     }
@@ -986,13 +1004,13 @@ static GpuResources createGpuResources(
 
     {
         const VkBuffer buffers[7] {
-            resources.buffer_uniforms,
-            resources.buffer_positions,
-            resources.buffer_velocities,
-            resources.buffer_C_begin,
-            resources.buffer_C_length,
-            resources.buffer_H_begin,
-            resources.buffer_H_length,
+            resources.buffer_uniforms.buffer,
+            resources.buffer_positions.buffer,
+            resources.buffer_velocities.buffer,
+            resources.buffer_C_begin.buffer,
+            resources.buffer_C_length.buffer,
+            resources.buffer_H_begin.buffer,
+            resources.buffer_H_length.buffer,
         };
         createDescriptorSet(
             vk_ctx, buffers,
@@ -1029,15 +1047,15 @@ static void destroyGpuResources(GpuResources* res, const VulkanContext* vk_ctx) 
     VkResult result = vk_ctx->procs_dev.QueueWaitIdle(vk_ctx->queue);
     assertVk(result);
 
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_uniforms, res->allocation_uniforms);
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_positions, res->allocation_positions);
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_staging_positions, res->allocation_staging_positions);
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_velocities, res->allocation_velocities);
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_staging_velocities, res->allocation_staging_velocities);
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_C_begin, res->allocation_C_begin);
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_C_length, res->allocation_C_length);
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_H_begin, res->allocation_H_begin);
-    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_H_length, res->allocation_H_length);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_uniforms.buffer, res->buffer_uniforms.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_positions.buffer, res->buffer_positions.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_staging_positions.buffer, res->buffer_staging_positions.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_velocities.buffer, res->buffer_velocities.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_staging_velocities.buffer, res->buffer_staging_velocities.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_C_begin.buffer, res->buffer_C_begin.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_C_length.buffer, res->buffer_C_length.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_H_begin.buffer, res->buffer_H_begin.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_H_length.buffer, res->buffer_H_length.allocation);
 
     vk_ctx->procs_dev.FreeCommandBuffers(vk_ctx->device, res->command_pool, 1, &res->command_buffer);
     vk_ctx->procs_dev.DestroyCommandPool(vk_ctx->device, res->command_pool, NULL);
@@ -1138,7 +1156,7 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
             vk_ctx,
             sizeof(uniform_data),
             &uniform_data,
-            s->gpu_resources.allocation_uniforms
+            s->gpu_resources.buffer_uniforms.allocation
         );
     }
 
@@ -1146,13 +1164,13 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         vk_ctx,
         s->particle_count * sizeof(vec4),
         s->p_positions,
-        s->gpu_resources.allocation_staging_positions
+        s->gpu_resources.buffer_staging_positions.allocation
     );
     uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
         s->particle_count * sizeof(vec4),
         s->p_velocities,
-        s->gpu_resources.allocation_staging_velocities
+        s->gpu_resources.buffer_staging_velocities.allocation
     );
 
     {
@@ -1166,12 +1184,12 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         VkBufferCopy copy_info_positions {
             .srcOffset = 0,
             .dstOffset = 0,
-            .size = s->gpu_resources.allocation_info_staging_positions.size,
+            .size = s->gpu_resources.buffer_staging_positions.allocation_info.size,
         };
         vk_ctx->procs_dev.CmdCopyBuffer(
             s->gpu_resources.command_buffer,
-            s->gpu_resources.buffer_staging_positions,
-            s->gpu_resources.buffer_positions,
+            s->gpu_resources.buffer_staging_positions.buffer,
+            s->gpu_resources.buffer_positions.buffer,
             1, // regionCount
             &copy_info_positions
         );
@@ -1179,12 +1197,12 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         VkBufferCopy copy_info_velocities {
             .srcOffset = 0,
             .dstOffset = 0,
-            .size = s->gpu_resources.allocation_info_staging_velocities.size,
+            .size = s->gpu_resources.buffer_staging_velocities.allocation_info.size,
         };
         vk_ctx->procs_dev.CmdCopyBuffer(
             s->gpu_resources.command_buffer,
-            s->gpu_resources.buffer_staging_velocities,
-            s->gpu_resources.buffer_velocities,
+            s->gpu_resources.buffer_staging_velocities.buffer,
+            s->gpu_resources.buffer_velocities.buffer,
             1, // regionCount
             &copy_info_velocities
         );
@@ -1210,25 +1228,25 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         vk_ctx,
         s->cell_count * sizeof(*s->p_cells),
         s->p_cells,
-        s->gpu_resources.allocation_C_begin
+        s->gpu_resources.buffer_C_begin.allocation
     );
     uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
         s->cell_count * sizeof(*s->p_cell_lengths),
         s->p_cell_lengths,
-        s->gpu_resources.allocation_C_length
+        s->gpu_resources.buffer_C_length.allocation
     );
     uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
         s->hash_modulus * sizeof(*s->H_begin),
         s->H_begin,
-        s->gpu_resources.allocation_H_begin
+        s->gpu_resources.buffer_H_begin.allocation
     );
     uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
         s->hash_modulus * sizeof(*s->H_length),
         s->H_length,
-        s->gpu_resources.allocation_H_length
+        s->gpu_resources.buffer_H_length.allocation
     );
 
     // OPTIMIZE:
@@ -1258,12 +1276,12 @@ static void downloadDataFromGpu(SimData* s, const VulkanContext* vk_ctx) {
         VkBufferCopy copy_info_positions {
             .srcOffset = 0,
             .dstOffset = 0,
-            .size = s->gpu_resources.allocation_info_staging_positions.size,
+            .size = s->gpu_resources.buffer_staging_positions.allocation_info.size,
         };
         vk_ctx->procs_dev.CmdCopyBuffer(
             s->gpu_resources.command_buffer,
-            s->gpu_resources.buffer_positions,
-            s->gpu_resources.buffer_staging_positions,
+            s->gpu_resources.buffer_positions.buffer,
+            s->gpu_resources.buffer_staging_positions.buffer,
             1, // regionCount
             &copy_info_positions
         );
@@ -1271,12 +1289,12 @@ static void downloadDataFromGpu(SimData* s, const VulkanContext* vk_ctx) {
         VkBufferCopy copy_info_velocities {
             .srcOffset = 0,
             .dstOffset = 0,
-            .size = s->gpu_resources.allocation_info_staging_velocities.size,
+            .size = s->gpu_resources.buffer_staging_velocities.allocation_info.size,
         };
         vk_ctx->procs_dev.CmdCopyBuffer(
             s->gpu_resources.command_buffer,
-            s->gpu_resources.buffer_velocities,
-            s->gpu_resources.buffer_staging_velocities,
+            s->gpu_resources.buffer_velocities.buffer,
+            s->gpu_resources.buffer_staging_velocities.buffer,
             1, // regionCount
             &copy_info_velocities
         );
@@ -1309,13 +1327,13 @@ static void downloadDataFromGpu(SimData* s, const VulkanContext* vk_ctx) {
     downloadBufferFromHostVisibleGpuMemory(
         vk_ctx,
         s->particle_count * sizeof(vec4),
-        s->gpu_resources.allocation_staging_positions,
+        s->gpu_resources.buffer_staging_positions.allocation,
         s->p_positions
     );
     downloadBufferFromHostVisibleGpuMemory(
         vk_ctx,
         s->particle_count * sizeof(vec4),
-        s->gpu_resources.allocation_staging_velocities,
+        s->gpu_resources.buffer_staging_velocities.allocation,
         s->p_velocities
     );
 }
@@ -1697,7 +1715,7 @@ extern "C" void advance(
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
                 .srcQueueFamilyIndex = vk_ctx->queue_family_index,
                 .dstQueueFamilyIndex = vk_ctx->queue_family_index,
-                .buffer = s->gpu_resources.buffer_positions,
+                .buffer = s->gpu_resources.buffer_positions.buffer,
                 .offset = 0,
                 .size = s->particle_count * sizeof(vec4),
             };
@@ -1785,7 +1803,7 @@ extern "C" void getPositionsVertexBuffer(
     VkBuffer* buffer_out,
     VkDeviceSize* buffer_size_out
 ) {
-    *buffer_out = s->gpu_resources.buffer_positions;
+    *buffer_out = s->gpu_resources.buffer_positions.buffer;
     *buffer_size_out = s->particle_count * sizeof(vec4);
 }
 

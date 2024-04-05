@@ -23,6 +23,12 @@ struct SimParameters {
     f32 spring_stiffness;
 };
 
+struct GpuBuffer {
+    VkBuffer buffer;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocation_info;
+};
+
 struct GpuResources {
 
     u32 workgroup_size;
@@ -45,41 +51,15 @@ struct GpuResources {
     VkFence fence;
 
 
-    VkBuffer buffer_uniforms;
-    VmaAllocation allocation_uniforms;
-    VmaAllocationInfo allocation_info_uniforms;
-
-    VkBuffer buffer_positions;
-    VmaAllocation allocation_positions;
-    VmaAllocationInfo allocation_info_positions;
-
-    VkBuffer buffer_staging_positions;
-    VmaAllocation allocation_staging_positions;
-    VmaAllocationInfo allocation_info_staging_positions;
-
-    VkBuffer buffer_velocities;
-    VmaAllocation allocation_velocities;
-    VmaAllocationInfo allocation_info_velocities;
-
-    VkBuffer buffer_staging_velocities;
-    VmaAllocation allocation_staging_velocities;
-    VmaAllocationInfo allocation_info_staging_velocities;
-
-    VkBuffer buffer_C_begin;
-    VmaAllocation allocation_C_begin;
-    VmaAllocationInfo allocation_info_C_begin;
-
-    VkBuffer buffer_C_length;
-    VmaAllocation allocation_C_length;
-    VmaAllocationInfo allocation_info_C_length;
-
-    VkBuffer buffer_H_begin;
-    VmaAllocation allocation_H_begin;
-    VmaAllocationInfo allocation_info_H_begin;
-
-    VkBuffer buffer_H_length;
-    VmaAllocation allocation_H_length;
-    VmaAllocationInfo allocation_info_H_length;
+    GpuBuffer buffer_uniforms;
+    GpuBuffer buffer_positions;
+    GpuBuffer buffer_staging_positions;
+    GpuBuffer buffer_velocities;
+    GpuBuffer buffer_staging_velocities;
+    GpuBuffer buffer_C_begin;
+    GpuBuffer buffer_C_length;
+    GpuBuffer buffer_H_begin;
+    GpuBuffer buffer_H_length;
 };
 
 struct SimData {
