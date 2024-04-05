@@ -76,11 +76,11 @@ struct SimData {
     KeyVal* p_scratch_keyval_buffer_1;
     KeyVal* p_scratch_keyval_buffer_2;
 
-    // This is `\mathbb{C}_compact^begin` in the paper "Multi-Level Memory Structures for Simulating and
+    // From the paper "Multi-Level Memory Structures for Simulating and
     // Rendering Smoothed Particle Hydrodynamics" by Winchenbach and Kolb.
     u32fast cell_count;
-    u32* p_cells;
-    u32* p_cell_lengths; // `\mathbb{C}_compact^length
+    u32* C_begin;
+    u32* C_length;
 
     u32 hash_modulus;
     u32* H_begin;

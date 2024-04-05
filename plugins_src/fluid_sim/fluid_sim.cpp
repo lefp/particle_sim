@@ -649,7 +649,7 @@ static inline CompactCell cell3dToCell(const SimData* s, const uvec3 cell_idx_3d
 
     for (; cell_idx < cell_idx_end; cell_idx++)
     {
-        const u32 first_particle_in_cell_idx = s->p_cells[cell_idx];
+        const u32 first_particle_in_cell_idx = s->C_begin[cell_idx];
         assert(first_particle_in_cell_idx < s->particle_count);
 
         const vec3 first_particle_in_cell = vec3(s->p_positions[first_particle_in_cell_idx]);
@@ -659,7 +659,7 @@ static inline CompactCell cell3dToCell(const SimData* s, const uvec3 cell_idx_3d
         ) {
             return CompactCell {
                 .first_particle_idx = first_particle_in_cell_idx,
-                .particle_count = s->p_cell_lengths[cell_idx],
+                .particle_count = s->C_length[cell_idx],
             };
         }
     }
@@ -1226,14 +1226,14 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
 
     uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
-        s->cell_count * sizeof(*s->p_cells),
-        s->p_cells,
+        s->cell_count * sizeof(*s->C_begin),
+        s->C_begin,
         s->gpu_resources.buffer_C_begin.allocation
     );
     uploadBufferToHostVisibleGpuMemory(
         vk_ctx,
-        s->cell_count * sizeof(*s->p_cell_lengths),
-        s->p_cell_lengths,
+        s->cell_count * sizeof(*s->C_length),
+        s->C_length,
         s->gpu_resources.buffer_C_length.allocation
     );
     uploadBufferToHostVisibleGpuMemory(
@@ -1361,8 +1361,8 @@ extern "C" SimData create(
         s.p_particles_scratch_buffer2 = callocArray(particle_count, vec4);
 
         s.cell_count = 0;
-        s.p_cells = callocArray(particle_count + 1, u32);
-        s.p_cell_lengths = callocArray(particle_count, u32);
+        s.C_begin = callocArray(particle_count + 1, u32);
+        s.C_length = callocArray(particle_count, u32);
 
         s.p_cells_scratch_buffer1 = callocArray(particle_count + 1, u32);
         s.p_cells_scratch_buffer2 = callocArray(particle_count + 1, u32);
@@ -1446,8 +1446,8 @@ extern "C" void destroy(SimData* s, const VulkanContext* vk_ctx) {
     free(s->p_scratch_keyval_buffer_1);
     free(s->p_scratch_keyval_buffer_2);
 
-    free(s->p_cells);
-    free(s->p_cell_lengths);
+    free(s->C_begin);
+    free(s->C_length);
 
     free(s->H_begin);
     free(s->H_length);
@@ -1534,7 +1534,7 @@ extern "C" void advance(
         u32 prev_morton_code = 0;
         if (particle_count > 0)
         {
-            s->p_cells[0] = 0;
+            s->C_begin[0] = 0;
             prev_morton_code = cellMortonCode(cellIndex(vec3(s->p_positions[0]), domain_min, cell_size_reciprocal));
         }
 
@@ -1548,26 +1548,26 @@ extern "C" void advance(
 
             prev_morton_code = morton_code;
 
-            s->p_cells[cell_idx] = (u32)particle_idx;
+            s->C_begin[cell_idx] = (u32)particle_idx;
 
             cell_idx++;
         }
-        s->p_cells[cell_idx] = (u32)particle_count;
+        s->C_begin[cell_idx] = (u32)particle_count;
 
         const u32fast cell_count = cell_idx;
         s->cell_count = cell_count;
 
         for (cell_idx = 0; cell_idx < cell_count; cell_idx++)
         {
-            s->p_cell_lengths[cell_idx] = (u32)s->p_cells[cell_idx+1] - s->p_cells[cell_idx];
+            s->C_length[cell_idx] = (u32)s->C_begin[cell_idx+1] - s->C_begin[cell_idx];
         }
 
         sortCells(
             s->thread_pool,
             s->processor_count,
             s->cell_count,
-            &s->p_cells,
-            &s->p_cell_lengths,
+            &s->C_begin,
+            &s->C_length,
             &s->p_cells_scratch_buffer1,
             &s->p_cells_scratch_buffer2,
             s->p_scratch_keyval_buffer_1,
@@ -1591,7 +1591,7 @@ extern "C" void advance(
         if (cell_count > 0) s->H_length[0] = 1;
         u32 prev_hash;
         {
-            const u32 particle_idx = s->p_cells[0];
+            const u32 particle_idx = s->C_begin[0];
             const vec3 particle = vec3(s->p_positions[particle_idx]);
             const uvec3 cell_idx_3d = cellIndex(particle, domain_min, cell_size_reciprocal);
             const u32 morton_code = cellMortonCode(cell_idx_3d);
@@ -1602,7 +1602,7 @@ extern "C" void advance(
 
         for (u32 cell_idx = 1; cell_idx < cell_count; cell_idx++)
         {
-            const u32 particle_idx = s->p_cells[cell_idx];
+            const u32 particle_idx = s->C_begin[cell_idx];
             const vec3 particle = vec3(s->p_positions[particle_idx]);
             const uvec3 cell_idx_3d = cellIndex(particle, domain_min, cell_size_reciprocal);
             const u32 morton_code = cellMortonCode(cell_idx_3d);
