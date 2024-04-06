@@ -43,28 +43,34 @@ src_filepaths: list[str] = (
 )
 assert(len(src_filepaths) > 0)
 
-for filepath in src_filepaths:
+# This switch is for temporarily ignoring `@nocompile` directives while debugging and developing.
+# Do not leave it enabled in a place where you might forget it's there.
+nocompile_env_str = os.environ.get("ANGAME_DIRECTIVE_IGNORE_NOCOMPILE")
+if nocompile_env_str is not None and int(nocompile_env_str) == 1:
+    print("\n!!! Warning: ignoring `@nocompile` directives due to environment variable.\n")
+else:
+    for filepath in src_filepaths:
 
-    assert(os.path.exists(filepath))
-    if (not os.path.isfile(filepath)): continue
+        assert(os.path.exists(filepath))
+        if (not os.path.isfile(filepath)): continue
 
-    f = open(filepath)
-    file_contents: list[str] = f.readlines()
-    f.close()
+        f = open(filepath)
+        file_contents: list[str] = f.readlines()
+        f.close()
 
-    # TODO FIXME: if you find an `@directive` in a comment that isn't `@nocompile`, refuse to build.
-    #     This is to protect against mispellings, e.g. `@nocomple`
-    for line_idx, line_contents in enumerate(file_contents):
-        col: int = line_contents.find('@nocompile')
-        if (col != -1):
-            nocompile_list.append(FileAndLocation(filepath, line_idx, col))
+        # TODO FIXME: if you find an `@directive` in a comment that isn't `@nocompile`, refuse to build.
+        #     This is to protect against mispellings, e.g. `@nocomple`
+        for line_idx, line_contents in enumerate(file_contents):
+            col: int = line_contents.find('@nocompile')
+            if (col != -1):
+                nocompile_list.append(FileAndLocation(filepath, line_idx, col))
 
-if (len(nocompile_list) != 0):
-    print('Error: the following source files contain "@nocompile":')
-    for nc in nocompile_list:
-        print(f'    - {nc.filename}:{nc.line}:{nc.col}')
-    print('Aborting build due to "@nocompile".')
-    exit(1)
+    if (len(nocompile_list) != 0):
+        print('Error: the following source files contain "@nocompile":')
+        for nc in nocompile_list:
+            print(f'    - {nc.filename}:{nc.line}:{nc.col}')
+        print('Aborting build due to "@nocompile".')
+        exit(1)
 
 
 if (os.path.isdir("build")):
