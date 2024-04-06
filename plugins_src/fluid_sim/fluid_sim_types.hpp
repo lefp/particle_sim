@@ -39,8 +39,15 @@ struct GpuResources {
     VkCommandBuffer command_buffer;
 
     VkDescriptorPool descriptor_pool;
-    VkDescriptorSet descriptor_set;
-    VkDescriptorSetLayout descriptor_set_layout;
+
+    VkDescriptorSetLayout descriptor_set_layout_main;
+    VkDescriptorSet descriptor_set_main;
+
+    VkDescriptorSetLayout descriptor_set_layout_reduction;
+    // @nocompile bind
+    VkDescriptorSet descriptor_set_reduction__positions_to_reduction1;
+    VkDescriptorSet descriptor_set_reduction__reduction1_to_reduction2;
+    VkDescriptorSet descriptor_set_reduction__reduction2_to_reduction1;
 
     VkPipeline pipeline_updateVelocities;
     VkPipelineLayout pipeline_layout_updateVelocities;
@@ -52,14 +59,19 @@ struct GpuResources {
 
 
     GpuBuffer buffer_uniforms;
+
     GpuBuffer buffer_positions;
     GpuBuffer buffer_staging_positions;
     GpuBuffer buffer_velocities;
     GpuBuffer buffer_staging_velocities;
+
     GpuBuffer buffer_C_begin;
     GpuBuffer buffer_C_length;
     GpuBuffer buffer_H_begin;
     GpuBuffer buffer_H_length;
+
+    GpuBuffer buffer_reduction_1;
+    GpuBuffer buffer_reduction_2;
 };
 
 struct SimData {

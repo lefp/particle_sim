@@ -8,6 +8,7 @@ other_source_files = [
   "src/file_util.cpp",
   "src/sort.cpp",
   "src/thread_pool.cpp",
+  "src/descriptor_management.cpp",
 ]
 
 [[procedures]]

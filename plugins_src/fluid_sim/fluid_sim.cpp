@@ -25,6 +25,7 @@
 #include "../src/thread_pool.hpp"
 #include "../src/sort.hpp"
 #include "../src/thread_pool.hpp"
+#include "../src/descriptor_management.hpp"
 #include "fluid_sim_types.hpp"
 
 namespace fluid_sim {
@@ -99,195 +100,170 @@ static void emptyQueueSubmit(
 }
 
 
-static void createDescriptorSet(
-    const VulkanContext* vk_ctx,
-    const VkBuffer p_buffers[7],
-    VkDescriptorSet* descriptor_set_out,
-    VkDescriptorSetLayout* layout_out,
-    VkDescriptorPool* pool_out
+static void createDescriptorStuff(
+    GpuResources* res,
+    const VulkanContext* vk_ctx
 ) {
+    using descriptor_management::DescriptorSetLayout;
 
-    VkResult result = VK_ERROR_UNKNOWN;
-
-
-    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    constexpr u32 layout_binding_count_main = 7;
+    VkDescriptorSetLayoutBinding layout_bindings_main[layout_binding_count_main];
     {
-        constexpr u32 binding_count = 7;
-        const VkDescriptorSetLayoutBinding bindings[binding_count] {
-            {
-                .binding = 0,
-                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            },
-            {
-                .binding = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            },
-            {
-                .binding = 2,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            },
-            {
-                .binding = 3,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            },
-            {
-                .binding = 4,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            },
-            {
-                .binding = 5,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            },
-            {
-                .binding = 6,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            },
+        layout_bindings_main[0] = VkDescriptorSetLayoutBinding {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         };
-
-        const VkDescriptorSetLayoutCreateInfo layout_info {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .bindingCount = binding_count,
-            .pBindings = bindings,
-        };
-        result = vk_ctx->procs_dev.CreateDescriptorSetLayout(vk_ctx->device, &layout_info, NULL, &layout);
-        assertVk(result);
+        for (u32 i = 1; i < layout_binding_count_main; i++)
+        {
+            layout_bindings_main[i] = VkDescriptorSetLayoutBinding {
+                .binding = i,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            };
+        }
     }
-    *layout_out = layout;
 
-    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+    constexpr u32 layout_binding_count_reduction = 2;
+    VkDescriptorSetLayoutBinding layout_bindings_reduction[layout_binding_count_reduction] {
+        VkDescriptorSetLayoutBinding {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        },
+        VkDescriptorSetLayoutBinding {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        },
+    };
+
+    constexpr u32fast layout_count = 2;
+    const DescriptorSetLayout layout_infos[layout_count] {
+        DescriptorSetLayout {
+            .binding_count = layout_binding_count_main,
+            .p_bindings = layout_bindings_main,
+        },
+        DescriptorSetLayout {
+            .binding_count = layout_binding_count_reduction,
+            .p_bindings = layout_bindings_reduction,
+        },
+    };
+
+    const u32 descriptor_set_counts[layout_count] { 1, 3 };
+    constexpr u32 total_descriptor_set_count = 4;
+
+    VkDescriptorSetLayout descriptor_set_layouts[layout_count] {};
+    VkDescriptorSet descriptor_sets[total_descriptor_set_count] {};
     {
-        // TODO FIXME compute this programmatically based on the descriptor binding list, so that you don't
-        // need to remember to update this every time you update the bindings.
-        constexpr u32 pool_size_count = 2;
-        const VkDescriptorPoolSize pool_sizes[pool_size_count] {
-            {
-                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                .descriptorCount = 1,
-            },
-            {
-                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 6,
-            },
-        };
-        const VkDescriptorPoolCreateInfo pool_info {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = 1,
-            .poolSizeCount = pool_size_count,
-            .pPoolSizes = pool_sizes,
-        };
-        result = vk_ctx->procs_dev.CreateDescriptorPool(vk_ctx->device, &pool_info, NULL, &descriptor_pool);
-        assertVk(result);
+        descriptor_management::createDescriptorPoolAndSets(
+            vk_ctx,
+            layout_count,
+            layout_infos,
+            descriptor_set_counts,
+            &res->descriptor_pool,
+            descriptor_set_layouts,
+            descriptor_sets
+        );
     }
-    *pool_out = descriptor_pool;
 
-    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-    {
-        const VkDescriptorSetAllocateInfo alloc_info {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = descriptor_pool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &layout,
-        };
-        result = vk_ctx->procs_dev.AllocateDescriptorSets(vk_ctx->device, &alloc_info, &descriptor_set);
-        assertVk(result);
-    }
-    *descriptor_set_out = descriptor_set;
+    res->descriptor_set_layout_main = descriptor_set_layouts[0];
+    res->descriptor_set_layout_reduction = descriptor_set_layouts[1];
+
+    res->descriptor_set_main = descriptor_sets[0];
+    res->descriptor_set_reduction__positions_to_reduction1 = descriptor_sets[1];
+    res->descriptor_set_reduction__reduction1_to_reduction2 = descriptor_sets[2];
+    res->descriptor_set_reduction__reduction2_to_reduction1 = descriptor_sets[3];
+
+    // initialize descriptors --------------------------------------------------------------------------------
 
     {
-        constexpr u32 write_count = 7;
-
-        const VkDescriptorBufferInfo buffer_infos[write_count] {
-            { .buffer = p_buffers[0], .offset = 0, .range = VK_WHOLE_SIZE },
-            { .buffer = p_buffers[1], .offset = 0, .range = VK_WHOLE_SIZE },
-            { .buffer = p_buffers[2], .offset = 0, .range = VK_WHOLE_SIZE },
-            { .buffer = p_buffers[3], .offset = 0, .range = VK_WHOLE_SIZE },
-            { .buffer = p_buffers[4], .offset = 0, .range = VK_WHOLE_SIZE },
-            { .buffer = p_buffers[5], .offset = 0, .range = VK_WHOLE_SIZE },
-            { .buffer = p_buffers[6], .offset = 0, .range = VK_WHOLE_SIZE },
+        const VkDescriptorBufferInfo buffer_infos[layout_binding_count_main] {
+            { .buffer = res->buffer_uniforms.buffer, .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = res->buffer_positions.buffer, .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = res->buffer_velocities.buffer, .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = res->buffer_C_begin.buffer, .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = res->buffer_C_length.buffer, .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = res->buffer_H_begin.buffer, .offset = 0, .range = VK_WHOLE_SIZE },
+            { .buffer = res->buffer_H_length.buffer, .offset = 0, .range = VK_WHOLE_SIZE },
         };
 
-        const VkWriteDescriptorSet writes[write_count] {
+        VkWriteDescriptorSet writes[layout_binding_count_main] {};
+        {
+            for (u32 binding_idx = 0; binding_idx < layout_binding_count_main; binding_idx++)
             {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = descriptor_set,
-                .dstBinding = 0,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                .pBufferInfo = &buffer_infos[0],
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = descriptor_set,
-                .dstBinding = 1,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .pBufferInfo = &buffer_infos[1],
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = descriptor_set,
-                .dstBinding = 2,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .pBufferInfo = &buffer_infos[2],
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = descriptor_set,
-                .dstBinding = 3,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .pBufferInfo = &buffer_infos[3],
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = descriptor_set,
-                .dstBinding = 4,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .pBufferInfo = &buffer_infos[4],
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = descriptor_set,
-                .dstBinding = 5,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .pBufferInfo = &buffer_infos[5],
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = descriptor_set,
-                .dstBinding = 6,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .pBufferInfo = &buffer_infos[6],
-            },
-        };
-        vk_ctx->procs_dev.UpdateDescriptorSets(vk_ctx->device, write_count, writes, 0, NULL);
+                writes[binding_idx] = VkWriteDescriptorSet {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = res->descriptor_set_main,
+                    .dstBinding = binding_idx,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = layout_bindings_main[binding_idx].descriptorType,
+                    .pBufferInfo = &buffer_infos[binding_idx],
+                };
+            }
+        }
+
+        vk_ctx->procs_dev.UpdateDescriptorSets(vk_ctx->device, layout_binding_count_main, writes, 0, NULL);
     }
-}
+
+    {
+        VkDescriptorBufferInfo buffer_info_positions
+            { .buffer = res->buffer_positions.buffer, .offset = 0, .range = VK_WHOLE_SIZE };
+        VkDescriptorBufferInfo buffer_info_reduction1
+            { .buffer = res->buffer_reduction_1.buffer, .offset = 0, .range = VK_WHOLE_SIZE };
+        VkDescriptorBufferInfo buffer_info_reduction2
+            { .buffer = res->buffer_reduction_2.buffer, .offset = 0, .range = VK_WHOLE_SIZE };
+
+        {
+            const VkWriteDescriptorSet write_template = {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = VK_NULL_HANDLE, // to be filled
+                .dstBinding = UINT32_MAX, // to be filled
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = NULL, // to be filled
+            };
+
+            constexpr u32 write_count = 6;
+            VkWriteDescriptorSet writes[write_count] {};
+
+            writes[0] = write_template;
+            writes[0].dstSet = res->descriptor_set_reduction__positions_to_reduction1;
+            writes[0].dstBinding = 0;
+            writes[0].pBufferInfo = &buffer_info_positions;
+            writes[1] = write_template;
+            writes[1].dstSet = res->descriptor_set_reduction__positions_to_reduction1;
+            writes[1].dstBinding = 1;
+            writes[1].pBufferInfo = &buffer_info_reduction1;
+
+            writes[2] = write_template;
+            writes[2].dstSet = res->descriptor_set_reduction__reduction1_to_reduction2;
+            writes[2].dstBinding = 0;
+            writes[2].pBufferInfo = &buffer_info_reduction1;
+            writes[3] = write_template;
+            writes[3].dstSet = res->descriptor_set_reduction__reduction1_to_reduction2;
+            writes[3].dstBinding = 1;
+            writes[3].pBufferInfo = &buffer_info_reduction2;
+
+            writes[4] = write_template;
+            writes[4].dstSet = res->descriptor_set_reduction__reduction2_to_reduction1;
+            writes[4].dstBinding = 0;
+            writes[4].pBufferInfo = &buffer_info_reduction2;
+            writes[5] = write_template;
+            writes[5].dstSet = res->descriptor_set_reduction__reduction2_to_reduction1;
+            writes[5].dstBinding = 1;
+            writes[5].pBufferInfo = &buffer_info_reduction1;
+
+            vk_ctx->procs_dev.UpdateDescriptorSets(vk_ctx->device, write_count, writes, 0, NULL);
+        }
+    }
+};
 
 
 static void createComputePipeline(
@@ -1001,28 +977,57 @@ static GpuResources createGpuResources(
         assertVk(result);
     }
 
+    {
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = particle_count * sizeof(vec4), // OPTIMIZE this can be smaller (divCeil(size, 2)?)
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
+        };
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_reduction_1.buffer,
+            &resources.buffer_reduction_1.allocation,
+            &resources.buffer_reduction_1.allocation_info
+        );
+        assertVk(result);
+    }
 
     {
-        const VkBuffer buffers[7] {
-            resources.buffer_uniforms.buffer,
-            resources.buffer_positions.buffer,
-            resources.buffer_velocities.buffer,
-            resources.buffer_C_begin.buffer,
-            resources.buffer_C_length.buffer,
-            resources.buffer_H_begin.buffer,
-            resources.buffer_H_length.buffer,
+        VkBufferCreateInfo buffer_info {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = particle_count * sizeof(vec4), // OPTIMIZE this can be smaller (divCeil(size, 4)?)
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &vk_ctx->queue_family_index,
         };
-        createDescriptorSet(
-            vk_ctx, buffers,
-            &resources.descriptor_set, &resources.descriptor_set_layout, &resources.descriptor_pool
+        VmaAllocationCreateInfo buffer_alloc_info {
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        };
+        result = vmaCreateBuffer(
+            vk_ctx->vma_allocator, &buffer_info, &buffer_alloc_info,
+            &resources.buffer_reduction_2.buffer,
+            &resources.buffer_reduction_2.allocation,
+            &resources.buffer_reduction_2.allocation_info
         );
+        assertVk(result);
     }
+
+    createDescriptorStuff(&resources, vk_ctx);
 
     createComputePipeline(
         vk_ctx,
         "build/shaders/fluidSim_updateVelocities.comp.spv",
         workgroup_size,
-        resources.descriptor_set_layout,
+        resources.descriptor_set_layout_main,
         &resources.pipeline_updatePositions,
         &resources.pipeline_layout_updatePositions
     );
@@ -1030,7 +1035,7 @@ static GpuResources createGpuResources(
         vk_ctx,
         "build/shaders/fluidSim_updatePositions.comp.spv",
         workgroup_size,
-        resources.descriptor_set_layout,
+        resources.descriptor_set_layout_main,
         &resources.pipeline_updateVelocities,
         &resources.pipeline_layout_updateVelocities
     );
@@ -1056,12 +1061,15 @@ static void destroyGpuResources(GpuResources* res, const VulkanContext* vk_ctx) 
     vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_C_length.buffer, res->buffer_C_length.allocation);
     vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_H_begin.buffer, res->buffer_H_begin.allocation);
     vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_H_length.buffer, res->buffer_H_length.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_reduction_1.buffer, res->buffer_reduction_1.allocation);
+    vmaDestroyBuffer(vk_ctx->vma_allocator, res->buffer_reduction_2.buffer, res->buffer_reduction_2.allocation);
 
     vk_ctx->procs_dev.FreeCommandBuffers(vk_ctx->device, res->command_pool, 1, &res->command_buffer);
     vk_ctx->procs_dev.DestroyCommandPool(vk_ctx->device, res->command_pool, NULL);
 
+    vk_ctx->procs_dev.DestroyDescriptorSetLayout(vk_ctx->device, res->descriptor_set_layout_main, NULL);
+    vk_ctx->procs_dev.DestroyDescriptorSetLayout(vk_ctx->device, res->descriptor_set_layout_reduction, NULL);
     vk_ctx->procs_dev.DestroyDescriptorPool(vk_ctx->device, res->descriptor_pool, NULL);
-    vk_ctx->procs_dev.DestroyDescriptorSetLayout(vk_ctx->device, res->descriptor_set_layout, NULL);
 
     vk_ctx->procs_dev.DestroyPipeline(vk_ctx->device, res->pipeline_updatePositions, NULL);
     vk_ctx->procs_dev.DestroyPipelineLayout(vk_ctx->device, res->pipeline_layout_updatePositions, NULL);
@@ -1345,6 +1353,8 @@ extern "C" SimData create(
     u32fast particle_count,
     const vec4* p_initial_positions
 ) {
+
+    LOG_F(INFO, "Initializing fluid sim.");
 
     ZoneScoped;
 
@@ -1689,7 +1699,7 @@ extern "C" void advance(
                 s->gpu_resources.pipeline_layout_updateVelocities,
                 0, // firstSet
                 1, // descriptorSetCount
-                &s->gpu_resources.descriptor_set,
+                &s->gpu_resources.descriptor_set_main,
                 0, // dynamicOffsetCount
                 NULL // pDynamicOffsets
             );
@@ -1755,7 +1765,7 @@ extern "C" void advance(
                 s->gpu_resources.pipeline_layout_updatePositions,
                 0, // firstSet
                 1, // descriptorSetCount
-                &s->gpu_resources.descriptor_set,
+                &s->gpu_resources.descriptor_set_main,
                 0, // dynamicOffsetCount
                 NULL // pDynamicOffsets
             );
@@ -1773,6 +1783,10 @@ extern "C" void advance(
                 1 // groupCountZ
             );
         }
+
+        // @nocompile bind relevant descriptor sets and dispatch the `min` reduction to find the domain min
+        // @nocompile After that, download only the Morton codes instead of the positions and velocities
+        //     buffers, and send the permutation back up to the GPU.
 
         TracyVkCollect(vk_ctx->tracy_vk_ctx, s->gpu_resources.command_buffer);
     }

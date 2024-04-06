@@ -1,0 +1,43 @@
+#version 460
+
+layout(local_size_x_id = 0) in; // specialization constant
+
+layout(binding = 0, std430) readonly buffer PositionsReductionBufferIn {
+    vec3 positions_reduction_in_[];
+};
+layout(binding = 1, std430) writeonly buffer PositionsReductionBufferOut {
+    vec3 positions_reduction_out_[];
+};
+
+layout(push_constant, std140) uniform PushConstants {
+    uint array_size_;
+};
+
+shared vec3 shared_buf[gl_WorkGroupSize.x];
+
+void main(void) {
+
+    const uint global_idx = gl_GlobalInvocationID.x;
+    const bool this_invocation_should_run = global_idx < array_size_;
+
+    shared_buf[gl_LocalInvocationIndex] =
+        (global_idx < array_size_)
+        ? positions_reduction_in_[global_idx]
+        : vec3(1.0f / 0.0f);
+    barrier();
+
+    for (uint stride = 1; stride < gl_WorkGroupSize.x; stride *= 2)
+    {
+        const uint i = 2 * stride * gl_LocalInvocationIndex;
+        if (i < gl_WorkGroupSize.x)
+        {
+            shared_buf[i] = min(shared_buf[i], shared_buf[i + stride]);
+        }
+        barrier();
+    }
+
+    if (gl_LocalInvocationIndex == 0)
+    {
+        positions_reduction_out_[gl_WorkGroupID.x] = shared_buf[0];
+    }
+}
