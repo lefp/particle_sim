@@ -1011,7 +1011,7 @@ int main(int argc, char** argv) {
         const char* name = ANGAME_ENV_NAMES[i];
         const char* value = ANGAME_ENV_VALUES[i];
         LOG_F(INFO, "Setting environment variable `%s` to `%s`.", name, value);
-        setenv(name, value, 0);
+        setenv(name, value, 1);
     }
 
 
