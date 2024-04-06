@@ -77,6 +77,7 @@ for lib_name in lib_names:
             + common.getCompilerFlag_O()
             + common.getCompilerFlags_TracyDefines()
             + common.getCompilerFlags_m()
+            + common.getCompilerAndLinkerFlags_sanitizers()
         )
 
         # TODO OPTIMIZE: do this in parallel for all files, using Popen

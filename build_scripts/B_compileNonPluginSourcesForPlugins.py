@@ -54,6 +54,7 @@ for lib_name in lib_names:
             + common.getCompilerFlag_g()
             + common.getCompilerFlag_O()
             + common.getCompilerFlags_TracyDefines()
+            + common.getCompilerAndLinkerFlags_sanitizers()
             + additional_flags
         )
 

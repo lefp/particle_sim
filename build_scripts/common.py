@@ -51,6 +51,12 @@ def getCompilerFlags_TracyDefines() -> list[str]:
     else:
         return []
 
+def getCompilerAndLinkerFlags_sanitizers() -> list[str]:
+    env_str = os.environ.get("ANGAME_SANITIZE_ADDRESS")
+    if (env_str is not None and int(env_str) == 1):
+        return ['-fsanitize=address']
+    return []
+
 
 WARNING_FLAGS: list[str] = [
 

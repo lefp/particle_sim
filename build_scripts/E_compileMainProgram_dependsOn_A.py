@@ -26,6 +26,7 @@ COMMON_COMPILE_FLAGS: list[str] = (
     common.getCompilerFlag_O() +
     common.getCompilerFlags_TracyDefines() +
     common.getCompilerFlags_m() +
+    common.getCompilerAndLinkerFlags_sanitizers() +
     ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES']
 )
 
@@ -38,7 +39,7 @@ if (stderr != b''):
     print(stderr.decode())
     os.abort()
 glfw_link_flags: list[str] = glfw_link_flags_str.decode().strip().split(' ')
-LINK_FLAGS = ['-lc', '-ldl'] + glfw_link_flags
+LINK_FLAGS = ['-lc', '-ldl'] + glfw_link_flags + common.getCompilerAndLinkerFlags_sanitizers()
 
 
 @dataclass
