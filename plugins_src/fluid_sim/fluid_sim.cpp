@@ -159,7 +159,6 @@ struct UniformBufferData {
     // stuff that may change every frame
     alignas(16) vec3 domain_min;
 
-    // @nocompile pretty sure this is right... but double-check that it shouldn't be alignas(16)
     alignas(4) struct UpdatedByHost {
 
         // stuff whose lifetime is the lifetime of the sim parameters
