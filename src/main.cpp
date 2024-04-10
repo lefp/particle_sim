@@ -280,6 +280,9 @@ bool sim_finished_semaphore_will_be_signalled_ = false;
 VkFence general_purpose_fence_ = VK_NULL_HANDLE;
 
 
+thread_pool::ThreadPool* thread_pool_ = NULL;
+
+
 //
 // ===========================================================================================================
 //
@@ -987,6 +990,35 @@ struct GuiWindowFluidSimResult {
     return ret;
 }
 
+static thread_pool::ThreadPool* createThreadPool(void)
+{
+    long processor_count = sysconf(_SC_NPROCESSORS_ONLN);
+
+    if (processor_count < 0)
+    {
+        const int err = errno;
+        const char* err_description = strerror(err);
+        if (err_description == NULL) err_description = "(NO DESCRIPTION PROVIDED)";
+
+        LOG_F(
+            ERROR, "Failed to get processor count; (errno %i, description `%s`).",
+            err, err_description
+        );
+        processor_count = 1;
+    }
+    else if (processor_count == 0)
+    {
+        LOG_F(ERROR, "Failed to get processor count (got 0).");
+        processor_count = 1;
+    }
+
+    LOG_F(INFO, "Using processor_count=%li for thread pool.", processor_count);
+
+    // TODO FIXME max_queue_size chosen arbitrarily. Should probably make it growable so you don't have to
+    //     worry about overflowing it.
+    return thread_pool::create((u32)processor_count, 100);
+};
+
 //
 // ===========================================================================================================
 //
@@ -1013,6 +1045,10 @@ int main(int argc, char** argv) {
         LOG_F(INFO, "Setting environment variable `%s` to `%s`.", name, value);
         setenv(name, value, 1);
     }
+
+
+    thread_pool_ = createThreadPool();
+    alwaysAssert(thread_pool_ != NULL);
 
 
     int success = glfwInit();
@@ -1234,6 +1270,7 @@ int main(int argc, char** argv) {
             fluid_sim_procs_->advance(
                 &sim_data,
                 gfx::getVkContext(),
+                thread_pool_,
                 (f32)delta_t_seconds,
                 render_finished_semaphore_will_be_signalled_ ? render_finished_semaphore_ : VK_NULL_HANDLE,
                 sim_finished_semaphore_

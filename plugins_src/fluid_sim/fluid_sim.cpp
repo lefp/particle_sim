@@ -1786,10 +1786,6 @@ extern "C" SimData create(
             LOG_F(INFO, "Using processor_count=%li.", processor_count);
             s.processor_count = (u32)processor_count;
         }
-
-        // TODO Put the thread pool in some central place where it can be accessed from multiple modules.
-        s.thread_pool = thread_pool::create(s.processor_count, s.processor_count);
-        alwaysAssert(s.thread_pool != NULL);
     }
 
     initGpuBuffers(
@@ -1819,8 +1815,6 @@ extern "C" void destroy(SimData* s, const VulkanContext* vk_ctx) {
 
     ZoneScoped;
 
-    thread_pool::destroy(s->thread_pool);
-
     destroyGpuResources(&s->gpu_resources, vk_ctx);
 
     free(s->p_cells_scratch_buffer1);
@@ -1845,6 +1839,7 @@ extern "C" void destroy(SimData* s, const VulkanContext* vk_ctx) {
 extern "C" void advance(
     SimData* s,
     const VulkanContext* vk_ctx,
+    thread_pool::ThreadPool* thread_pool,
     f32 delta_t,
     VkSemaphore optional_wait_semaphore,
     VkSemaphore particle_update_finished_signal_semaphore_optional
@@ -1894,7 +1889,7 @@ extern "C" void advance(
             s->p_scratch_keyval_buffer_1[i].val = i;
         }
         mergeSortMultiThreaded(
-            s->thread_pool,
+            thread_pool,
             s->processor_count,
             particle_count,
             s->p_scratch_keyval_buffer_1,
@@ -1943,7 +1938,7 @@ extern "C" void advance(
         }
     }
     sortCells(
-        s->thread_pool,
+        thread_pool,
         s->processor_count,
         s->cell_count,
         &s->C_begin,

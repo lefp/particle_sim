@@ -42,6 +42,7 @@ name = "advance"
 args = [
   { type = "SimData*" },
   { type = "const VulkanContext*" },
+  { type = "thread_pool::ThreadPool*" },
   { type = "f32", name = "delta_t" },
   { type = "VkSemaphore", name = "optional_wait_semaphore" },
   { type = "VkSemaphore", name = "optional_signal_semaphore" },

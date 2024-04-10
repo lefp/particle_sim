@@ -5,7 +5,6 @@
 // #include "../../src/types.hpp"
 // #include "../../libs/glm/glm.hpp"
 // #include "../../src/vk_procs.hpp"
-// #include "../../src/thread_pool.hpp"
 // #include "../../src/sort.hpp"
 
 namespace fluid_sim {
@@ -120,7 +119,6 @@ struct SimData {
     GpuResources gpu_resources;
 
     u32 processor_count;
-    thread_pool::ThreadPool* thread_pool;
 };
 
 //
