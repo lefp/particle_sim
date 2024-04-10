@@ -1942,21 +1942,20 @@ extern "C" void advance(
         {
             s->C_length[cell_idx] = (u32)s->C_begin[cell_idx+1] - s->C_begin[cell_idx];
         }
-
-        sortCells(
-            s->thread_pool,
-            s->processor_count,
-            s->cell_count,
-            &s->C_begin,
-            &s->C_length,
-            &s->p_cells_scratch_buffer1,
-            &s->p_cells_scratch_buffer2,
-            s->p_scratch_keyval_buffer_1,
-            s->p_scratch_keyval_buffer_2,
-            s->p_morton_codes,
-            s->hash_modulus
-        );
     }
+    sortCells(
+        s->thread_pool,
+        s->processor_count,
+        s->cell_count,
+        &s->C_begin,
+        &s->C_length,
+        &s->p_cells_scratch_buffer1,
+        &s->p_cells_scratch_buffer2,
+        s->p_scratch_keyval_buffer_1,
+        s->p_scratch_keyval_buffer_2,
+        s->p_morton_codes,
+        s->hash_modulus
+    );
 
     {
         ZoneScopedN("fillHashTable");
