@@ -2003,7 +2003,7 @@ extern "C" void advance(
     // OPTIMIZE we can probably wait later than here
     if (optional_wait_semaphore != VK_NULL_HANDLE) {
 
-        ZoneScoped;
+        ZoneScopedN("WaitForUserSemaphore");
 
         const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
