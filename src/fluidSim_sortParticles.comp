@@ -1,0 +1,40 @@
+#version 460
+
+layout(local_size_x_id = 0) in; // specialization constant
+
+layout(binding = 0, std140) uniform SimParams {
+
+    // stuff that may change every frame
+    vec3 domain_min_;
+
+    // stuff whose lifetime is the lifetime of the sim parameters
+    float rest_particle_density_;
+    float particle_interaction_radius_;
+    float spring_rest_length_;
+    float spring_stiffness_;
+    float cell_size_reciprocal_;
+
+    // stuff whose lifetime is the lifetime of the sim
+    uint particle_count_;
+    uint hash_modulus_;
+};
+
+layout(binding = 1, std430) writeonly buffer PositionsSorted { vec3 positions_sorted_[]; };
+layout(binding = 2, std430) writeonly buffer VelocitiesSorted { vec3 velocities_sorted_[]; };
+layout(binding = 3, std430) readonly buffer PositionsUnsorted { vec3 positions_unsorted_[]; };
+layout(binding = 4, std430) readonly buffer VelocitiesUnsorted { vec3 velocities_unsorted_[]; };
+layout(binding = 9, std430) readonly buffer Permutation { uint permutation_[]; };
+
+void main(void) {
+
+    const uint global_idx = gl_GlobalInvocationID.x;
+    const bool this_invocation_should_run = global_idx < particle_count_;
+
+    if (this_invocation_should_run)
+    {
+        const uint src_idx = permutation_[global_idx];
+        positions_sorted_[global_idx] = positions_unsorted_[src_idx];
+        velocities_sorted_[global_idx] = velocities_unsorted_[src_idx];
+    }
+}
+

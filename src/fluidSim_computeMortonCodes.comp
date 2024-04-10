@@ -1,0 +1,42 @@
+#version 460
+#include "fluidSim_util.comp.h"
+
+layout(local_size_x_id = 0) in; // specialization constant
+
+layout(binding = 0, std140) uniform SimParams {
+
+    // stuff that may change every frame
+    vec3 domain_min_;
+
+    // stuff whose lifetime is the lifetime of the sim parameters
+    float rest_particle_density_;
+    float particle_interaction_radius_;
+    float spring_rest_length_;
+    float spring_stiffness_;
+    float cell_size_reciprocal_;
+
+    // stuff whose lifetime is the lifetime of the sim
+    uint particle_count_;
+    uint hash_modulus_;
+};
+
+layout(binding = 3, std430) readonly buffer Positions {
+    vec3 positions_[];
+};
+layout(binding = 9, std430) writeonly buffer MortonCodes {
+    uint morton_codes_[];
+};
+
+
+void main(void) {
+
+    const uint particle_idx = gl_GlobalInvocationID.x;
+    const bool this_invocation_should_run = particle_idx < particle_count_;
+
+    if (this_invocation_should_run)
+    {
+        const vec3 particle = positions_[particle_idx];
+        const uint morton_code = cellMortonCode(cellIndex(particle, domain_min_, cell_size_reciprocal_));
+        morton_codes_[particle_idx] = morton_code;
+    }
+}

@@ -36,7 +36,9 @@ struct GpuResources {
 
 
     VkCommandPool command_pool;
-    VkCommandBuffer command_buffer;
+    VkCommandBuffer general_purpose_command_buffer;
+    VkCommandBuffer morton_code_command_buffer;
+
 
     VkDescriptorPool descriptor_pool;
 
@@ -44,26 +46,34 @@ struct GpuResources {
     VkDescriptorSet descriptor_set_main;
 
     VkDescriptorSetLayout descriptor_set_layout_reduction;
-    // @nocompile bind
     VkDescriptorSet descriptor_set_reduction__positions_to_reduction1;
     VkDescriptorSet descriptor_set_reduction__reduction1_to_reduction2;
     VkDescriptorSet descriptor_set_reduction__reduction2_to_reduction1;
 
-    VkPipeline pipeline_updateVelocities;
-    VkPipelineLayout pipeline_layout_updateVelocities;
 
-    VkPipeline pipeline_updatePositions;
-    VkPipelineLayout pipeline_layout_updatePositions;
+    VkPipeline pipeline_updateParticles;
+    VkPipelineLayout pipeline_layout_updateParticles;
 
+    VkPipeline pipeline_computeMin;
+    VkPipelineLayout pipeline_layout_computeMin;
+
+    VkPipeline pipeline_computeMortonCodes;
+    VkPipelineLayout pipeline_layout_computeMortonCodes;
+
+    VkPipeline pipeline_sortParticles;
+    VkPipelineLayout pipeline_layout_sortParticles;
+
+
+    VkSemaphore particle_update_finished_semaphore;
     VkFence fence;
 
 
     GpuBuffer buffer_uniforms;
 
-    GpuBuffer buffer_positions;
-    GpuBuffer buffer_staging_positions;
-    GpuBuffer buffer_velocities;
-    GpuBuffer buffer_staging_velocities;
+    GpuBuffer buffer_positions_sorted;
+    GpuBuffer buffer_velocities_sorted;
+    GpuBuffer buffer_positions_unsorted;
+    GpuBuffer buffer_velocities_unsorted;
 
     GpuBuffer buffer_C_begin;
     GpuBuffer buffer_C_length;
@@ -72,15 +82,12 @@ struct GpuResources {
 
     GpuBuffer buffer_reduction_1;
     GpuBuffer buffer_reduction_2;
+
+    GpuBuffer buffer_morton_codes_or_permutation;
 };
 
 struct SimData {
     u32fast particle_count;
-    vec4* p_positions;
-    vec4* p_velocities;
-
-    vec4* p_particles_scratch_buffer1;
-    vec4* p_particles_scratch_buffer2;
 
     u32* p_cells_scratch_buffer1;
     u32* p_cells_scratch_buffer2;
@@ -98,7 +105,10 @@ struct SimData {
     u32* H_begin;
     u32* H_length;
 
-    struct {
+    u32* p_morton_codes;
+    u32* p_permutation;
+
+    struct Params {
         f32 rest_particle_density;
         f32 particle_interaction_radius;
         f32 spring_rest_length;
