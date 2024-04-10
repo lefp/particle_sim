@@ -215,7 +215,7 @@ struct PipelineBarrierSrcInfo {
         vk_ctx->procs_dev.CmdPushConstants(
             command_buffer,
             s->gpu_resources.pipeline_layout_computeMin,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_SHADER_STAGE_COMPUTE_BIT,
             0, // offset
             sizeof(ReductionPushConstants), // size
             &push_constants
@@ -1690,16 +1690,6 @@ static void uploadDataToGpu(const SimData* s, const VulkanContext* vk_ctx) {
         s->gpu_resources.buffer_H_length.allocation,
         0 // dst_offset
     );
-
-    // OPTIMIZE:
-    //     Instead of signaling a fence in the queue submission and waiting for it here, we can signal a
-    //     semaphore that the compute shader dispatch waits for.
-    VkResult result =
-        vk_ctx->procs_dev.WaitForFences(vk_ctx->device, 1, &s->gpu_resources.fence, VK_TRUE, UINT64_MAX);
-    assertVk(result);
-
-    result = vk_ctx->procs_dev.ResetFences(vk_ctx->device, 1, &s->gpu_resources.fence);
-    assertVk(result);
 }
 
 
