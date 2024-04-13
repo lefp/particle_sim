@@ -281,10 +281,6 @@ VkFence general_purpose_fence_ = VK_NULL_HANDLE;
 
 
 thread_pool::ThreadPool* thread_pool_ = NULL;
-u32fast thread_pool_thread_count_ = 0;
-
-FrustumCullThreadArgs* frustum_cull_thread_args_; // size = thread_pool_thread_count_
-thread_pool::TaskId* frustum_cull_thread_tasks_; // size = thread_pool_thread_count_
 
 
 //
@@ -536,6 +532,23 @@ static u32fast rayCast(
 }
 
 
+struct Hexahedron {
+    // TODO Rename the member variables; they were originally named with a frustum in mind, but a hexahedron
+    // is not necessarily a frustum.
+
+    vec3 near_bot_left_p;
+    vec3 far_top_right_p;
+
+    vec3 near_normal;
+    vec3 bot_normal;
+    vec3 left_normal;
+
+    vec3 far_normal;
+    vec3 top_normal;
+    vec3 right_normal;
+};
+
+
 /// p1 and p2 must be in normalized screenspace;
 ///     i.e. the top-left of the screen is [-1, -1], and the bottom-right is [1, 1].
 static Hexahedron frustumFromScreenspacePoints(
@@ -623,14 +636,11 @@ static inline bool pointIsInHexahedron(const Hexahedron* f, vec3 p) {
 }
 
 
-/// Reads voxels starting at `p_voxels[start_idx]`.
-/// Writes voxels starting `p_voxels_out[0]`.
 /// The points in `frustum` must be in index space.
 /// The normals in `frustum` must be unit vectors.
 /// Returns the number of points remaining after culling.
 static u32fast frustumCull(
     const Hexahedron* frustum,
-    u32fast start_idx,
     u32fast voxel_count,
     const gfx::Voxel* p_voxels,
     VoxelPosAndIndex* p_voxels_out
@@ -647,8 +657,7 @@ static u32fast frustumCull(
     constexpr f32 voxel_bounding_sphere_radius = 0.707106781186548f + 1e-5f; // sqrt(0.5*0.5 + 0.5*0.5)
 
     u32fast voxel_out_idx = 0;
-    const u32fast end_idx = start_idx + voxel_count;
-    for (u32fast voxel_idx = start_idx; voxel_idx < end_idx; voxel_idx++) {
+    for (u32fast voxel_idx = 0; voxel_idx < voxel_count; voxel_idx++) {
 
         ivec3 voxel_coord_int = p_voxels[voxel_idx].coord;
         vec3 p = vec3(voxel_coord_int);
@@ -673,16 +682,6 @@ static u32fast frustumCull(
     }
 
     return voxel_out_idx;
-}
-
-
-static void frustumCull_thread(void* p_args_struct) {
-
-    assert(p_args_struct != NULL);
-    FrustumCullThreadArgs* args = (FrustumCullThreadArgs*)p_args_struct;
-
-    args->voxels_in_frustum_count_ret =
-        (u32)frustumCull(args->frustum, args->start_idx, args->voxel_count, args->p_voxels, args->p_voxels_out);
 }
 
 
@@ -991,7 +990,7 @@ struct GuiWindowFluidSimResult {
     return ret;
 }
 
-static thread_pool::ThreadPool* createThreadPool(u32fast* thread_count_out)
+static thread_pool::ThreadPool* createThreadPool(void)
 {
     long processor_count = sysconf(_SC_NPROCESSORS_ONLN);
 
@@ -1017,7 +1016,6 @@ static thread_pool::ThreadPool* createThreadPool(u32fast* thread_count_out)
 
     // TODO FIXME max_queue_size chosen arbitrarily. Should probably make it growable so you don't have to
     //     worry about overflowing it.
-    *thread_count_out = (u32fast)processor_count;
     return thread_pool::create((u32)processor_count, 100);
 };
 
@@ -1049,12 +1047,8 @@ int main(int argc, char** argv) {
     }
 
 
-    thread_pool_ = createThreadPool(&thread_pool_thread_count_);
+    thread_pool_ = createThreadPool();
     alwaysAssert(thread_pool_ != NULL);
-    alwaysAssert(thread_pool_thread_count_ != 0);
-
-    frustum_cull_thread_args_ = callocArray(thread_pool_thread_count_, FrustumCullThreadArgs);
-    frustum_cull_thread_tasks_ = callocArray(thread_pool_thread_count_, thread_pool::TaskId);
 
 
     int success = glfwInit();
@@ -1679,74 +1673,7 @@ int main(int argc, char** argv) {
         view_frustum.near_bot_left_p = worldspaceToIndexspaceFloat(view_frustum.near_bot_left_p);
         view_frustum.far_top_right_p = worldspaceToIndexspaceFloat(view_frustum.far_top_right_p);
 
-        // OPTIMIZE: Need a better condition here; e.g. we don't want each thread to only handle 2 voxels.
-        if (voxel_count_ <= thread_pool_thread_count_) {
-            voxels_in_frustum_count_ =
-                frustumCull(&view_frustum, 0, voxel_count_, p_voxels_, p_voxels_in_frustum_);
-        }
-        else {
-            ZoneScopedN("FrustumCullMultiThreaded");
-
-            const u32fast block_size = voxel_count_ / thread_pool_thread_count_;
-
-            u32fast block_start_idx = 0;
-
-            for (u32fast i = 0; i < thread_pool_thread_count_; i++) {
-
-                frustum_cull_thread_args_[i] = FrustumCullThreadArgs {
-                    .frustum = &view_frustum,
-                    .p_voxels = p_voxels_,
-                    .p_voxels_out = p_voxels_in_frustum_ + block_start_idx,
-                    .start_idx = (u32)block_start_idx,
-                    .voxel_count = (u32)block_size,
-                    .voxels_in_frustum_count_ret = 0,
-                };
-
-                frustum_cull_thread_tasks_[i] =
-                    thread_pool::enqueueTask(thread_pool_, frustumCull_thread, &frustum_cull_thread_args_[i]);
-
-                block_start_idx += block_size;
-            }
-
-            assert(voxel_count_ >= block_start_idx);
-            const u32fast remaining_voxel_count = voxel_count_ - block_start_idx;
-
-            u32fast remaining_voxels_in_frustum_count = 0;
-            if (remaining_voxel_count > 0) {
-                remaining_voxels_in_frustum_count = frustumCull(
-                    &view_frustum,
-                    block_start_idx,
-                    remaining_voxel_count,
-                    p_voxels_,
-                    p_voxels_in_frustum_ + block_start_idx
-                );
-            };
-
-
-            voxels_in_frustum_count_ = 0;
-
-            thread_pool::waitForTask(thread_pool_, frustum_cull_thread_tasks_[0]);
-            voxels_in_frustum_count_ += frustum_cull_thread_args_[0].voxels_in_frustum_count_ret;
-
-            for (u32fast i = 1; i < thread_pool_thread_count_; i++) {
-
-                thread_pool::waitForTask(thread_pool_, frustum_cull_thread_tasks_[i]);
-                const u32fast elem_count = frustum_cull_thread_args_[i].voxels_in_frustum_count_ret;
-                memmove(
-                    p_voxels_in_frustum_ + voxels_in_frustum_count_,
-                    frustum_cull_thread_args_[i].p_voxels_out,
-                    elem_count * sizeof(VoxelPosAndIndex)
-                );
-                voxels_in_frustum_count_ += elem_count;
-            }
-            if (remaining_voxels_in_frustum_count > 0) {
-                memmove(
-                   p_voxels_in_frustum_ + voxels_in_frustum_count_,
-                   p_voxels_in_frustum_ + voxel_count_ - remaining_voxel_count,
-                   remaining_voxels_in_frustum_count
-               );
-            }
-        }
+        voxels_in_frustum_count_ = frustumCull(&view_frustum, voxel_count_, p_voxels_, p_voxels_in_frustum_);
 
 
         if (cursor_visible_) {
