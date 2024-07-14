@@ -11,6 +11,7 @@ A particle sim with a bunch of profiler-guided optimizations, including:
 On my machine, these optimizations result in:
 - 100k particles: 6 ms per frame
 - 1M particles: 65 ms per frame
+
 For context, before optimization these numbers were:
 - 1k particles: 5 ms per frame
 - 10k particles: 190 ms per frame
